@@ -1,2 +1,0 @@
-git remote add origin git@git.tdi:chaos-admiral/Protocol-Bastion.git
-git push -u origin main
