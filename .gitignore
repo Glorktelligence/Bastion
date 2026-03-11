@@ -7,3 +7,4 @@ build/
 *.key
 *.cert
 target/
+.claude/settings.local.json

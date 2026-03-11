@@ -14,7 +14,7 @@ Work isn't done until it's committed and pushed.
 
 ```
 Location: G:\Glorktelligence\Projects\Bastion
-Remote: https://git.glorktelligence.co.uk/chaos-admiral/bastion.git
+Remote: https://github.com/Glorktelligence/Bastion.git
 Branch: main
 ```
 
@@ -35,16 +35,16 @@ git push origin main
 
 ## Commit Types (Conventional Commits)
 
-| Type | When |
-|------|------|
-| `feat:` | New feature or message type |
-| `fix:` | Bug fix |
-| `security:` | Security-related change |
+| Type          | When                                 |
+| ------------- | ------------------------------------ |
+| `feat:`     | New feature or message type          |
+| `fix:`      | Bug fix                              |
+| `security:` | Security-related change              |
 | `refactor:` | Restructure without behaviour change |
-| `docs:` | Documentation only |
-| `test:` | Adding or updating tests |
-| `wip:` | Work in progress checkpoint |
-| `chore:` | Build/config changes |
+| `docs:`     | Documentation only                   |
+| `test:`     | Adding or updating tests             |
+| `wip:`      | Work in progress checkpoint          |
+| `chore:`    | Build/config changes                 |
 
 ### Scope (optional)
 
@@ -59,6 +59,7 @@ docs(spec): Update supplementary spec with session lifecycle
 ```
 
 ### Good Examples
+
 ```
 feat(protocol): Define file-manifest message schema
 feat(relay): Implement MaliClaw Clause at TLS handshake
@@ -108,6 +109,7 @@ Ready to push when resolved.
 ## Protocol Version Bumps
 
 Any breaking change to `@bastion/protocol` requires:
+
 1. Version bump in `packages/protocol/package.json`
 2. Architecture Decision Record in `docs/architecture/decisions/`
 3. Changelog entry
