@@ -1,0 +1,38 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicegui-org/nicegui/main/schemas/tauri-conf.schema.json",
+  "productName": "Bastion",
+  "version": "0.1.0",
+  "identifier": "com.glorktelligence.bastion",
+  "build": {
+    "frontendDist": "../build",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build:app",
+    "beforeDevCommand": "pnpm dev"
+  },
+  "app": {
+    "title": "Bastion",
+    "windows": [
+      {
+        "title": "Bastion",
+        "width": 1024,
+        "height": 768,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@bastion/crypto",
+  "version": "0.1.0",
+  "description": "E2E encryption, key exchange, hashing, and key management for Project Bastion",
+  "license": "Apache-2.0",
+  "author": "Harry Smith <harry@glorktelligence.co.uk>",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bastion/protocol": "workspace:*",
+    "libsodium-wrappers-sumo": "^0.7.15"
+  },
+  "devDependencies": {
+    "@types/node": "^25.4.0",
+    "typescript": "^5.7.0"
+  }
+}

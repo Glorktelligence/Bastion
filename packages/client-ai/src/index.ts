@@ -1,0 +1,93 @@
+// Copyright 2026 Glorktelligence — Harry Smith
+// Licensed under the Apache License, Version 2.0
+// See LICENSE file for full terms
+
+/**
+ * @bastion/client-ai — Headless AI client for Project Bastion.
+ *
+ * Connects to the Bastion relay over WSS, authenticates via JWT,
+ * and handles the AI side of human-AI messaging sessions.
+ */
+
+// ---------------------------------------------------------------------------
+// AI Client
+// ---------------------------------------------------------------------------
+export { BastionAiClient, AiClientError } from './client.js';
+export type {
+  AiClientConfig,
+  AiClientEvents,
+  AiClientState,
+} from './client.js';
+
+// ---------------------------------------------------------------------------
+// Safety Engine
+// ---------------------------------------------------------------------------
+export {
+  defaultSafetyConfig,
+  validateSafetyConfig,
+  evaluateLayer1,
+  evaluateLayer2,
+  createPatternHistory,
+  evaluateLayer3,
+  evaluateSafety,
+  generateSafetyResponse,
+} from './safety/index.js';
+export type {
+  FloorViolation,
+  PatternHistory,
+  PatternEntry,
+  SafetyPipelineOptions,
+  SafetyResponse,
+} from './safety/index.js';
+
+// ---------------------------------------------------------------------------
+// Provider Adapter
+// ---------------------------------------------------------------------------
+export {
+  createToolRegistry,
+  createApiKeyManager,
+  createAnthropicAdapter,
+} from './provider/index.js';
+export type {
+  ToolRegistry,
+  ToolDefinition,
+  ToolCategory,
+  ToolValidationResult,
+  AnthropicToolDef,
+  ApiKeyManager,
+  KeyRotationResult,
+  AnthropicAdapter,
+  AnthropicAdapterConfig,
+  AdapterResult,
+  AdapterResponse,
+  ValidatedToolCall,
+  RejectedToolCall,
+  FetchFn,
+} from './provider/index.js';
+
+// ---------------------------------------------------------------------------
+// File Handling
+// ---------------------------------------------------------------------------
+export {
+  IntakeDirectory,
+  IntakeError,
+  OutboundStaging,
+  OutboundError,
+  FilePurgeManager,
+  PurgeError,
+} from './files/index.js';
+export type {
+  IntakeConfig,
+  IntakeFileMetadata,
+  IntakeReceiveResult,
+  OutboundConfig,
+  StagedFileMetadata,
+  StagedFileState,
+  StageResult,
+  SubmitResult,
+  FilePurgeConfig,
+  TrackedTask,
+  TaskPurgeResult,
+  PurgeReason,
+  PurgeCallback,
+} from './files/index.js';

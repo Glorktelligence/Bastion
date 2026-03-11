@@ -1,0 +1,25 @@
+{
+  "name": "@bastion/tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cross-package protocol validation and integration tests",
+  "dependencies": {
+    "@bastion/protocol": "workspace:*",
+    "@bastion/crypto": "workspace:*",
+    "@bastion/relay": "workspace:*",
+    "@bastion/client-ai": "workspace:*",
+    "@bastion/client-human": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.4.0",
+    "@types/ws": "^8.18.1"
+  },
+  "scripts": {
+    "test:schemas": "node trace-test.mjs",
+    "test:integration": "node integration-test.mjs",
+    "test:file-transfer": "node file-transfer-integration-test.mjs",
+    "test": "node trace-test.mjs && node integration-test.mjs && node file-transfer-integration-test.mjs"
+  }
+}

@@ -1,0 +1,535 @@
+// Copyright 2026 Glorktelligence — Harry Smith
+// Licensed under the Apache License, Version 2.0
+// See LICENSE file for full terms
+
+/**
+ * Admin API route handlers for the relay.
+ *
+ * Provides CRUD endpoints for managing AI providers, capability
+ * matrices, and relay configuration. All admin actions generate
+ * audit log entries.
+ *
+ * Endpoints:
+ *   GET    /api/health                         — Health check
+ *   GET    /api/providers                      — List all providers
+ *   GET    /api/providers/:id                  — Get provider details
+ *   POST   /api/providers                      — Approve new provider
+ *   PUT    /api/providers/:id/revoke           — Revoke (soft-delete)
+ *   PUT    /api/providers/:id/activate         — Reactivate
+ *   GET    /api/providers/:id/capabilities     — Get capability matrix
+ *   PUT    /api/providers/:id/capabilities     — Set capability matrix
+ *
+ * MaliClaw Clause: blocked identifiers cannot be approved as providers.
+ */
+
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { AuditLogger } from '../audit/audit-logger.js';
+import { AUDIT_EVENT_TYPES } from '../audit/audit-logger.js';
+import { Allowlist } from '../auth/allowlist.js';
+import { ProviderRegistry } from '../auth/provider-registry.js';
+
+// ---------------------------------------------------------------------------
+// Capability Matrix
+// ---------------------------------------------------------------------------
+
+/** File transfer permissions for a provider. */
+export interface FileTransferCapabilities {
+  readonly canSend: boolean;
+  readonly canReceive: boolean;
+  readonly maxFileSizeBytes: number;
+  readonly allowedMimeTypes: readonly string[];
+}
+
+/**
+ * Structured capability matrix for an approved provider.
+ *
+ * Defines exactly what an AI provider's client can do through the relay.
+ * Enforced at the relay routing level (Task 3.4).
+ */
+export interface CapabilityMatrix {
+  /** Message types this provider's AI client is allowed to send. */
+  readonly allowedMessageTypes: readonly string[];
+  /** File transfer permissions. */
+  readonly fileTransfer: FileTransferCapabilities;
+  /** Maximum concurrent tasks. */
+  readonly maxConcurrentTasks: number;
+  /** Optional budget limit in USD. */
+  readonly budgetLimitUsd?: number;
+}
+
+/**
+ * Default capability matrix for newly approved providers.
+ *
+ * Allows standard AI→human message types and file transfers.
+ * Does NOT allow admin message types (config_update, etc.).
+ */
+export function defaultCapabilityMatrix(): CapabilityMatrix {
+  return {
+    allowedMessageTypes: [
+      'conversation',
+      'challenge',
+      'denial',
+      'status',
+      'result',
+      'error',
+      'file_offer',
+      'heartbeat',
+      'provider_status',
+      'budget_alert',
+      'config_ack',
+      'config_nack',
+    ],
+    fileTransfer: {
+      canSend: true,
+      canReceive: true,
+      maxFileSizeBytes: 50 * 1024 * 1024, // 50 MB
+      allowedMimeTypes: ['*/*'],
+    },
+    maxConcurrentTasks: 10,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// API Response
+// ---------------------------------------------------------------------------
+
+/** Structured API response. */
+export interface ApiResponse {
+  readonly status: number;
+  readonly body: Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
+
+/** Configuration for admin routes. */
+export interface AdminRoutesConfig {
+  readonly providerRegistry: ProviderRegistry;
+  readonly auditLogger: AuditLogger;
+}
+
+// ---------------------------------------------------------------------------
+// AdminRoutes
+// ---------------------------------------------------------------------------
+
+/**
+ * Admin API route handlers.
+ *
+ * Manages providers, capability matrices, and relay configuration.
+ * All mutations generate audit log entries. MaliClaw Clause is
+ * enforced on provider approval.
+ *
+ * Usage:
+ *   1. Create: `const routes = new AdminRoutes(config)`
+ *   2. Approve: `routes.approveProvider(id, name, by)`
+ *   3. Enforce: `routes.checkCapability(providerId, messageType)`
+ *   4. HTTP: `routes.handleRequest(req, res, adminUsername)`
+ */
+export class AdminRoutes {
+  private readonly registry: ProviderRegistry;
+  private readonly audit: AuditLogger;
+  private readonly capabilities: Map<string, CapabilityMatrix>;
+  /** Connection ID → Provider ID mapping for capability enforcement. */
+  private readonly connectionProviders: Map<string, string>;
+
+  constructor(config: AdminRoutesConfig) {
+    this.registry = config.providerRegistry;
+    this.audit = config.auditLogger;
+    this.capabilities = new Map();
+    this.connectionProviders = new Map();
+  }
+
+  /** Number of providers with custom capability matrices. */
+  get capabilityCount(): number {
+    return this.capabilities.size;
+  }
+
+  // -------------------------------------------------------------------------
+  // Provider CRUD
+  // -------------------------------------------------------------------------
+
+  /** List all providers (optionally filter to active only). */
+  listProviders(includeInactive = true): ApiResponse {
+    const providers = includeInactive ? this.registry.getAllProviders() : this.registry.getActiveProviders();
+
+    return {
+      status: 200,
+      body: {
+        providers: providers.map((p) => ({
+          ...p,
+          capabilityMatrix: this.capabilities.get(p.id) ?? defaultCapabilityMatrix(),
+        })),
+        total: providers.length,
+      },
+    };
+  }
+
+  /** Get a single provider by ID. */
+  getProvider(id: string): ApiResponse {
+    const provider = this.registry.getProvider(id);
+    if (!provider) {
+      return { status: 404, body: { error: 'Provider not found', providerId: id } };
+    }
+    return {
+      status: 200,
+      body: {
+        ...provider,
+        capabilityMatrix: this.capabilities.get(id) ?? defaultCapabilityMatrix(),
+      },
+    };
+  }
+
+  /**
+   * Approve a new AI provider.
+   *
+   * MaliClaw Clause: blocked identifiers cannot be approved.
+   * Creates an audit log entry on success or MaliClaw rejection.
+   */
+  approveProvider(
+    id: string,
+    name: string,
+    approvedBy: string,
+    capabilities?: readonly string[],
+    matrix?: CapabilityMatrix,
+  ): ApiResponse {
+    // MaliClaw Clause — check before any action
+    const maliClaw = Allowlist.getMaliClawEntries();
+    if (maliClaw.has(id) || maliClaw.has(name)) {
+      this.audit.logEvent(AUDIT_EVENT_TYPES.MALICLAW_REJECTED, 'admin', {
+        action: 'approve_provider',
+        providerId: id,
+        providerName: name,
+        detail: 'MaliClaw Clause: blocked identity cannot be approved as provider',
+      });
+      return {
+        status: 403,
+        body: {
+          error: 'MaliClaw Clause: this identity is permanently blocked',
+          code: 'BASTION-1003',
+        },
+      };
+    }
+
+    const provider = ProviderRegistry.createProvider(id, name, approvedBy, capabilities ?? []);
+    this.registry.addProvider(provider);
+
+    if (matrix) {
+      this.capabilities.set(id, matrix);
+    }
+
+    this.audit.logEvent(AUDIT_EVENT_TYPES.PROVIDER_APPROVED, 'admin', {
+      providerId: id,
+      providerName: name,
+      approvedBy,
+      capabilities: [...(capabilities ?? [])],
+    });
+
+    return {
+      status: 201,
+      body: {
+        ...provider,
+        capabilityMatrix: this.capabilities.get(id) ?? defaultCapabilityMatrix(),
+      },
+    };
+  }
+
+  /**
+   * Revoke (soft-delete) a provider.
+   *
+   * Deactivates the provider but preserves the record for audit.
+   */
+  revokeProvider(id: string, revokedBy: string): ApiResponse {
+    const provider = this.registry.getProvider(id);
+    if (!provider) {
+      return { status: 404, body: { error: 'Provider not found', providerId: id } };
+    }
+
+    this.registry.deactivateProvider(id);
+
+    this.audit.logEvent(AUDIT_EVENT_TYPES.PROVIDER_DEACTIVATED, 'admin', {
+      providerId: id,
+      providerName: provider.name,
+      revokedBy,
+    });
+
+    const updated = this.registry.getProvider(id)!;
+    return {
+      status: 200,
+      body: {
+        ...updated,
+        capabilityMatrix: this.capabilities.get(id) ?? defaultCapabilityMatrix(),
+      },
+    };
+  }
+
+  /** Reactivate a previously revoked provider. */
+  activateProvider(id: string, activatedBy: string): ApiResponse {
+    const provider = this.registry.getProvider(id);
+    if (!provider) {
+      return { status: 404, body: { error: 'Provider not found', providerId: id } };
+    }
+
+    this.registry.addProvider({ ...provider, active: true });
+
+    this.audit.logEvent(AUDIT_EVENT_TYPES.PROVIDER_APPROVED, 'admin', {
+      providerId: id,
+      providerName: provider.name,
+      activatedBy,
+      reactivation: true,
+    });
+
+    const updated = this.registry.getProvider(id)!;
+    return {
+      status: 200,
+      body: {
+        ...updated,
+        capabilityMatrix: this.capabilities.get(id) ?? defaultCapabilityMatrix(),
+      },
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // Capability Matrix
+  // -------------------------------------------------------------------------
+
+  /** Get the capability matrix for a provider. */
+  getCapabilities(providerId: string): ApiResponse {
+    const provider = this.registry.getProvider(providerId);
+    if (!provider) {
+      return { status: 404, body: { error: 'Provider not found', providerId } };
+    }
+    return {
+      status: 200,
+      body: {
+        providerId,
+        matrix: this.capabilities.get(providerId) ?? defaultCapabilityMatrix(),
+      },
+    };
+  }
+
+  /** Set the capability matrix for a provider. */
+  setCapabilities(providerId: string, matrix: CapabilityMatrix, changedBy: string): ApiResponse {
+    const provider = this.registry.getProvider(providerId);
+    if (!provider) {
+      return { status: 404, body: { error: 'Provider not found', providerId } };
+    }
+
+    this.capabilities.set(providerId, matrix);
+
+    this.audit.logConfigChange('admin', {
+      changeType: 'capability_matrix_update',
+      changedBy,
+      providerId,
+      allowedMessageTypes: [...matrix.allowedMessageTypes],
+      fileTransfer: { ...matrix.fileTransfer },
+      maxConcurrentTasks: matrix.maxConcurrentTasks,
+    });
+
+    return {
+      status: 200,
+      body: { providerId, matrix },
+    };
+  }
+
+  /** Get the raw capability matrix object (for routing integration). */
+  getCapabilityMatrix(providerId: string): CapabilityMatrix {
+    return this.capabilities.get(providerId) ?? defaultCapabilityMatrix();
+  }
+
+  // -------------------------------------------------------------------------
+  // Capability Enforcement (relay routing integration)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Register a connection's provider mapping.
+   * Called when an AI client authenticates with a providerId.
+   */
+  registerConnection(connectionId: string, providerId: string): void {
+    this.connectionProviders.set(connectionId, providerId);
+  }
+
+  /** Unregister a connection's provider mapping. */
+  unregisterConnection(connectionId: string): void {
+    this.connectionProviders.delete(connectionId);
+  }
+
+  /** Get the provider ID for a connection. */
+  getConnectionProvider(connectionId: string): string | undefined {
+    return this.connectionProviders.get(connectionId);
+  }
+
+  /**
+   * Check whether a provider is allowed to send a given message type.
+   *
+   * @param providerId — the provider to check
+   * @param messageType — the message type being sent
+   * @returns allowed/denied with reason
+   */
+  checkCapability(providerId: string, messageType: string): { allowed: boolean; reason?: string } {
+    const provider = this.registry.getProvider(providerId);
+    if (!provider) {
+      return { allowed: false, reason: 'provider_not_found' };
+    }
+    if (!provider.active) {
+      return { allowed: false, reason: 'provider_inactive' };
+    }
+
+    const matrix = this.capabilities.get(providerId) ?? defaultCapabilityMatrix();
+    if (!matrix.allowedMessageTypes.includes(messageType)) {
+      return { allowed: false, reason: `message_type_not_allowed: ${messageType}` };
+    }
+
+    return { allowed: true };
+  }
+
+  /**
+   * Check whether a provider is allowed to perform a file transfer.
+   *
+   * @param providerId — the provider to check
+   * @param direction — 'send' or 'receive'
+   * @param sizeBytes — file size (optional)
+   * @param mimeType — MIME type (optional)
+   * @returns allowed/denied with reason
+   */
+  checkFileTransfer(
+    providerId: string,
+    direction: 'send' | 'receive',
+    sizeBytes?: number,
+    mimeType?: string,
+  ): { allowed: boolean; reason?: string } {
+    const provider = this.registry.getProvider(providerId);
+    if (!provider || !provider.active) {
+      return { allowed: false, reason: 'provider_not_found_or_inactive' };
+    }
+
+    const matrix = this.capabilities.get(providerId) ?? defaultCapabilityMatrix();
+    const ft = matrix.fileTransfer;
+
+    if (direction === 'send' && !ft.canSend) {
+      return { allowed: false, reason: 'file_send_not_permitted' };
+    }
+    if (direction === 'receive' && !ft.canReceive) {
+      return { allowed: false, reason: 'file_receive_not_permitted' };
+    }
+    if (sizeBytes !== undefined && sizeBytes > ft.maxFileSizeBytes) {
+      return { allowed: false, reason: `file_too_large: ${sizeBytes} > ${ft.maxFileSizeBytes}` };
+    }
+    if (mimeType !== undefined && !ft.allowedMimeTypes.includes('*/*') && !ft.allowedMimeTypes.includes(mimeType)) {
+      return { allowed: false, reason: `mime_type_not_allowed: ${mimeType}` };
+    }
+
+    return { allowed: true };
+  }
+
+  /**
+   * Create a capability check function for the MessageRouter.
+   *
+   * Returns a function that maps connectionId → providerId → capability check.
+   * Pass this to RouterConfig.capabilityCheck.
+   */
+  createCapabilityCheck(): (senderConnectionId: string, messageType: string) => { allowed: boolean; reason?: string } {
+    return (senderConnectionId: string, messageType: string) => {
+      const providerId = this.connectionProviders.get(senderConnectionId);
+      if (!providerId) {
+        // No provider mapping — allow (human clients don't have providers)
+        return { allowed: true };
+      }
+      return this.checkCapability(providerId, messageType);
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // HTTP request handling
+  // -------------------------------------------------------------------------
+
+  /**
+   * Handle an incoming HTTP request.
+   *
+   * Routes the request to the appropriate handler based on method + path.
+   * The adminUsername is from the authenticated admin session.
+   */
+  async handleRequest(req: IncomingMessage, res: ServerResponse, adminUsername: string): Promise<void> {
+    const url = new URL(req.url ?? '/', `https://${req.headers.host ?? 'localhost'}`);
+    const method = req.method?.toUpperCase() ?? 'GET';
+    const path = url.pathname;
+
+    try {
+      let result: ApiResponse;
+
+      if (method === 'GET' && path === '/api/health') {
+        result = {
+          status: 200,
+          body: { status: 'ok', timestamp: new Date().toISOString() },
+        };
+      } else if (method === 'GET' && path === '/api/providers') {
+        const includeInactive = url.searchParams.get('includeInactive') !== 'false';
+        result = this.listProviders(includeInactive);
+      } else if (method === 'GET' && /^\/api\/providers\/[^/]+$/.test(path)) {
+        const id = decodeURIComponent(path.split('/')[3]!);
+        result = this.getProvider(id);
+      } else if (method === 'POST' && path === '/api/providers') {
+        const body = await readJsonBody(req);
+        if (!body.id || !body.name) {
+          result = { status: 400, body: { error: 'Missing required fields: id, name' } };
+        } else {
+          result = this.approveProvider(body.id, body.name, adminUsername, body.capabilities, body.capabilityMatrix);
+        }
+      } else if (method === 'PUT' && /^\/api\/providers\/[^/]+\/revoke$/.test(path)) {
+        const id = decodeURIComponent(path.split('/')[3]!);
+        result = this.revokeProvider(id, adminUsername);
+      } else if (method === 'PUT' && /^\/api\/providers\/[^/]+\/activate$/.test(path)) {
+        const id = decodeURIComponent(path.split('/')[3]!);
+        result = this.activateProvider(id, adminUsername);
+      } else if (method === 'GET' && /^\/api\/providers\/[^/]+\/capabilities$/.test(path)) {
+        const id = decodeURIComponent(path.split('/')[3]!);
+        result = this.getCapabilities(id);
+      } else if (method === 'PUT' && /^\/api\/providers\/[^/]+\/capabilities$/.test(path)) {
+        const id = decodeURIComponent(path.split('/')[3]!);
+        const body = await readJsonBody(req);
+        if (!body.matrix) {
+          result = { status: 400, body: { error: 'Missing required field: matrix' } };
+        } else {
+          result = this.setCapabilities(id, body.matrix, adminUsername);
+        }
+      } else {
+        result = { status: 404, body: { error: 'Not found', path, method } };
+      }
+
+      sendJson(res, result.status, result.body);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      sendJson(res, 500, { error: 'Internal server error', detail: message });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// HTTP Utilities
+// ---------------------------------------------------------------------------
+
+function sendJson(res: ServerResponse, status: number, body: Record<string, unknown>): void {
+  const json = JSON.stringify(body);
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(json).toString(),
+  });
+  res.end(json);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function readJsonBody(req: IncomingMessage): Promise<Record<string, any>> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => {
+      try {
+        const text = Buffer.concat(chunks).toString();
+        resolve(text ? JSON.parse(text) : {});
+      } catch {
+        reject(new Error('Invalid JSON body'));
+      }
+    });
+    req.on('error', reject);
+  });
+}

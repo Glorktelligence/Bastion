@@ -1,0 +1,29 @@
+{
+  "name": "@bastion/protocol",
+  "version": "0.1.0",
+  "description": "Shared protocol definitions, message types, schemas, and constants for Project Bastion",
+  "license": "Apache-2.0",
+  "author": "Harry Smith <harry@glorktelligence.co.uk>",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.4.0",
+    "typescript": "^5.7.0"
+  }
+}

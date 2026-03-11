@@ -1,0 +1,810 @@
+// Trace test: Protocol schema validation — every message type, envelope, edge cases
+// Run with: node packages/tests/trace-test.mjs
+
+import {
+  // Constants
+  PROTOCOL_VERSION,
+  MESSAGE_TYPES,
+  ALL_MESSAGE_TYPES,
+  ERROR_CODES,
+  SAFETY_LAYERS,
+  SAFETY_OUTCOMES,
+
+  // Schemas — common
+  MessageIdSchema,
+  SessionIdSchema,
+  TaskIdSchema,
+  FileTransferIdSchema,
+  CorrelationIdSchema,
+  TimestampSchema,
+  ClientTypeSchema,
+  SenderIdentitySchema,
+  PrioritySchema,
+  SessionStateSchema,
+  ProviderStatusSchema as ProviderStatusEnumSchema,
+  ConnectionQualitySchema,
+
+  // Schemas — envelope
+  MessageEnvelopeSchema,
+  EncryptedEnvelopeSchema,
+
+  // Schemas — message payloads
+  TaskPayloadSchema,
+  ConversationPayloadSchema,
+  ChallengePayloadSchema,
+  ChallengeFactorSchema,
+  ConfirmationPayloadSchema,
+  DenialPayloadSchema,
+  StatusPayloadSchema,
+  ResultPayloadSchema,
+  CostMetadataSchema,
+  TransparencyMetadataSchema,
+  ErrorPayloadSchema,
+  AuditPayloadSchema,
+  HeartbeatPayloadSchema,
+  HeartbeatMetricsSchema,
+  FileManifestPayloadSchema,
+  FileOfferPayloadSchema,
+  FileRequestPayloadSchema,
+  SessionEndPayloadSchema,
+  SessionConflictPayloadSchema,
+  SessionSupersededPayloadSchema,
+  ReconnectPayloadSchema,
+  ConfigUpdatePayloadSchema,
+  ConfigAckPayloadSchema,
+  ConfigNackPayloadSchema,
+  TokenRefreshPayloadSchema,
+  ProviderStatusPayloadSchema,
+  BudgetAlertPayloadSchema,
+
+  // Schemas — file transfer
+  FileTransferStateSchema,
+  FileTransferDirectionSchema,
+  CustodyEventSchema,
+  FileChainOfCustodySchema,
+  QuarantineEntrySchema,
+
+  // Schemas — payload lookup
+  PAYLOAD_SCHEMAS,
+
+  // Utilities
+  validateMessage,
+  validatePayload,
+  serialise,
+  deserialise,
+  canonicalise,
+  sha256,
+} from '@bastion/protocol';
+
+import { randomUUID } from 'node:crypto';
+
+let pass = 0, fail = 0;
+function check(name, condition, detail) {
+  if (condition) { pass++; console.log('  PASS', name); }
+  else { fail++; console.log('  FAIL', name, detail || ''); }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers — valid data factories
+// ---------------------------------------------------------------------------
+
+const uuid = () => randomUUID();
+const ts = () => new Date().toISOString().replace(/\.\d{3}Z$/, '.000Z');
+
+function makeSender(type = 'human') {
+  return { id: uuid(), type, displayName: type === 'human' ? 'Alice' : 'Claude' };
+}
+
+function makeEnvelope(type, payload, sender) {
+  return {
+    id: uuid(),
+    type,
+    timestamp: ts(),
+    sender: sender || makeSender('human'),
+    correlationId: uuid(),
+    version: PROTOCOL_VERSION,
+    payload,
+  };
+}
+
+// Valid payloads for every message type
+function validPayloads() {
+  const taskId = uuid();
+  const sessionId = uuid();
+  const transferId = uuid();
+  const messageId = uuid();
+  const challengeMsgId = uuid();
+
+  return {
+    task: {
+      taskId, action: 'analyse', target: '/data/report.csv',
+      parameters: { depth: 'full' }, priority: 'normal', constraints: ['read-only'],
+    },
+    conversation: { content: 'Hello, world!' },
+    challenge: {
+      challengedMessageId: messageId, challengedTaskId: taskId,
+      layer: 2, reason: 'High risk action', riskAssessment: 'Irreversible deployment detected',
+      suggestedAlternatives: ['Use staging first'], factors: [{ name: 'scope', description: 'Wide blast radius', weight: 0.8 }],
+    },
+    confirmation: {
+      challengeMessageId: challengeMsgId, decision: 'approve',
+      modifiedParameters: { env: 'staging' }, reason: 'Approved after review',
+    },
+    denial: {
+      deniedMessageId: messageId, deniedTaskId: taskId,
+      layer: 1, reason: 'Absolute boundary violated', detail: 'Attempted data exfiltration',
+    },
+    status: {
+      taskId, completionPercentage: 42, currentAction: 'Parsing CSV',
+      toolsInUse: ['file_read'], metadata: { rowsProcessed: 1500 },
+    },
+    result: {
+      taskId, summary: 'Analysis complete', output: { rows: 3000 },
+      actionsTaken: ['read file', 'parse CSV'], generatedFiles: [],
+      cost: { inputTokens: 500, outputTokens: 200, estimatedCostUsd: 0.003 },
+      transparency: {
+        confidenceLevel: 'high', safetyEvaluation: 'allow',
+        permissionsUsed: ['file_read'], reasoningNotes: 'Straightforward file analysis',
+      },
+    },
+    error: {
+      code: 'BASTION-3001', name: 'SchemaValidationFailed',
+      message: 'Payload validation failed', detail: 'Missing required field: taskId',
+      recoverable: true, suggestedAction: 'Resend with valid taskId',
+      timestamp: ts(),
+    },
+    audit: {
+      eventType: 'message.routed', sessionId,
+      detail: { from: 'human', to: 'ai' }, chainHash: sha256('test'),
+    },
+    heartbeat: {
+      sessionId, peerStatus: 'active',
+      metrics: { uptimeMs: 60000, memoryUsageMb: 128.5, cpuPercent: 12.3, latencyMs: 45 },
+    },
+    file_manifest: {
+      transferId, filename: 'report.pdf', sizeBytes: 102400,
+      hash: sha256('file-content'), hashAlgorithm: 'sha256',
+      mimeType: 'application/pdf', purpose: 'Analysis input', projectContext: 'Q4 report',
+    },
+    file_offer: {
+      transferId, filename: 'result.json', sizeBytes: 2048,
+      hash: sha256('result'), mimeType: 'application/json',
+      purpose: 'Analysis output', taskId,
+    },
+    file_request: { transferId, manifestMessageId: messageId },
+    session_end: { sessionId, reason: 'User requested disconnect' },
+    session_conflict: { existingSessionId: sessionId, newDeviceInfo: 'MacBook Pro M3' },
+    session_superseded: { sessionId, supersededBy: uuid() },
+    reconnect: { sessionId, lastReceivedMessageId: messageId, jwt: 'eyJhbGciOiJIUzI1NiJ9.test.sig' },
+    config_update: { configType: 'api_key_rotation', encryptedPayload: 'base64encrypted==' },
+    config_ack: { configType: 'api_key_rotation', appliedAt: ts() },
+    config_nack: { configType: 'tool_registry', reason: 'Invalid schema', errorDetail: 'Missing tool name' },
+    token_refresh: { currentJwt: 'eyJhbGciOiJIUzI1NiJ9.refresh.sig' },
+    provider_status: { providerName: 'anthropic', status: 'available' },
+    budget_alert: {
+      thresholdPercent: 80, usedAmountUsd: 40.0,
+      budgetLimitUsd: 50.0, currentPeriod: '2026-03',
+      estimatedCostForNextTask: 2.5,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Test runner
+// ---------------------------------------------------------------------------
+
+async function run() {
+  console.log('=== Protocol Schema Validation Tests ===');
+  console.log();
+
+  const payloads = validPayloads();
+
+  // =========================================================================
+  // Test 1: Common schema primitives
+  // =========================================================================
+  console.log('--- Test 1: Common schema primitives ---');
+  {
+    // UUID v4
+    check('valid UUID v4 passes', MessageIdSchema.safeParse(uuid()).success);
+    check('invalid UUID fails', !MessageIdSchema.safeParse('not-a-uuid').success);
+    check('UUID v1 fails (wrong variant)', !MessageIdSchema.safeParse('550e8400-e29b-11d4-a716-446655440000').success);
+    check('empty string UUID fails', !MessageIdSchema.safeParse('').success);
+
+    // Timestamp
+    check('valid ISO 8601 timestamp passes', TimestampSchema.safeParse('2026-03-10T14:30:00.000Z').success);
+    check('timestamp without ms passes', TimestampSchema.safeParse('2026-03-10T14:30:00Z').success);
+    check('non-UTC timestamp fails', !TimestampSchema.safeParse('2026-03-10T14:30:00+05:00').success);
+    check('date-only fails', !TimestampSchema.safeParse('2026-03-10').success);
+
+    // Client type
+    check('human client type passes', ClientTypeSchema.safeParse('human').success);
+    check('ai client type passes', ClientTypeSchema.safeParse('ai').success);
+    check('relay client type passes', ClientTypeSchema.safeParse('relay').success);
+    check('unknown client type fails', !ClientTypeSchema.safeParse('admin').success);
+
+    // SenderIdentity
+    check('valid sender identity passes', SenderIdentitySchema.safeParse(makeSender()).success);
+    check('sender with empty id fails', !SenderIdentitySchema.safeParse({ id: '', type: 'human', displayName: 'x' }).success);
+    check('sender with empty displayName fails', !SenderIdentitySchema.safeParse({ id: 'x', type: 'human', displayName: '' }).success);
+
+    // Priority
+    check('all priorities valid', ['low', 'normal', 'high', 'critical'].every(p => PrioritySchema.safeParse(p).success));
+    check('invalid priority fails', !PrioritySchema.safeParse('medium').success);
+
+    // Session state
+    check('all session states valid', ['connecting', 'authenticating', 'key_exchange', 'active', 'suspended', 'terminated']
+      .every(s => SessionStateSchema.safeParse(s).success));
+
+    // Connection quality
+    check('all connection qualities valid', ['good', 'fair', 'poor', 'offline']
+      .every(q => ConnectionQualitySchema.safeParse(q).success));
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 2: Message envelope schema
+  // =========================================================================
+  console.log('--- Test 2: Message envelope schema ---');
+  {
+    const env = makeEnvelope('conversation', { content: 'test' });
+    check('valid envelope passes', MessageEnvelopeSchema.safeParse(env).success);
+
+    // Missing fields
+    const { id: _id, ...noId } = env;
+    check('envelope without id fails', !MessageEnvelopeSchema.safeParse(noId).success);
+
+    const { type: _type, ...noType } = env;
+    check('envelope without type fails', !MessageEnvelopeSchema.safeParse(noType).success);
+
+    const { sender: _sender, ...noSender } = env;
+    check('envelope without sender fails', !MessageEnvelopeSchema.safeParse(noSender).success);
+
+    // Invalid message type
+    const badType = { ...env, type: 'nonexistent_type' };
+    check('envelope with invalid type fails', !MessageEnvelopeSchema.safeParse(badType).success);
+
+    // Invalid timestamp
+    const badTs = { ...env, timestamp: 'yesterday' };
+    check('envelope with bad timestamp fails', !MessageEnvelopeSchema.safeParse(badTs).success);
+
+    // All 23 types accepted in envelope
+    let allTypesValid = true;
+    for (const mt of ALL_MESSAGE_TYPES) {
+      if (!MessageEnvelopeSchema.safeParse(makeEnvelope(mt, {})).success) {
+        allTypesValid = false;
+        break;
+      }
+    }
+    check('all 23 message types accepted in envelope', allTypesValid);
+    check('ALL_MESSAGE_TYPES has 23 entries', ALL_MESSAGE_TYPES.length === 23);
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 3: Encrypted envelope schema
+  // =========================================================================
+  console.log('--- Test 3: Encrypted envelope schema ---');
+  {
+    const enc = {
+      id: uuid(), type: 'conversation', timestamp: ts(),
+      sender: makeSender(), correlationId: uuid(), version: PROTOCOL_VERSION,
+      encryptedPayload: 'base64ciphertexthere==', nonce: 'base64noncehere==',
+    };
+    check('valid encrypted envelope passes', EncryptedEnvelopeSchema.safeParse(enc).success);
+
+    // Missing encryptedPayload
+    const { encryptedPayload: _ep, ...noPayload } = enc;
+    check('encrypted envelope without encryptedPayload fails', !EncryptedEnvelopeSchema.safeParse(noPayload).success);
+
+    // Missing nonce
+    const { nonce: _n, ...noNonce } = enc;
+    check('encrypted envelope without nonce fails', !EncryptedEnvelopeSchema.safeParse(noNonce).success);
+
+    // Empty strings
+    check('empty encryptedPayload fails', !EncryptedEnvelopeSchema.safeParse({ ...enc, encryptedPayload: '' }).success);
+    check('empty nonce fails', !EncryptedEnvelopeSchema.safeParse({ ...enc, nonce: '' }).success);
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 4: All 23 payload schemas — valid data
+  // =========================================================================
+  console.log('--- Test 4: All 23 payload schemas accept valid data ---');
+  {
+    const typeKeys = Object.keys(MESSAGE_TYPES);
+    check('MESSAGE_TYPES has 23 entries', typeKeys.length === 23);
+    check('PAYLOAD_SCHEMAS has 23 entries', Object.keys(PAYLOAD_SCHEMAS).length === 23);
+
+    for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
+      const payload = payloads[type];
+      if (!payload) {
+        check(`${type} payload exists`, false, 'missing from test data');
+        continue;
+      }
+      const schema = PAYLOAD_SCHEMAS[type];
+      const result = schema.safeParse(payload);
+      check(`${type} payload validates`, result.success, result.error?.message);
+    }
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 5: validateMessage() — full envelope + payload validation
+  // =========================================================================
+  console.log('--- Test 5: validateMessage() full validation ---');
+  {
+    // Valid full message
+    const msg = makeEnvelope('task', payloads.task);
+    const r1 = validateMessage(msg);
+    check('valid task message passes', r1.valid);
+    check('no errors on valid message', r1.errors.length === 0);
+
+    // Valid message for each core type
+    const conv = makeEnvelope('conversation', payloads.conversation);
+    check('conversation message passes', validateMessage(conv).valid);
+
+    const chal = makeEnvelope('challenge', payloads.challenge, makeSender('ai'));
+    check('challenge message passes', validateMessage(chal).valid);
+
+    const deny = makeEnvelope('denial', payloads.denial, makeSender('ai'));
+    check('denial message passes', validateMessage(deny).valid);
+
+    const status = makeEnvelope('status', payloads.status, makeSender('ai'));
+    check('status message passes', validateMessage(status).valid);
+
+    const result = makeEnvelope('result', payloads.result, makeSender('ai'));
+    check('result message passes', validateMessage(result).valid);
+
+    // Invalid payload in valid envelope
+    const badPayload = makeEnvelope('task', { taskId: 'not-a-uuid' });
+    const r2 = validateMessage(badPayload);
+    check('task with invalid taskId fails', !r2.valid);
+    check('error path includes payload', r2.errors.some(e => e.path.startsWith('payload')));
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 6: validatePayload() — payload-only validation
+  // =========================================================================
+  console.log('--- Test 6: validatePayload() payload-only ---');
+  {
+    check('valid task payload passes', validatePayload('task', payloads.task).valid);
+    check('valid heartbeat payload passes', validatePayload('heartbeat', payloads.heartbeat).valid);
+
+    // Empty object
+    const r1 = validatePayload('task', {});
+    check('empty object fails for task', !r1.valid);
+    check('multiple errors for empty task', r1.errors.length > 0);
+
+    // Unknown type
+    const r2 = validatePayload('unknown_type', {});
+    check('unknown type returns error', !r2.valid);
+    check('unknown type error mentions type', r2.errors[0].message.includes('Unknown message type'));
+
+    // All supplementary types validate
+    for (const type of ['session_end', 'session_conflict', 'session_superseded', 'reconnect',
+      'config_update', 'config_ack', 'config_nack', 'token_refresh', 'provider_status', 'budget_alert']) {
+      check(`${type} payload validates`, validatePayload(type, payloads[type]).valid);
+    }
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 7: Task payload edge cases
+  // =========================================================================
+  console.log('--- Test 7: Task payload edge cases ---');
+  {
+    // Missing required fields
+    check('task without taskId fails', !TaskPayloadSchema.safeParse({ action: 'x', target: 'y', parameters: {}, priority: 'normal', constraints: [] }).success);
+    check('task without action fails', !TaskPayloadSchema.safeParse({ taskId: uuid(), target: 'y', parameters: {}, priority: 'normal', constraints: [] }).success);
+    check('task with empty action fails', !TaskPayloadSchema.safeParse({ taskId: uuid(), action: '', target: 'y', parameters: {}, priority: 'normal', constraints: [] }).success);
+
+    // Priority must be enum value
+    check('task with invalid priority fails', !TaskPayloadSchema.safeParse({ ...payloads.task, priority: 'urgent' }).success);
+
+    // Constraints must be string array
+    check('task with number constraint fails', !TaskPayloadSchema.safeParse({ ...payloads.task, constraints: [123] }).success);
+
+    // Parameters accepts nested objects
+    const nested = { ...payloads.task, parameters: { config: { nested: { deep: true } } } };
+    check('task with nested parameters passes', TaskPayloadSchema.safeParse(nested).success);
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 8: Challenge + Confirmation + Denial edge cases
+  // =========================================================================
+  console.log('--- Test 8: Challenge/Confirmation/Denial edge cases ---');
+  {
+    // Challenge factor weight must be 0-1
+    const badFactor = { ...payloads.challenge, factors: [{ name: 'x', description: 'y', weight: 1.5 }] };
+    check('challenge factor weight > 1 fails', !ChallengePayloadSchema.safeParse(badFactor).success);
+
+    const negFactor = { ...payloads.challenge, factors: [{ name: 'x', description: 'y', weight: -0.1 }] };
+    check('challenge factor weight < 0 fails', !ChallengePayloadSchema.safeParse(negFactor).success);
+
+    // Challenge layer must be 1, 2, or 3
+    check('challenge layer 0 fails', !ChallengePayloadSchema.safeParse({ ...payloads.challenge, layer: 0 }).success);
+    check('challenge layer 4 fails', !ChallengePayloadSchema.safeParse({ ...payloads.challenge, layer: 4 }).success);
+
+    // Confirmation decision enum
+    check('confirmation approve passes', ConfirmationPayloadSchema.safeParse({ ...payloads.confirmation, decision: 'approve' }).success);
+    check('confirmation modify passes', ConfirmationPayloadSchema.safeParse({ ...payloads.confirmation, decision: 'modify' }).success);
+    check('confirmation cancel passes', ConfirmationPayloadSchema.safeParse({ ...payloads.confirmation, decision: 'cancel' }).success);
+    check('confirmation invalid decision fails', !ConfirmationPayloadSchema.safeParse({ ...payloads.confirmation, decision: 'reject' }).success);
+
+    // Confirmation modifiedParameters and reason are optional
+    const minConfirm = { challengeMessageId: uuid(), decision: 'approve' };
+    check('confirmation without optional fields passes', ConfirmationPayloadSchema.safeParse(minConfirm).success);
+
+    // Denial layer must be valid
+    check('denial layer 1 valid', DenialPayloadSchema.safeParse({ ...payloads.denial, layer: 1 }).success);
+    check('denial layer 3 valid', DenialPayloadSchema.safeParse({ ...payloads.denial, layer: 3 }).success);
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 9: Result payload — cost and transparency metadata
+  // =========================================================================
+  console.log('--- Test 9: Result payload — cost and transparency ---');
+  {
+    // Cost must have non-negative integers for tokens
+    check('cost with negative tokens fails', !CostMetadataSchema.safeParse({ inputTokens: -1, outputTokens: 0, estimatedCostUsd: 0 }).success);
+    check('cost with float tokens fails', !CostMetadataSchema.safeParse({ inputTokens: 1.5, outputTokens: 0, estimatedCostUsd: 0 }).success);
+    check('cost with zero values passes', CostMetadataSchema.safeParse({ inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0 }).success);
+
+    // Transparency confidence levels
+    check('confidence high passes', TransparencyMetadataSchema.safeParse({ ...payloads.result.transparency, confidenceLevel: 'high' }).success);
+    check('confidence medium passes', TransparencyMetadataSchema.safeParse({ ...payloads.result.transparency, confidenceLevel: 'medium' }).success);
+    check('confidence low passes', TransparencyMetadataSchema.safeParse({ ...payloads.result.transparency, confidenceLevel: 'low' }).success);
+    check('confidence invalid fails', !TransparencyMetadataSchema.safeParse({ ...payloads.result.transparency, confidenceLevel: 'uncertain' }).success);
+
+    // Safety evaluation outcomes in transparency
+    for (const outcome of ['allow', 'challenge', 'deny', 'clarify']) {
+      check(`transparency safety ${outcome} passes`,
+        TransparencyMetadataSchema.safeParse({ ...payloads.result.transparency, safetyEvaluation: outcome }).success);
+    }
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 10: Error payload — error code format
+  // =========================================================================
+  console.log('--- Test 10: Error payload — error code format ---');
+  {
+    // Valid error codes from each category
+    check('BASTION-1001 valid', ErrorPayloadSchema.safeParse({ ...payloads.error, code: 'BASTION-1001' }).success);
+    check('BASTION-2006 valid', ErrorPayloadSchema.safeParse({ ...payloads.error, code: 'BASTION-2006' }).success);
+    check('BASTION-7005 valid', ErrorPayloadSchema.safeParse({ ...payloads.error, code: 'BASTION-7005' }).success);
+
+    // Invalid error code formats
+    check('BASTION-0001 fails (category 0)', !ErrorPayloadSchema.safeParse({ ...payloads.error, code: 'BASTION-0001' }).success);
+    check('BASTION-8001 fails (category 8)', !ErrorPayloadSchema.safeParse({ ...payloads.error, code: 'BASTION-8001' }).success);
+    check('ERROR-1001 fails (wrong prefix)', !ErrorPayloadSchema.safeParse({ ...payloads.error, code: 'ERROR-1001' }).success);
+    check('BASTION-100 fails (too short)', !ErrorPayloadSchema.safeParse({ ...payloads.error, code: 'BASTION-100' }).success);
+
+    // All ERROR_CODES constants are valid
+    let allCodesValid = true;
+    for (const code of Object.values(ERROR_CODES)) {
+      if (!ErrorPayloadSchema.safeParse({ ...payloads.error, code }).success) {
+        allCodesValid = false;
+        break;
+      }
+    }
+    check('all ERROR_CODES constants pass validation', allCodesValid);
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 11: Status payload constraints
+  // =========================================================================
+  console.log('--- Test 11: Status payload constraints ---');
+  {
+    check('completion 0% passes', StatusPayloadSchema.safeParse({ ...payloads.status, completionPercentage: 0 }).success);
+    check('completion 100% passes', StatusPayloadSchema.safeParse({ ...payloads.status, completionPercentage: 100 }).success);
+    check('completion -1% fails', !StatusPayloadSchema.safeParse({ ...payloads.status, completionPercentage: -1 }).success);
+    check('completion 101% fails', !StatusPayloadSchema.safeParse({ ...payloads.status, completionPercentage: 101 }).success);
+    check('completion 50.5% passes (float OK)', StatusPayloadSchema.safeParse({ ...payloads.status, completionPercentage: 50.5 }).success);
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 12: File transfer schemas
+  // =========================================================================
+  console.log('--- Test 12: File transfer schemas ---');
+  {
+    // FileManifest
+    check('file manifest valid', FileManifestPayloadSchema.safeParse(payloads.file_manifest).success);
+    check('file manifest sizeBytes must be positive', !FileManifestPayloadSchema.safeParse({ ...payloads.file_manifest, sizeBytes: 0 }).success);
+    check('file manifest hashAlgorithm must be sha256', !FileManifestPayloadSchema.safeParse({ ...payloads.file_manifest, hashAlgorithm: 'md5' }).success);
+
+    // FileOffer
+    check('file offer valid', FileOfferPayloadSchema.safeParse(payloads.file_offer).success);
+    check('file offer taskId optional', FileOfferPayloadSchema.safeParse({
+      transferId: uuid(), filename: 'x.txt', sizeBytes: 100, hash: 'abc', mimeType: 'text/plain', purpose: 'test',
+    }).success);
+
+    // FileRequest
+    check('file request valid', FileRequestPayloadSchema.safeParse(payloads.file_request).success);
+
+    // File transfer state enum
+    const validStates = ['pending_manifest', 'quarantined', 'offered', 'accepted', 'rejected',
+      'delivering', 'delivered', 'hash_mismatch', 'purged', 'timed_out'];
+    check('all 10 file transfer states valid', validStates.every(s => FileTransferStateSchema.safeParse(s).success));
+
+    // Direction enum
+    check('human_to_ai direction valid', FileTransferDirectionSchema.safeParse('human_to_ai').success);
+    check('ai_to_human direction valid', FileTransferDirectionSchema.safeParse('ai_to_human').success);
+    check('invalid direction fails', !FileTransferDirectionSchema.safeParse('relay_to_human').success);
+
+    // Chain of custody
+    const custody = {
+      transferId: uuid(), direction: 'human_to_ai', filename: 'x.txt',
+      sizeBytes: 100, mimeType: 'text/plain',
+      events: [{ event: 'submitted', timestamp: ts(), actor: 'human-1' }],
+    };
+    check('valid chain of custody passes', FileChainOfCustodySchema.safeParse(custody).success);
+
+    // Quarantine entry
+    const quarantine = {
+      transferId: uuid(), direction: 'human_to_ai', filename: 'x.txt',
+      sizeBytes: 100, mimeType: 'text/plain', hashAtReceipt: sha256('file'),
+      hashAlgorithm: 'sha256', quarantinedAt: ts(), manifestMessageId: uuid(),
+      state: 'quarantined', purgeAt: ts(),
+    };
+    check('valid quarantine entry passes', QuarantineEntrySchema.safeParse(quarantine).success);
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 13: Heartbeat constraints
+  // =========================================================================
+  console.log('--- Test 13: Heartbeat constraints ---');
+  {
+    check('heartbeat valid', HeartbeatPayloadSchema.safeParse(payloads.heartbeat).success);
+
+    // Metrics constraints
+    check('cpuPercent 0 valid', HeartbeatMetricsSchema.safeParse({ ...payloads.heartbeat.metrics, cpuPercent: 0 }).success);
+    check('cpuPercent 100 valid', HeartbeatMetricsSchema.safeParse({ ...payloads.heartbeat.metrics, cpuPercent: 100 }).success);
+    check('cpuPercent 101 fails', !HeartbeatMetricsSchema.safeParse({ ...payloads.heartbeat.metrics, cpuPercent: 101 }).success);
+    check('negative uptimeMs fails', !HeartbeatMetricsSchema.safeParse({ ...payloads.heartbeat.metrics, uptimeMs: -1 }).success);
+
+    // Peer status must be valid session state
+    check('heartbeat with invalid peerStatus fails', !HeartbeatPayloadSchema.safeParse({ ...payloads.heartbeat, peerStatus: 'online' }).success);
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 14: Supplementary message edge cases
+  // =========================================================================
+  console.log('--- Test 14: Supplementary message edge cases ---');
+  {
+    // ConfigUpdate type enum
+    check('config_update api_key_rotation valid', ConfigUpdatePayloadSchema.safeParse({ configType: 'api_key_rotation', encryptedPayload: 'x' }).success);
+    check('config_update tool_registry valid', ConfigUpdatePayloadSchema.safeParse({ configType: 'tool_registry', encryptedPayload: 'x' }).success);
+    check('config_update safety_config valid', ConfigUpdatePayloadSchema.safeParse({ configType: 'safety_config', encryptedPayload: 'x' }).success);
+    check('config_update invalid type fails', !ConfigUpdatePayloadSchema.safeParse({ configType: 'database', encryptedPayload: 'x' }).success);
+
+    // ProviderStatus optional fields
+    const minProvider = { providerName: 'anthropic', status: 'unavailable' };
+    check('provider_status without optionals passes', ProviderStatusPayloadSchema.safeParse(minProvider).success);
+    const fullProvider = { ...minProvider, errorDetail: 'API down', retryAttempt: 3, nextRetryMs: 30000 };
+    check('provider_status with all fields passes', ProviderStatusPayloadSchema.safeParse(fullProvider).success);
+
+    // BudgetAlert constraints
+    check('budget thresholdPercent 0 passes', BudgetAlertPayloadSchema.safeParse({ ...payloads.budget_alert, thresholdPercent: 0 }).success);
+    check('budget thresholdPercent 100 passes', BudgetAlertPayloadSchema.safeParse({ ...payloads.budget_alert, thresholdPercent: 100 }).success);
+    check('budget thresholdPercent 101 fails', !BudgetAlertPayloadSchema.safeParse({ ...payloads.budget_alert, thresholdPercent: 101 }).success);
+    check('budget negative usedAmount fails', !BudgetAlertPayloadSchema.safeParse({ ...payloads.budget_alert, usedAmountUsd: -1 }).success);
+
+    // Reconnect JWT is optional
+    const minReconnect = { sessionId: uuid(), lastReceivedMessageId: uuid() };
+    check('reconnect without jwt passes', ReconnectPayloadSchema.safeParse(minReconnect).success);
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 15: Serialisation round-trip
+  // =========================================================================
+  console.log('--- Test 15: Serialisation round-trip ---');
+  {
+    const envelope = makeEnvelope('conversation', payloads.conversation);
+    const serialised = serialise(envelope);
+
+    check('serialise returns wire string', typeof serialised.wire === 'string');
+    check('serialise returns integrity hash', serialised.integrity.startsWith('sha256:'));
+    check('wire contains _integrity', serialised.wire.includes('_integrity'));
+
+    // Deserialise back
+    const deser = deserialise(serialised.wire);
+    check('deserialise succeeds', deser.success);
+    if (deser.success) {
+      check('round-trip preserves id', deser.envelope.id === envelope.id);
+      check('round-trip preserves type', deser.envelope.type === envelope.type);
+      check('round-trip preserves payload content', deser.envelope.payload.content === envelope.payload.content);
+      check('integrity matches', deser.integrity === serialised.integrity);
+    }
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 16: Serialisation integrity tamper detection
+  // =========================================================================
+  console.log('--- Test 16: Serialisation integrity tamper detection ---');
+  {
+    const envelope = makeEnvelope('conversation', { content: 'Original message' });
+    const serialised = serialise(envelope);
+
+    // Tamper with the wire data (change content)
+    const tampered = serialised.wire.replace('Original message', 'Tampered message');
+    const deser = deserialise(tampered);
+    check('tampered wire fails deserialisation', !deser.success);
+    if (!deser.success) {
+      check('error mentions integrity', deser.errors.some(e => e.message.includes('Integrity') || e.message.includes('integrity')));
+    }
+
+    // Missing _integrity
+    const parsed = JSON.parse(serialised.wire);
+    delete parsed._integrity;
+    const noIntegrity = deserialise(JSON.stringify(parsed));
+    check('missing _integrity fails', !noIntegrity.success);
+
+    // Invalid JSON
+    const badJson = deserialise('not json at all');
+    check('invalid JSON fails', !badJson.success);
+    check('JSON error mentions parsing', badJson.errors.some(e => e.message.includes('JSON')));
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 17: Canonical JSON determinism
+  // =========================================================================
+  console.log('--- Test 17: Canonical JSON determinism ---');
+  {
+    // Key ordering
+    const obj1 = { b: 2, a: 1, c: 3 };
+    const obj2 = { c: 3, a: 1, b: 2 };
+    check('key order doesn\'t matter', canonicalise(obj1) === canonicalise(obj2));
+
+    // Nested ordering
+    const nested1 = { outer: { z: 1, a: 2 } };
+    const nested2 = { outer: { a: 2, z: 1 } };
+    check('nested key order doesn\'t matter', canonicalise(nested1) === canonicalise(nested2));
+
+    // Null and undefined
+    check('null canonicalises to null', canonicalise(null) === 'null');
+    check('undefined canonicalises to null', canonicalise(undefined) === 'null');
+
+    // Arrays preserve order
+    check('array order preserved', canonicalise([3, 1, 2]) === '[3,1,2]');
+
+    // No whitespace
+    const canonical = canonicalise({ key: 'value' });
+    check('no whitespace in canonical', !canonical.includes(' '));
+
+    // Same envelope always produces same hash
+    const env = makeEnvelope('conversation', { content: 'test' });
+    const h1 = sha256(canonicalise(env));
+    const h2 = sha256(canonicalise(env));
+    check('same input → same hash', h1 === h2);
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 18: Serialise every message type round-trip
+  // =========================================================================
+  console.log('--- Test 18: Serialise all 23 types round-trip ---');
+  {
+    let allPassed = true;
+    for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
+      const payload = payloads[type];
+      if (!payload) { allPassed = false; continue; }
+      try {
+        const env = makeEnvelope(type, payload);
+        const ser = serialise(env);
+        const deser = deserialise(ser.wire);
+        if (!deser.success) {
+          allPassed = false;
+          console.log(`    FAIL round-trip: ${type}`, deser.errors);
+        }
+      } catch (err) {
+        allPassed = false;
+        console.log(`    FAIL round-trip: ${type}`, err.message);
+      }
+    }
+    check('all 23 message types survive serialisation round-trip', allPassed);
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 19: Cross-type validation — wrong payload for type
+  // =========================================================================
+  console.log('--- Test 19: Cross-type validation — wrong payload for type ---');
+  {
+    // Task envelope with conversation payload should fail
+    const wrongPayload = makeEnvelope('task', payloads.conversation);
+    const r = validateMessage(wrongPayload);
+    check('task envelope with conversation payload fails', !r.valid);
+
+    // Conversation envelope with task payload should fail (content required)
+    const wrongPayload2 = makeEnvelope('conversation', payloads.task);
+    const r2 = validateMessage(wrongPayload2);
+    // This actually passes because ConversationPayload only requires 'content', and task payload
+    // doesn't have 'content'. Let's verify:
+    check('conversation envelope with task payload (no content) fails', !r2.valid);
+
+    // Result envelope with denial payload
+    const wrongPayload3 = makeEnvelope('result', payloads.denial);
+    const r3 = validateMessage(wrongPayload3);
+    check('result envelope with denial payload fails', !r3.valid);
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 20: Constants consistency checks
+  // =========================================================================
+  console.log('--- Test 20: Constants consistency ---');
+  {
+    check('PROTOCOL_VERSION is semver', /^\d+\.\d+\.\d+$/.test(PROTOCOL_VERSION));
+    check('MESSAGE_TYPES keys match values', Object.entries(MESSAGE_TYPES)
+      .every(([key, value]) => key === value.toUpperCase()));
+
+    // Every MESSAGE_TYPES value is in ALL_MESSAGE_TYPES
+    check('all MESSAGE_TYPES in ALL_MESSAGE_TYPES',
+      Object.values(MESSAGE_TYPES).every(t => ALL_MESSAGE_TYPES.includes(t)));
+
+    // SAFETY constants exist
+    check('SAFETY_LAYERS defined', SAFETY_LAYERS !== undefined);
+    check('SAFETY_OUTCOMES defined', SAFETY_OUTCOMES !== undefined);
+
+    // Error codes have correct format
+    const allCodes = Object.values(ERROR_CODES);
+    check('all error codes match BASTION-CXXX', allCodes.every(c => /^BASTION-[1-7]\d{3}$/.test(c)));
+    check('error codes span 7 categories', new Set(allCodes.map(c => c[8])).size === 7);
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 21: Boundary values and type coercion
+  // =========================================================================
+  console.log('--- Test 21: Boundary values and type coercion ---');
+  {
+    // String where number expected
+    check('string completionPercentage fails', !StatusPayloadSchema.safeParse({ ...payloads.status, completionPercentage: '50' }).success);
+
+    // Number where string expected
+    check('number content fails for conversation', !ConversationPayloadSchema.safeParse({ content: 42 }).success);
+
+    // Boolean where string expected
+    check('boolean action fails for task', !TaskPayloadSchema.safeParse({ ...payloads.task, action: true }).success);
+
+    // Extra fields are stripped (Zod passthrough vs strict)
+    const withExtra = { ...payloads.conversation, extraField: 'bonus' };
+    const r = ConversationPayloadSchema.safeParse(withExtra);
+    check('extra fields do not cause failure', r.success);
+
+    // Null where object expected
+    check('null parameters fails for task', !TaskPayloadSchema.safeParse({ ...payloads.task, parameters: null }).success);
+
+    // Array where object expected
+    check('array parameters fails for task', !TaskPayloadSchema.safeParse({ ...payloads.task, parameters: [1, 2, 3] }).success);
+
+    // Very large values
+    const bigResult = { ...payloads.result, cost: { inputTokens: 999999999, outputTokens: 999999999, estimatedCostUsd: 99999.99 } };
+    check('very large token counts pass', ResultPayloadSchema.safeParse(bigResult).success);
+  }
+  console.log();
+
+  // =========================================================================
+  // Summary
+  // =========================================================================
+  console.log('=================================================');
+  console.log(`Results: ${pass} passed, ${fail} failed`);
+  console.log('=================================================');
+  process.exit(fail > 0 ? 1 : 0);
+}
+
+run().catch(err => {
+  console.error('Fatal error:', err);
+  process.exit(1);
+});

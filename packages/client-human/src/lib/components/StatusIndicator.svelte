@@ -1,0 +1,99 @@
+<script lang="ts">
+import type { HumanClientState } from '../services/connection.js';
+
+const {
+  status,
+  peerStatus,
+  reconnectAttempt,
+}: {
+  status: HumanClientState;
+  peerStatus: string;
+  reconnectAttempt: number;
+} = $props();
+
+function dotColor(s: HumanClientState): string {
+  if (s === 'authenticated') return 'var(--color-success)';
+  if (s === 'connecting' || s === 'reconnecting' || s === 'connected') return 'var(--color-warning)';
+  return 'var(--color-error)';
+}
+
+function statusLabel(s: HumanClientState): string {
+  switch (s) {
+    case 'authenticated':
+      return 'Connected';
+    case 'connected':
+      return 'Connected (authenticating)';
+    case 'connecting':
+      return 'Connecting…';
+    case 'reconnecting':
+      return 'Reconnecting…';
+    case 'closing':
+      return 'Closing…';
+    default:
+      return 'Disconnected';
+  }
+}
+
+function peerLabel(ps: string): string {
+  switch (ps) {
+    case 'active':
+      return 'AI connected';
+    case 'suspended':
+      return 'AI suspended';
+    case 'disconnected':
+      return 'AI disconnected';
+    default:
+      return 'AI status unknown';
+  }
+}
+</script>
+
+<div class="status-bar">
+	<div class="status-group">
+		<span class="dot" style="background:{dotColor(status)}"></span>
+		<span class="label">{statusLabel(status)}</span>
+		{#if status === 'reconnecting' && reconnectAttempt > 0}
+			<span class="attempt">(attempt {reconnectAttempt})</span>
+		{/if}
+	</div>
+	<div class="peer-status">
+		{peerLabel(peerStatus)}
+	</div>
+</div>
+
+<style>
+	.status-bar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.375rem 1rem;
+		background: var(--color-surface);
+		border-bottom: 1px solid var(--color-border);
+		font-size: 0.75rem;
+	}
+
+	.status-group {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+	}
+
+	.dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		display: inline-block;
+	}
+
+	.label {
+		color: var(--color-text);
+	}
+
+	.attempt {
+		color: var(--color-text-muted);
+	}
+
+	.peer-status {
+		color: var(--color-text-muted);
+	}
+</style>

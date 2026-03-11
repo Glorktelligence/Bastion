@@ -1,0 +1,34 @@
+{
+  "name": "@bastion/relay",
+  "version": "0.1.0",
+  "description": "WebSocket relay server with TLS, routing, audit, and quarantine for Project Bastion",
+  "license": "Apache-2.0",
+  "author": "Harry Smith <harry@glorktelligence.co.uk>",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "test:admin": "node admin-trace-test.mjs"
+  },
+  "dependencies": {
+    "@bastion/crypto": "workspace:*",
+    "@bastion/protocol": "workspace:*",
+    "jose": "^6.2.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.4.0",
+    "@types/ws": "^8.5.14",
+    "typescript": "^5.7.0"
+  }
+}

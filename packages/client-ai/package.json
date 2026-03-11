@@ -1,0 +1,33 @@
+{
+  "name": "@bastion/client-ai",
+  "version": "0.1.0",
+  "description": "Headless AI client for Project Bastion — connects to the relay, authenticates, and handles messaging",
+  "license": "Apache-2.0",
+  "author": "Harry Smith <harry@glorktelligence.co.uk>",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bastion/protocol": "workspace:*",
+    "@bastion/crypto": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@bastion/relay": "workspace:*",
+    "@types/node": "^25.4.0",
+    "@types/ws": "^8.5.14",
+    "typescript": "^5.7.0"
+  }
+}

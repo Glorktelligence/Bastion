@@ -1,0 +1,43 @@
+Project Bastion
+Copyright 2026 Glorktelligence — Harry Smith
+
+This product includes software developed by
+Glorktelligence (https://glorktelligence.co.uk/).
+
+Licensed under the Apache License, Version 2.0.
+
+---
+
+Third-Party Components:
+
+This project uses the following open-source libraries:
+
+- libsodium (ISC License) — Cryptographic primitives
+  https://github.com/jedisct1/libsodium
+
+- jose (MIT License) — JWT handling
+  https://github.com/panva/jose
+
+- Zod (MIT License) — Schema validation
+  https://github.com/colinhacks/zod
+
+- ws (MIT License) — WebSocket implementation
+  https://github.com/websockets/ws
+
+- Svelte (MIT License) — UI framework
+  https://github.com/sveltejs/svelte
+
+- SvelteKit (MIT License) — Application framework
+  https://github.com/sveltejs/kit
+
+- Tauri (Apache 2.0 / MIT License) — Desktop application framework
+  https://github.com/tauri-apps/tauri
+
+- React Native (MIT License) — Mobile application framework
+  https://github.com/facebook/react-native
+
+- React Navigation (MIT License) — Navigation for React Native
+  https://github.com/react-navigation/react-navigation
+
+- Biome (MIT License) — Linting and formatting
+  https://github.com/biomejs/biome
