@@ -5,6 +5,10 @@ import {
   MessageRouter,
   JwtService,
   AuditLogger,
+  AdminServer,
+  AdminAuth,
+  AdminRoutes,
+  ProviderRegistry,
 } from './packages/relay/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -14,6 +18,7 @@ import {
 const TLS_CERT = process.env.BASTION_TLS_CERT || './certs/relay-cert.pem';
 const TLS_KEY = process.env.BASTION_TLS_KEY || './certs/relay-key.pem';
 const PORT = parseInt(process.env.BASTION_RELAY_PORT || '9443');
+const ADMIN_PORT = parseInt(process.env.BASTION_ADMIN_PORT || '9444');
 const AUDIT_DB = process.env.BASTION_AUDIT_DB || '/var/lib/bastion/audit.db';
 
 // JWT secret — use env var or generate a random 256-bit key
@@ -24,6 +29,7 @@ const jwtSecret = jwtSecretEnv
 
 console.log('=== Project Bastion — Relay Server ===');
 console.log(`Port: ${PORT}`);
+console.log(`Admin: https://127.0.0.1:${ADMIN_PORT} (localhost only)`);
 console.log(`TLS:  ${TLS_CERT}`);
 console.log(`Audit: ${AUDIT_DB}`);
 if (!jwtSecretEnv) console.log('JWT:  using randomly generated secret (set BASTION_JWT_SECRET for persistence)');
@@ -46,6 +52,10 @@ console.log('[✓] JWT service ready');
 const cert = readFileSync(TLS_CERT, 'utf-8');
 const key = readFileSync(TLS_KEY, 'utf-8');
 
+// Provider registry — manages approved AI providers
+const providerRegistry = new ProviderRegistry();
+console.log('[✓] Provider registry initialised');
+
 // Relay server
 const relay = new BastionRelay({
   port: PORT,
@@ -63,6 +73,58 @@ const router = new MessageRouter({
 });
 console.log('[✓] Message router initialised');
 console.log('[✓] MaliClaw Clause active');
+
+// ---------------------------------------------------------------------------
+// Admin server
+// ---------------------------------------------------------------------------
+
+// Admin credentials — set via env vars for production, auto-generated for dev
+const adminUsername = process.env.BASTION_ADMIN_USERNAME || 'admin';
+let adminPasswordHash = process.env.BASTION_ADMIN_PASSWORD_HASH;
+let adminTotpSecret = process.env.BASTION_ADMIN_TOTP_SECRET;
+
+if (!adminPasswordHash) {
+  const password = process.env.BASTION_ADMIN_PASSWORD || randomBytes(16).toString('hex');
+  adminPasswordHash = AdminAuth.hashPassword(password);
+  if (!process.env.BASTION_ADMIN_PASSWORD) {
+    console.log(`[!] Admin password (auto-generated): ${password}`);
+    console.log('[!] Set BASTION_ADMIN_PASSWORD or BASTION_ADMIN_PASSWORD_HASH for persistence');
+  }
+}
+
+if (!adminTotpSecret) {
+  adminTotpSecret = AdminAuth.generateTotpSecret();
+  const code = AdminAuth.generateTotpCode(adminTotpSecret);
+  console.log(`[!] Admin TOTP secret (auto-generated): ${adminTotpSecret}`);
+  console.log(`[!] Current TOTP code: ${code}`);
+  console.log('[!] Set BASTION_ADMIN_TOTP_SECRET for persistence');
+}
+
+const adminAuth = new AdminAuth({
+  accounts: [{
+    username: adminUsername,
+    passwordHash: adminPasswordHash,
+    totpSecret: adminTotpSecret,
+    active: true,
+  }],
+});
+console.log(`[✓] Admin auth ready (user: ${adminUsername})`);
+
+const adminRoutes = new AdminRoutes({
+  providerRegistry,
+  auditLogger,
+});
+console.log('[✓] Admin routes initialised');
+
+const adminServer = new AdminServer({
+  port: ADMIN_PORT,
+  host: '127.0.0.1',
+  tls: { cert, key },
+  auth: adminAuth,
+  routes: adminRoutes,
+  auditLogger,
+});
+console.log('[✓] Admin server configured (127.0.0.1 only — use SSH tunnel for remote access)');
 
 // ---------------------------------------------------------------------------
 // Session tracking — human ↔ AI pairing
@@ -303,3 +365,6 @@ relay.on('listening', () => {
 });
 
 await relay.start();
+await adminServer.start();
+console.log(`[★] Admin API listening on https://127.0.0.1:${ADMIN_PORT}`);
+console.log('[★] Access via SSH tunnel: ssh -L 9444:127.0.0.1:9444 relay-host');

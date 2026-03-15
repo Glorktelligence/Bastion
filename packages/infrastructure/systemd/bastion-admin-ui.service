@@ -1,0 +1,61 @@
+# bastion-admin-ui.service — Bastion Admin UI Static Server
+#
+# Serves the built relay-admin-ui SvelteKit app on localhost:9445.
+# Access via SSH tunnel only:
+#   ssh -L 9445:127.0.0.1:9445 -L 9444:127.0.0.1:9444 relay-host
+#
+# Installation:
+#   1. Build the admin UI:
+#      cd /opt/bastion && pnpm --filter @bastion/relay-admin-ui run build:app
+#
+#   2. Copy this file:
+#      sudo cp bastion-admin-ui.service /etc/systemd/system/
+#
+#   3. Enable and start:
+#      sudo systemctl daemon-reload
+#      sudo systemctl enable bastion-admin-ui
+#      sudo systemctl start bastion-admin-ui
+#
+#   4. Check status:
+#      sudo systemctl status bastion-admin-ui
+#      journalctl -u bastion-admin-ui -f
+
+[Unit]
+Description=Bastion Admin UI — Static file server (localhost:9445)
+Documentation=https://github.com/Glorktelligence/Bastion
+After=network.target bastion-relay.service
+Wants=bastion-relay.service
+
+[Service]
+Type=simple
+User=bastion
+Group=bastion
+WorkingDirectory=/opt/bastion
+
+ExecStart=/usr/bin/node start-admin-ui.mjs
+
+# Environment
+Environment=NODE_ENV=production
+Environment=BASTION_ADMIN_UI_PORT=9445
+
+# Restart policy
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadOnlyPaths=/opt/bastion
+MemoryDenyWriteExecute=yes
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bastion-admin-ui
+
+[Install]
+WantedBy=multi-user.target
