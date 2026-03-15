@@ -2,7 +2,7 @@
 /** @type {{ label: string, value: string | number, status?: 'success' | 'warning' | 'error' | 'info' }} */
 const { label, value, status = 'info' } = $props();
 
-const _statusColors = {
+const statusColors = {
   success: 'var(--status-success)',
   warning: 'var(--status-warning)',
   error: 'var(--status-error)',

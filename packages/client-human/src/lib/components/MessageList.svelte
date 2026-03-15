@@ -1,9 +1,10 @@
 <script lang="ts">
 import type { DisplayMessage } from '../stores/messages.js';
+import MessageBubble from './MessageBubble.svelte';
 
 const { messages }: { messages: DisplayMessage[] } = $props();
 
-const container: HTMLDivElement | undefined = $state();
+let container: HTMLDivElement | undefined = $state();
 
 $effect(() => {
   // Scroll to bottom whenever messages change

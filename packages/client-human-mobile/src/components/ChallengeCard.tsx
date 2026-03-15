@@ -1,3 +1,7 @@
+// Copyright 2026 Glorktelligence — Harry Smith
+// Licensed under the Apache License, Version 2.0
+// See LICENSE file for full terms
+
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { ActiveChallenge } from '../lib/stores/challenges';
 

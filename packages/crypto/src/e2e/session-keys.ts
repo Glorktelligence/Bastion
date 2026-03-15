@@ -136,7 +136,7 @@ export async function deriveSessionKeys(
     );
   }
 
-  let keys;
+  let keys: { sharedTx: Uint8Array; sharedRx: Uint8Array };
   if (role === 'initiator') {
     keys = sodium.crypto_kx_client_session_keys(ownKeyPair.publicKey, ownKeyPair.secretKey, peerPublicKey);
   } else {

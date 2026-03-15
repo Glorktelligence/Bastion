@@ -11,7 +11,7 @@
 /** @type {import('../stores/file-transfers.js').FileUploadProgress} */
 const { upload } = $props();
 
-const _phaseLabels = {
+const phaseLabels = {
   encrypting: 'Encrypting...',
   uploading: 'Uploading to relay...',
   quarantined: 'In quarantine',
@@ -22,7 +22,7 @@ const _phaseLabels = {
   failed: 'Failed',
 };
 
-const _phaseColors = {
+const phaseColors = {
   encrypting: '#2196F3',
   uploading: '#2196F3',
   quarantined: '#FF9800',

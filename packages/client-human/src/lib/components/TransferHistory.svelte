@@ -72,14 +72,16 @@ function directionLabel(dir) {
         {#if expandedId === entry.transferId}
           <div class="entry-details">
             <table class="metadata-table">
-              <tr><td>Transfer ID</td><td class="mono">{entry.transferId}</td></tr>
-              <tr><td>Direction</td><td>{directionLabel(entry.direction)}</td></tr>
-              <tr><td>MIME Type</td><td>{entry.mimeType}</td></tr>
-              <tr><td>SHA-256</td><td class="mono hash">{entry.hash}</td></tr>
-              <tr><td>Started</td><td>{new Date(entry.startedAt).toLocaleString()}</td></tr>
-              {#if entry.completedAt}
-                <tr><td>Completed</td><td>{new Date(entry.completedAt).toLocaleString()}</td></tr>
-              {/if}
+              <tbody>
+                <tr><td>Transfer ID</td><td class="mono">{entry.transferId}</td></tr>
+                <tr><td>Direction</td><td>{directionLabel(entry.direction)}</td></tr>
+                <tr><td>MIME Type</td><td>{entry.mimeType}</td></tr>
+                <tr><td>SHA-256</td><td class="mono hash">{entry.hash}</td></tr>
+                <tr><td>Started</td><td>{new Date(entry.startedAt).toLocaleString()}</td></tr>
+                {#if entry.completedAt}
+                  <tr><td>Completed</td><td>{new Date(entry.completedAt).toLocaleString()}</td></tr>
+                {/if}
+              </tbody>
             </table>
 
             {#if entry.hashVerifications.length > 0}

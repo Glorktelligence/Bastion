@@ -49,7 +49,7 @@ export default function App() {
         <Stack.Screen name="Messages">{() => <MessagesScreen client={client} />}</Stack.Screen>
         <Stack.Screen name="Challenges">{() => <ChallengeScreen client={client} />}</Stack.Screen>
         <Stack.Screen name="FileTransfers" options={{ title: 'File Transfers' }}>
-          {() => <FileTransferScreen />}
+          {() => <FileTransferScreen client={client} />}
         </Stack.Screen>
       </Stack.Navigator>
     </NavigationContainer>

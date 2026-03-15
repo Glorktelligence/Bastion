@@ -57,7 +57,18 @@
       "Bash(cd \"G:/Glorktelligence/Projects/Bastion\" && npx @biomejs/biome check . 2>&1 | grep \"^\\\\\\\\.\" | sort -u)",
       "Bash(cd \"G:/Glorktelligence/Projects/Bastion\" && pnpm -r typecheck 2>&1)",
       "Bash(cd \"G:/Glorktelligence/Projects/Bastion\" && pnpm build 2>&1 | tail -20)",
-      "Bash(cd \"G:/Glorktelligence/Projects/Bastion\" && pnpm test 2>&1 | tail -40)"
+      "Bash(cd \"G:/Glorktelligence/Projects/Bastion\" && pnpm test 2>&1 | tail -40)",
+      "Bash(cd:*)",
+      "Bash(for pkg:*)",
+      "Bash(do echo:*)",
+      "Read(//g/Glorktelligence/Projects/Bastion/$pkg/**)",
+      "Bash(done)",
+      "Bash(wc:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(for f:*)",
+      "Bash(head:*)",
+      "Bash(git log:*)"
     ]
   }
 }

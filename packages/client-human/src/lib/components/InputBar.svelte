@@ -1,14 +1,4 @@
 <script lang="ts">
-import { createEventDispatcher } from 'svelte';
-
-const {
-  disabled = false,
-  providerAvailable = true,
-}: {
-  disabled?: boolean;
-  providerAvailable?: boolean;
-} = $props();
-
 type TaskFields = {
   action: string;
   target: string;
@@ -17,12 +7,19 @@ type TaskFields = {
   constraints: string[];
 };
 
-const dispatch = createEventDispatcher<{
-  sendConversation: string;
-  sendTask: TaskFields;
-}>();
+const {
+  disabled = false,
+  providerAvailable = true,
+  onSendConversation,
+  onSendTask,
+}: {
+  disabled?: boolean;
+  providerAvailable?: boolean;
+  onSendConversation?: (text: string) => void;
+  onSendTask?: (task: TaskFields) => void;
+} = $props();
 
-const _mode: 'chat' | 'task' = $state('chat');
+let mode: 'chat' | 'task' = $state('chat');
 let chatText = $state('');
 
 // Task fields
@@ -36,7 +33,7 @@ let newConstraint = $state('');
 function sendChat(): void {
   const text = chatText.trim();
   if (!text || disabled) return;
-  dispatch('sendConversation', text);
+  onSendConversation?.(text);
   chatText = '';
 }
 
@@ -55,7 +52,7 @@ function sendTask(): void {
       params[entry.key.trim()] = entry.value;
     }
   }
-  dispatch('sendTask', {
+  onSendTask?.({
     action: taskAction.trim(),
     target: taskTarget.trim(),
     priority: taskPriority,
@@ -88,8 +85,8 @@ function removeConstraint(idx: number): void {
   constraints = constraints.filter((_, i) => i !== idx);
 }
 
-const _canSendChat = $derived(!disabled && chatText.trim().length > 0);
-const _canSendTask = $derived(
+const canSendChat = $derived(!disabled && chatText.trim().length > 0);
+const canSendTask = $derived(
   !disabled && providerAvailable && taskAction.trim().length > 0 && taskTarget.trim().length > 0,
 );
 </script>

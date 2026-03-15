@@ -6,17 +6,25 @@
  *   currentPage: number,
  *   pageCount: number,
  *   totalCount: number,
- *   loading: boolean
+ *   loading: boolean,
+ *   onFilterChange?: (filter: Record<string, string>) => void,
+ *   onPageChange?: (page: number) => void
  * }}
  */
-const { entries, filter, currentPage, pageCount, totalCount, loading } = $props();
+const { entries, filter, currentPage, pageCount, totalCount, loading, onFilterChange, onPageChange } = $props();
+
+function handleFilterChange(key, value) {
+	const update = {};
+	update[key] = value || undefined;
+	onFilterChange?.(update);
+}
 </script>
 
 <div class="audit-explorer">
 	<div class="filter-bar">
 		<div class="filter-group">
 			<label for="event-type">Event Type</label>
-			<select id="event-type" value={filter.eventType ?? ''}>
+			<select id="event-type" value={filter.eventType ?? ''} onchange={(e) => handleFilterChange('eventType', e.currentTarget.value)}>
 				<option value="">All</option>
 				<option value="message_routed">Message Routed</option>
 				<option value="message_rejected">Message Rejected</option>
@@ -34,11 +42,11 @@ const { entries, filter, currentPage, pageCount, totalCount, loading } = $props(
 		</div>
 		<div class="filter-group">
 			<label for="task-id">Task ID</label>
-			<input id="task-id" type="text" placeholder="Filter by task..." value={filter.taskId ?? ''} />
+			<input id="task-id" type="text" placeholder="Filter by task..." value={filter.taskId ?? ''} onchange={(e) => handleFilterChange('taskId', e.currentTarget.value)} />
 		</div>
 		<div class="filter-group">
 			<label for="safety-outcome">Safety Outcome</label>
-			<select id="safety-outcome" value={filter.safetyOutcome ?? ''}>
+			<select id="safety-outcome" value={filter.safetyOutcome ?? ''} onchange={(e) => handleFilterChange('safetyOutcome', e.currentTarget.value)}>
 				<option value="">All</option>
 				<option value="allow">Allow</option>
 				<option value="challenge">Challenge</option>
@@ -82,9 +90,9 @@ const { entries, filter, currentPage, pageCount, totalCount, loading } = $props(
 		</table>
 
 		<div class="pagination">
-			<button disabled={currentPage <= 0}>Prev</button>
+			<button disabled={currentPage <= 0} onclick={() => onPageChange?.(currentPage - 1)}>Prev</button>
 			<span>Page {currentPage + 1} of {pageCount}</span>
-			<button disabled={currentPage >= pageCount - 1}>Next</button>
+			<button disabled={currentPage >= pageCount - 1} onclick={() => onPageChange?.(currentPage + 1)}>Next</button>
 		</div>
 	{/if}
 </div>

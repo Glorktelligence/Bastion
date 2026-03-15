@@ -5,10 +5,13 @@
  *   floors: import('../stores/settings.js').SafetySettings,
  *   isAtFloor: Record<string, boolean>,
  *   dirty: boolean,
- *   error: string | null
+ *   error: string | null,
+ *   onSettingChange?: (key: string, value: unknown) => void,
+ *   onSave?: () => void,
+ *   onReset?: () => void
  * }}
  */
-const { settings, floors, isAtFloor, dirty, error } = $props();
+const { settings, floors, isAtFloor, dirty, error, onSettingChange, onSave, onReset } = $props();
 </script>
 
 <div class="settings-panel">
@@ -22,22 +25,22 @@ const { settings, floors, isAtFloor, dirty, error } = $props();
 
 		<div class="setting-row">
 			<div class="setting-info">
-				<label>Challenge Threshold</label>
+				<label for="setting-challengeThreshold">Challenge Threshold</label>
 				<span class="floor-label">Floor: {floors.challengeThreshold}</span>
 			</div>
 			<div class="setting-control">
-				<input type="range" min="0" max={floors.challengeThreshold} step="0.05" value={settings.challengeThreshold} />
+				<input id="setting-challengeThreshold" type="range" min="0" max={floors.challengeThreshold} step="0.05" value={settings.challengeThreshold} oninput={(e) => onSettingChange?.('challengeThreshold', parseFloat(e.currentTarget.value))} />
 				<span class="value-display" class:at-floor={isAtFloor.challengeThreshold}>{settings.challengeThreshold}</span>
 			</div>
 		</div>
 
 		<div class="setting-row">
 			<div class="setting-info">
-				<label>Denial Threshold</label>
+				<label for="setting-denialThreshold">Denial Threshold</label>
 				<span class="floor-label">Floor: {floors.denialThreshold}</span>
 			</div>
 			<div class="setting-control">
-				<input type="range" min="0" max={floors.denialThreshold} step="0.05" value={settings.denialThreshold} />
+				<input id="setting-denialThreshold" type="range" min="0" max={floors.denialThreshold} step="0.05" value={settings.denialThreshold} oninput={(e) => onSettingChange?.('denialThreshold', parseFloat(e.currentTarget.value))} />
 				<span class="value-display" class:at-floor={isAtFloor.denialThreshold}>{settings.denialThreshold}</span>
 			</div>
 		</div>
@@ -48,22 +51,22 @@ const { settings, floors, isAtFloor, dirty, error } = $props();
 
 		<div class="setting-row">
 			<div class="setting-info">
-				<label>Time-of-Day Weight</label>
+				<label for="setting-timeOfDayWeight">Time-of-Day Weight</label>
 				<span class="floor-label">Floor: {floors.timeOfDayWeight}</span>
 			</div>
 			<div class="setting-control">
-				<input type="range" min={floors.timeOfDayWeight} max="3.0" step="0.1" value={settings.timeOfDayWeight} />
+				<input id="setting-timeOfDayWeight" type="range" min={floors.timeOfDayWeight} max="3.0" step="0.1" value={settings.timeOfDayWeight} oninput={(e) => onSettingChange?.('timeOfDayWeight', parseFloat(e.currentTarget.value))} />
 				<span class="value-display">{settings.timeOfDayWeight}x</span>
 			</div>
 		</div>
 
 		<div class="setting-row">
 			<div class="setting-info">
-				<label>Pattern Deviation Sensitivity</label>
+				<label for="setting-patternSensitivity">Pattern Deviation Sensitivity</label>
 				<span class="floor-label">Floor: {floors.patternDeviationSensitivity}</span>
 			</div>
 			<div class="setting-control">
-				<select value={settings.patternDeviationSensitivity}>
+				<select id="setting-patternSensitivity" value={settings.patternDeviationSensitivity} onchange={(e) => onSettingChange?.('patternDeviationSensitivity', e.currentTarget.value)}>
 					<option value="low">Low</option>
 					<option value="medium">Medium</option>
 					<option value="high">High</option>
@@ -73,22 +76,22 @@ const { settings, floors, isAtFloor, dirty, error } = $props();
 
 		<div class="setting-row">
 			<div class="setting-info">
-				<label>Grace Period</label>
+				<label for="setting-gracePeriod">Grace Period</label>
 				<span class="floor-label">Floor: {floors.gracePeriodMs / 60000} min</span>
 			</div>
 			<div class="setting-control">
-				<input type="range" min={floors.gracePeriodMs / 60000} max="30" step="1" value={settings.gracePeriodMs / 60000} />
+				<input id="setting-gracePeriod" type="range" min={floors.gracePeriodMs / 60000} max="30" step="1" value={settings.gracePeriodMs / 60000} oninput={(e) => onSettingChange?.('gracePeriodMs', parseFloat(e.currentTarget.value) * 60000)} />
 				<span class="value-display">{settings.gracePeriodMs / 60000} min</span>
 			</div>
 		</div>
 
 		<div class="setting-row">
 			<div class="setting-info">
-				<label>Audit Retention</label>
+				<label for="setting-auditRetention">Audit Retention</label>
 				<span class="floor-label">Floor: {floors.auditRetentionDays} days</span>
 			</div>
 			<div class="setting-control">
-				<input type="number" min={floors.auditRetentionDays} max="3650" value={settings.auditRetentionDays} />
+				<input id="setting-auditRetention" type="number" min={floors.auditRetentionDays} max="3650" value={settings.auditRetentionDays} onchange={(e) => onSettingChange?.('auditRetentionDays', parseInt(e.currentTarget.value, 10))} />
 				<span class="value-display">{settings.auditRetentionDays} days</span>
 			</div>
 		</div>
@@ -100,7 +103,7 @@ const { settings, floors, isAtFloor, dirty, error } = $props();
 
 		<div class="setting-row locked">
 			<div class="setting-info">
-				<label>Irreversible Action Always Challenge</label>
+				<span class="setting-label">Irreversible Action Always Challenge</span>
 			</div>
 			<div class="setting-control">
 				<span class="locked-badge">Locked ON</span>
@@ -109,7 +112,7 @@ const { settings, floors, isAtFloor, dirty, error } = $props();
 
 		<div class="setting-row locked">
 			<div class="setting-info">
-				<label>File Quarantine Enabled</label>
+				<span class="setting-label">File Quarantine Enabled</span>
 			</div>
 			<div class="setting-control">
 				<span class="locked-badge">Locked ON</span>
@@ -120,7 +123,12 @@ const { settings, floors, isAtFloor, dirty, error } = $props();
 	{#if dirty}
 		<div class="save-bar">
 			<span class="unsaved">Unsaved changes</span>
-			<button class="save-btn">Save Settings</button>
+			<div class="save-actions">
+				{#if onReset}
+					<button class="reset-btn" onclick={onReset}>Reset to Defaults</button>
+				{/if}
+				<button class="save-btn" onclick={() => onSave?.()}>Save Settings</button>
+			</div>
 		</div>
 	{/if}
 </div>
@@ -178,7 +186,8 @@ const { settings, floors, isAtFloor, dirty, error } = $props();
 		gap: 0.15rem;
 	}
 
-	.setting-info label {
+	.setting-info label,
+	.setting-info .setting-label {
 		font-size: 0.875rem;
 		color: var(--color-text);
 	}
@@ -252,6 +261,25 @@ const { settings, floors, isAtFloor, dirty, error } = $props();
 	.unsaved {
 		font-size: 0.85rem;
 		color: var(--color-warning);
+	}
+
+	.save-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.reset-btn {
+		background: transparent;
+		border: 1px solid var(--color-border);
+		border-radius: 6px;
+		padding: 0.5rem 1rem;
+		font-size: 0.85rem;
+		color: var(--color-text-muted);
+		cursor: pointer;
+	}
+
+	.reset-btn:hover {
+		border-color: var(--color-text-muted);
 	}
 
 	.save-btn {

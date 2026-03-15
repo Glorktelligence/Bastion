@@ -1,5 +1,6 @@
 <script>
 import '../app.css';
+import { page } from '$app/state';
 
 const { children } = $props();
 </script>
@@ -11,12 +12,12 @@ const { children } = $props();
 			<span class="subtitle">Relay Admin</span>
 		</div>
 		<ul class="nav-items">
-			<li><a href="/">Overview</a></li>
-			<li><a href="/providers">Providers</a></li>
-			<li><a href="/blocklist">Blocklist</a></li>
-			<li><a href="/quarantine">Quarantine</a></li>
-			<li><a href="/connections">Connections</a></li>
-			<li><a href="/config">Configuration</a></li>
+			<li><a href="/" class:active={page.url.pathname === '/'}>Overview</a></li>
+			<li><a href="/providers" class:active={page.url.pathname === '/providers'}>Providers</a></li>
+			<li><a href="/blocklist" class:active={page.url.pathname === '/blocklist'}>Blocklist</a></li>
+			<li><a href="/quarantine" class:active={page.url.pathname === '/quarantine'}>Quarantine</a></li>
+			<li><a href="/connections" class:active={page.url.pathname === '/connections'}>Connections</a></li>
+			<li><a href="/config" class:active={page.url.pathname === '/config'}>Configuration</a></li>
 		</ul>
 	</nav>
 	<main class="content">
@@ -73,6 +74,13 @@ const { children } = $props();
 		color: var(--text-primary);
 		background-color: var(--accent-muted);
 		text-decoration: none;
+	}
+
+	.nav-items li a.active {
+		color: var(--accent-secondary);
+		background-color: var(--accent-muted);
+		border-left: 3px solid var(--accent-primary);
+		font-weight: 600;
 	}
 
 	.content {

@@ -1,16 +1,19 @@
 <script lang="ts">
-import { createEventDispatcher } from 'svelte';
 import type { ActiveChallenge } from '../stores/challenges.js';
 
-const { challenge }: { challenge: ActiveChallenge } = $props();
+const {
+  challenge,
+  onApprove,
+  onModify,
+  onCancel,
+}: {
+  challenge: ActiveChallenge;
+  onApprove?: () => void;
+  onModify?: () => void;
+  onCancel?: () => void;
+} = $props();
 
-const _dispatch = createEventDispatcher<{
-  approve: undefined;
-  cancel: undefined;
-  modify: undefined;
-}>();
-
-const _expanded = $state(true);
+let expanded = $state(true);
 </script>
 
 <div class="challenge-banner">
@@ -73,13 +76,13 @@ const _expanded = $state(true);
 			{/if}
 
 			<div class="actions">
-				<button class="btn btn-warning" onclick={() => dispatch('approve')}>
+				<button class="btn btn-warning" onclick={() => onApprove?.()}>
 					Proceed Anyway
 				</button>
-				<button class="btn btn-secondary" onclick={() => dispatch('modify')}>
+				<button class="btn btn-secondary" onclick={() => onModify?.()}>
 					Modify Task
 				</button>
-				<button class="btn btn-neutral" onclick={() => dispatch('cancel')}>
+				<button class="btn btn-neutral" onclick={() => onCancel?.()}>
 					Cancel
 				</button>
 			</div>

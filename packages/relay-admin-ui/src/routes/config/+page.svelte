@@ -1,51 +1,92 @@
 <script>
 // System Configuration — Task 3.11
 // Relay settings, safety floors, TLS status, audit chain integrity
+
+import ConfigPanel from '$lib/components/ConfigPanel.svelte';
+import { createConfigStore } from '$lib/stores/config.js';
+
+const config = createConfigStore();
+
+/** @type {import('$lib/stores/config.js').ConfigState} */
+let state = $state(config.store.get());
+
+/** @type {boolean} */
+let tlsHealthy = $state(config.tlsHealthy.get());
+
+/** @type {boolean} */
+let chainHealthy = $state(config.chainHealthy.get());
+
+/** @type {boolean} */
+let systemHealthy = $state(config.systemHealthy.get());
+
+$effect(() => {
+	const unsub1 = config.store.subscribe((s) => { state = s; });
+	const unsub2 = config.tlsHealthy.subscribe((h) => { tlsHealthy = h; });
+	const unsub3 = config.chainHealthy.subscribe((h) => { chainHealthy = h; });
+	const unsub4 = config.systemHealthy.subscribe((h) => { systemHealthy = h; });
+	return () => { unsub1(); unsub2(); unsub3(); unsub4(); };
+});
+
+/** @type {{ label: string, value: string | number | boolean }[]} */
+let relayFields = $derived([
+	{ label: 'Host', value: state.relaySettings.host },
+	{ label: 'Port', value: state.relaySettings.port },
+	{ label: 'Admin Port', value: state.relaySettings.adminPort },
+	{ label: 'Max Connections', value: state.relaySettings.maxConnections },
+	{ label: 'Heartbeat Interval', value: `${state.relaySettings.heartbeatIntervalMs / 1000}s` },
+	{ label: 'Heartbeat Timeout', value: `${state.relaySettings.heartbeatTimeoutMs / 1000}s` },
+]);
+
+/** @type {{ label: string, value: string | number | boolean }[]} */
+let safetyFields = $derived([
+	{ label: 'Challenge Threshold', value: state.safetyFloors.challengeThreshold },
+	{ label: 'Denial Threshold', value: state.safetyFloors.denialThreshold },
+	{ label: 'Max Risk Score', value: state.safetyFloors.maxRiskScore },
+]);
+
+/** @type {{ label: string, value: string | number | boolean }[]} */
+let tlsFields = $derived([
+	{ label: 'Enabled', value: state.tlsStatus.enabled },
+	{ label: 'Certificate Expiry', value: state.tlsStatus.certExpiry ?? '\u2014' },
+	{ label: 'Protocol', value: state.tlsStatus.protocol },
+	{ label: 'Cipher', value: state.tlsStatus.cipher },
+]);
+
+/** @type {{ label: string, value: string | number | boolean }[]} */
+let auditFields = $derived([
+	{ label: 'Total Entries', value: state.auditChainIntegrity.totalEntries },
+	{ label: 'Chain Valid', value: state.auditChainIntegrity.chainValid },
+	{ label: 'Last Verified', value: state.auditChainIntegrity.lastVerifiedAt ?? '\u2014' },
+]);
 </script>
 
 <div class="config-page">
 	<h2>System Configuration</h2>
 
-	<div class="config-grid">
-		<div class="config-section">
-			<h3>Relay Settings</h3>
-			<dl>
-				<dt>Port</dt><dd>9443</dd>
-				<dt>Admin Port</dt><dd>9444</dd>
-				<dt>Max Connections</dt><dd>100</dd>
-				<dt>Heartbeat Interval</dt><dd>30s</dd>
-				<dt>Heartbeat Timeout</dt><dd>90s</dd>
-			</dl>
-		</div>
+	{#if state.loading}
+		<p class="loading">Loading...</p>
+	{/if}
 
-		<div class="config-section">
-			<h3>Safety Floors</h3>
-			<dl>
-				<dt>Challenge Threshold</dt><dd>0.6</dd>
-				<dt>Denial Threshold</dt><dd>0.9</dd>
-				<dt>Max Risk Score</dt><dd>1.0</dd>
-			</dl>
+	{#if state.error}
+		<p class="error">{state.error}</p>
+	{/if}
+
+	{#if !systemHealthy}
+		<div class="health-warning">
+			System health: degraded
+			{#if !tlsHealthy} &mdash; TLS not configured{/if}
+			{#if !chainHealthy} &mdash; Audit chain integrity issue{/if}
+		</div>
+	{/if}
+
+	<div class="config-grid">
+		<ConfigPanel title="Relay Settings" fields={relayFields} />
+		<div>
+			<ConfigPanel title="Safety Floors" fields={safetyFields} />
 			<p class="note">Safety floors can be tightened but never lowered below factory defaults.</p>
 		</div>
-
-		<div class="config-section">
-			<h3>TLS Status</h3>
-			<dl>
-				<dt>Enabled</dt><dd><span class="badge badge-warning">Pending</span></dd>
-				<dt>Certificate Expiry</dt><dd>—</dd>
-				<dt>Protocol</dt><dd>—</dd>
-				<dt>Cipher</dt><dd>—</dd>
-			</dl>
-		</div>
-
-		<div class="config-section">
-			<h3>Audit Chain Integrity</h3>
-			<dl>
-				<dt>Total Entries</dt><dd>0</dd>
-				<dt>Chain Valid</dt><dd><span class="badge badge-success">Valid</span></dd>
-				<dt>Last Verified</dt><dd>—</dd>
-			</dl>
-		</div>
+		<ConfigPanel title="TLS Status" fields={tlsFields} />
+		<ConfigPanel title="Audit Chain Integrity" fields={auditFields} />
 	</div>
 </div>
 
@@ -61,36 +102,6 @@
 		gap: 1.5rem;
 	}
 
-	.config-section {
-		background: var(--bg-surface);
-		border: 1px solid var(--border-default);
-		border-radius: 0.5rem;
-		padding: 1.25rem;
-	}
-
-	.config-section h3 {
-		margin-bottom: 1rem;
-		font-size: 1rem;
-		color: var(--text-secondary);
-	}
-
-	dl {
-		display: grid;
-		grid-template-columns: auto 1fr;
-		gap: 0.375rem 1rem;
-	}
-
-	dt {
-		color: var(--text-muted);
-		font-size: 0.8rem;
-	}
-
-	dd {
-		color: var(--text-primary);
-		font-size: 0.875rem;
-		font-weight: 500;
-	}
-
 	.note {
 		margin-top: 0.75rem;
 		font-size: 0.75rem;
@@ -98,21 +109,24 @@
 		font-style: italic;
 	}
 
-	.badge {
-		display: inline-block;
-		padding: 0.125rem 0.5rem;
-		border-radius: 999px;
-		font-size: 0.7rem;
-		font-weight: 600;
-	}
-
-	.badge-success {
-		background: color-mix(in srgb, var(--status-success) 20%, transparent);
-		color: var(--status-success);
-	}
-
-	.badge-warning {
-		background: color-mix(in srgb, var(--status-warning) 20%, transparent);
+	.health-warning {
+		background: color-mix(in srgb, var(--status-warning) 15%, transparent);
 		color: var(--status-warning);
+		padding: 0.75rem 1rem;
+		border-radius: 0.5rem;
+		font-size: 0.875rem;
+		font-weight: 500;
+		margin-bottom: 1.5rem;
+	}
+
+	.loading {
+		color: var(--text-muted);
+		font-style: italic;
+		margin-bottom: 1rem;
+	}
+
+	.error {
+		color: var(--status-error);
+		margin-bottom: 1rem;
 	}
 </style>

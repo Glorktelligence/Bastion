@@ -1,16 +1,37 @@
-<script>
-const _emptyStats = {
-  totalChallenges: 0,
-  resolvedCount: 0,
-  pendingCount: 0,
-  thisWeek: 0,
-  thisMonth: 0,
-  byLayer: {},
-  byDecision: {},
-  topTriggerFactors: [],
-  averageFactorsPerChallenge: 0,
-  recentTrend: 'stable',
-};
+<script lang="ts">
+import * as session from '$lib/session.js';
+import type { ActiveChallenge } from '$lib/stores/challenges.js';
+import type { ChallengeStats } from '$lib/stores/challenge-stats.js';
+import ChallengeHistory from '$lib/components/ChallengeHistory.svelte';
+
+// ---------------------------------------------------------------------------
+// Reactive state from shared session stores
+// ---------------------------------------------------------------------------
+
+let history: readonly ActiveChallenge[] = $state([]);
+let stats: ChallengeStats = $state({
+	totalChallenges: 0,
+	resolvedCount: 0,
+	pendingCount: 0,
+	thisWeek: 0,
+	thisMonth: 0,
+	byLayer: {},
+	byDecision: {},
+	topTriggerFactors: [],
+	averageFactorsPerChallenge: 0,
+	recentTrend: 'stable',
+});
+
+$effect(() => {
+	const unsubs = [
+		session.challenges.store.subscribe((v) => (history = v.history)),
+		session.challengeStats.subscribe((v) => (stats = v)),
+	];
+
+	return () => {
+		for (const u of unsubs) u();
+	};
+});
 </script>
 
 <div class="challenges-page">
@@ -19,7 +40,7 @@ const _emptyStats = {
 		<p class="subtitle">Past safety challenges — decisions, trigger factors, and aggregate statistics.</p>
 	</header>
 
-	<ChallengeHistory history={[]} stats={emptyStats} />
+	<ChallengeHistory {history} {stats} />
 </div>
 
 <style>

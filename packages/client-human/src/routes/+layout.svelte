@@ -1,5 +1,6 @@
 <script>
 import '../app.css';
+import { page } from '$app/state';
 
 const { children } = $props();
 </script>
@@ -10,11 +11,11 @@ const { children } = $props();
 			<h1>Bastion</h1>
 		</div>
 		<nav class="sidebar-nav">
-			<a href="/" class="nav-item">Messages</a>
-			<a href="/tasks" class="nav-item">Tasks</a>
-			<a href="/challenges" class="nav-item">Challenges</a>
-			<a href="/audit" class="nav-item">Audit Log</a>
-			<a href="/settings" class="nav-item">Settings</a>
+			<a href="/" class="nav-item" class:active={page.url.pathname === '/'}>Messages</a>
+			<a href="/tasks" class="nav-item" class:active={page.url.pathname === '/tasks'}>Tasks</a>
+			<a href="/challenges" class="nav-item" class:active={page.url.pathname === '/challenges'}>Challenges</a>
+			<a href="/audit" class="nav-item" class:active={page.url.pathname === '/audit'}>Audit Log</a>
+			<a href="/settings" class="nav-item" class:active={page.url.pathname === '/settings'}>Settings</a>
 		</nav>
 	</aside>
 	<main class="main-area">

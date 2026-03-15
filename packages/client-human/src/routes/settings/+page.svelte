@@ -1,29 +1,52 @@
-<script>
-const _defaultSettings = {
-  challengeThreshold: 0.6,
-  denialThreshold: 0.9,
-  timeOfDayWeight: 1.5,
-  irreversibleAlwaysChallenge: true,
-  fileQuarantineEnabled: true,
-  patternDeviationSensitivity: 'low',
-  gracePeriodMs: 300000,
-  auditRetentionDays: 365,
-  highRiskHoursStart: 0,
-  highRiskHoursEnd: 6,
-};
+<script lang="ts">
+import * as session from '$lib/session.js';
+import type { SafetySettings, SettingUpdateResult } from '$lib/stores/settings.js';
+import SettingsPanel from '$lib/components/SettingsPanel.svelte';
 
-const _isAtFloor = {
-  challengeThreshold: true,
-  denialThreshold: true,
-  timeOfDayWeight: false,
-  irreversibleAlwaysChallenge: true,
-  fileQuarantineEnabled: true,
-  patternDeviationSensitivity: true,
-  gracePeriodMs: false,
-  auditRetentionDays: false,
-  highRiskHoursStart: true,
-  highRiskHoursEnd: true,
-};
+// ---------------------------------------------------------------------------
+// Reactive state from shared session stores
+// ---------------------------------------------------------------------------
+
+let currentSettings: SafetySettings = $state(session.settings.store.get().settings);
+let dirty = $state(false);
+let error: string | null = $state(null);
+let floorValues: SafetySettings = $state(session.SAFETY_FLOOR_VALUES);
+let isAtFloor: Record<keyof SafetySettings, boolean> = $state(session.settings.isAtFloor.get());
+
+$effect(() => {
+	const unsubs = [
+		session.settings.store.subscribe((v) => {
+			currentSettings = v.settings;
+			dirty = v.dirty;
+			error = v.error;
+		}),
+		session.settings.floorValues.subscribe((v) => (floorValues = v)),
+		session.settings.isAtFloor.subscribe((v) => (isAtFloor = v)),
+	];
+
+	return () => {
+		for (const u of unsubs) u();
+	};
+});
+
+// ---------------------------------------------------------------------------
+// Interactive callbacks
+// ---------------------------------------------------------------------------
+
+function handleSettingChange(key: string, value: unknown): void {
+	const result: SettingUpdateResult = session.settings.tryUpdate(key as keyof SafetySettings, value);
+	if (!result.ok) {
+		console.warn(`[Settings] Rejected: ${result.reason}`);
+	}
+}
+
+function handleSave(): void {
+	session.settings.markSaved();
+}
+
+function handleReset(): void {
+	session.settings.resetToDefaults();
+}
 </script>
 
 <div class="settings-page">
@@ -33,11 +56,14 @@ const _isAtFloor = {
 	</header>
 
 	<SettingsPanel
-		settings={defaultSettings}
-		floors={SAFETY_FLOOR_VALUES}
+		settings={currentSettings}
+		floors={floorValues}
 		{isAtFloor}
-		dirty={false}
-		error={null}
+		{dirty}
+		{error}
+		onSettingChange={handleSettingChange}
+		onSave={handleSave}
+		onReset={handleReset}
 	/>
 </div>
 

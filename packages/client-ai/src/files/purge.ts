@@ -224,25 +224,12 @@ export class FilePurgeManager {
   private purgeTask(taskId: string, reason: PurgeReason): TaskPurgeResult | null {
     this.assertNotDestroyed();
 
-    if (!this.tasks.has(taskId)) {
-      // Task not tracked — still attempt to purge files (they may exist
-      // from untracked associations) but don't count as a tracked purge.
-      // Actually, if the task isn't tracked, we can try to purge anyway
-      // in case files were added without registerTask().
-    }
-
     const intakePurged = this.intake.purgeByTask(taskId);
     const stagingPurged = this.staging.purgeByTask(taskId);
     const totalPurged = intakePurged + stagingPurged;
 
     // Remove from tracking
     this.tasks.delete(taskId);
-
-    // If nothing was tracked and nothing was purged, report null
-    if (totalPurged === 0 && !this.tasks.has(taskId)) {
-      // Still report the purge if the task was tracked (even if no files)
-      // The task was already deleted above, so check by looking at the result
-    }
 
     const result: TaskPurgeResult = {
       taskId,

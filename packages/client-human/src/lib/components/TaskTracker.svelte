@@ -7,7 +7,7 @@
  */
 const { tasks, selectedTask } = $props();
 
-const _statusColors = {
+const statusColors = {
   submitted: 'var(--color-accent)',
   in_progress: 'var(--color-warning)',
   completed: 'var(--color-success)',

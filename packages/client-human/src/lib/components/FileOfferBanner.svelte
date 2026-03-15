@@ -9,14 +9,10 @@
   hash, sender) without exposing file content.
 -->
 <script>
-import { createEventDispatcher } from 'svelte';
-
 /** @type {import('../stores/file-transfers.js').PendingFileOffer} */
-const { offer } = $props();
+const { offer, onAccept, onReject } = $props();
 
-const dispatch = createEventDispatcher();
-
-const _expanded = $state(false);
+let expanded = $state(false);
 
 function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
@@ -25,11 +21,11 @@ function formatSize(bytes) {
 }
 
 function accept() {
-  dispatch('accept', { transferId: offer.transferId });
+  onAccept?.({ transferId: offer.transferId });
 }
 
 function reject() {
-  dispatch('reject', { transferId: offer.transferId });
+  onReject?.({ transferId: offer.transferId });
 }
 </script>
 
@@ -57,18 +53,20 @@ function reject() {
   {#if expanded}
     <div class="details">
       <table>
-        <tr><td>Transfer ID</td><td class="mono">{offer.transferId}</td></tr>
-        <tr><td>SHA-256</td><td class="mono hash">{offer.hash}</td></tr>
-        <tr><td>MIME Type</td><td>{offer.mimeType}</td></tr>
-        <tr><td>Size</td><td>{formatSize(offer.sizeBytes)} ({offer.sizeBytes.toLocaleString()} bytes)</td></tr>
-        <tr><td>Sender</td><td>{offer.senderName} ({offer.senderType})</td></tr>
-        <tr><td>Received</td><td>{new Date(offer.receivedAt).toLocaleString()}</td></tr>
-        {#if offer.projectContext}
-          <tr><td>Project</td><td>{offer.projectContext}</td></tr>
-        {/if}
-        {#if offer.taskId}
-          <tr><td>Task ID</td><td class="mono">{offer.taskId}</td></tr>
-        {/if}
+        <tbody>
+          <tr><td>Transfer ID</td><td class="mono">{offer.transferId}</td></tr>
+          <tr><td>SHA-256</td><td class="mono hash">{offer.hash}</td></tr>
+          <tr><td>MIME Type</td><td>{offer.mimeType}</td></tr>
+          <tr><td>Size</td><td>{formatSize(offer.sizeBytes)} ({offer.sizeBytes.toLocaleString()} bytes)</td></tr>
+          <tr><td>Sender</td><td>{offer.senderName} ({offer.senderType})</td></tr>
+          <tr><td>Received</td><td>{new Date(offer.receivedAt).toLocaleString()}</td></tr>
+          {#if offer.projectContext}
+            <tr><td>Project</td><td>{offer.projectContext}</td></tr>
+          {/if}
+          {#if offer.taskId}
+            <tr><td>Task ID</td><td class="mono">{offer.taskId}</td></tr>
+          {/if}
+        </tbody>
       </table>
     </div>
   {/if}

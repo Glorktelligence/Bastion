@@ -7,7 +7,7 @@
  * with approve/modify/cancel actions, or shows challenge history.
  */
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { ChallengeCard } from '../components/ChallengeCard';
 import { useStore } from '../hooks/useStore';
@@ -22,6 +22,23 @@ interface ChallengeScreenProps {
 export function ChallengeScreen({ client }: ChallengeScreenProps) {
   const challengesApi = useMemo(() => createChallengesStore(), []);
   const state = useStore(challengesApi.store);
+
+  // Listen for incoming challenge messages from the client
+  useEffect(() => {
+    const handler = (data: string) => {
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed.type === 'challenge' && parsed.payload) {
+          challengesApi.receiveChallenge(parsed.id ?? crypto.randomUUID(), parsed.payload.taskId ?? '', parsed.payload);
+        }
+      } catch {
+        // Ignore non-JSON messages
+      }
+    };
+
+    client.on('message', handler);
+    return () => client.off('message', handler);
+  }, [client, challengesApi]);
 
   const handleApprove = useCallback(() => {
     const resolved = challengesApi.resolve('approve');

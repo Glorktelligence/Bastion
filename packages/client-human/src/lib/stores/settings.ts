@@ -159,7 +159,7 @@ export function validateSettingChange(key: keyof SafetySettings, value: unknown)
     // Sensitivity: can only go higher
     case 'patternDeviationSensitivity': {
       const val = value as PatternSensitivity;
-      if (!SENSITIVITY_ORDER.hasOwnProperty(val)) {
+      if (!Object.hasOwn(SENSITIVITY_ORDER, val)) {
         return { ok: false, reason: `${key} must be 'low', 'medium', or 'high'` };
       }
       if (SENSITIVITY_ORDER[val] < SENSITIVITY_ORDER[floor as PatternSensitivity]) {

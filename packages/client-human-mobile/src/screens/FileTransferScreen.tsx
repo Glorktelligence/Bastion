@@ -7,10 +7,11 @@
  * active upload progress, and transfer history with custody chain.
  */
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { FileOfferCard } from '../components/FileOfferCard';
 import { useStore } from '../hooks/useStore';
+import type { BastionHumanClient } from '../lib/services/connection';
 import { createFileTransferStore } from '../lib/stores/file-transfers';
 import type { TransferHistoryEntry } from '../lib/stores/file-transfers';
 
@@ -20,9 +21,36 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
-export function FileTransferScreen() {
+interface FileTransferScreenProps {
+  client: BastionHumanClient;
+}
+
+export function FileTransferScreen({ client }: FileTransferScreenProps) {
   const ftApi = useMemo(() => createFileTransferStore(), []);
   const state = useStore(ftApi.store);
+
+  // Listen for incoming file offer and manifest messages from the client
+  useEffect(() => {
+    const handler = (data: string) => {
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed.type === 'file_offer' && parsed.payload) {
+          ftApi.receiveOffer(parsed.id ?? crypto.randomUUID(), parsed.payload, parsed.sender?.displayName ?? 'Unknown');
+        } else if (parsed.type === 'file_manifest' && parsed.payload) {
+          ftApi.receiveManifest(
+            parsed.id ?? crypto.randomUUID(),
+            parsed.payload,
+            parsed.sender?.displayName ?? 'Unknown',
+          );
+        }
+      } catch {
+        // Ignore non-JSON messages
+      }
+    };
+
+    client.on('message', handler);
+    return () => client.off('message', handler);
+  }, [client, ftApi]);
 
   const handleAccept = useCallback(() => {
     ftApi.acceptOffer();
