@@ -8,3 +8,19 @@ build/
 *.cert
 target/
 .claude/settings.local.json
+
+# Environment and secrets
+.env
+.env.*
+certs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.idea/
+.vscode/

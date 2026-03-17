@@ -1,5 +1,0 @@
-git remote add origin git@git.tdi:chaos-admiral/Protocol-Bastion.git
-git push -u origin main
-
-claude --resume 921968c1-6515-4dcb-b97d-bac25019791c
-claude --resume 921968c1-6515-4dcb-b97d-bac25019791c
