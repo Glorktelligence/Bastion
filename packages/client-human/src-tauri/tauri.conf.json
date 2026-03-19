@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicegui-org/nicegui/main/schemas/tauri-conf.schema.json",
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
   "productName": "Bastion",
   "version": "0.1.0",
   "identifier": "com.glorktelligence.bastion",
@@ -10,7 +10,6 @@
     "beforeDevCommand": "pnpm dev"
   },
   "app": {
-    "title": "Bastion",
     "windows": [
       {
         "title": "Bastion",

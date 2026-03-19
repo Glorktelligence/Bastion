@@ -1,8 +1,44 @@
 # Project Bastion
 
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-1%2C831_passing-brightgreen.svg)](#run-tests)
+[![Packages](https://img.shields.io/badge/Packages-7-purple.svg)](#packages)
+[![Protocol](https://img.shields.io/badge/Protocol-23_message_types-orange.svg)](#protocol)
+[![Node](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-339933.svg)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-Strict-3178C6.svg)](https://www.typescriptlang.org)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Status](https://img.shields.io/badge/Status-Pre--Release-yellow.svg)](#status)
+
 **A privacy-first secure messaging protocol for structured Human-AI communication.**
 
 Bastion is an open-source protocol and reference implementation for a communication channel between a human operator and an AI system running in an isolated virtual machine. It provides end-to-end encryption, a three-layer safety engine, auditable file transfers, and full transparency — designed for environments where trust must be earned, not assumed.
+
+---
+
+## Live
+
+> The desktop Human Client connected to a relay server routing encrypted messages to an AI client in an isolated VM — the full Bastion protocol chain, live.
+
+<p align="center">
+  <img src="docs/screenshots/1.png" alt="Bastion — first message through the protocol" width="720" />
+</p>
+
+<details>
+<summary>More screenshots</summary>
+
+<p align="center">
+  <img src="docs/screenshots/2.png" alt="Bastion — protocol discussion through Bastion" width="720" />
+  <br/><br/>
+  <img src="docs/screenshots/3.png" alt="Bastion — zero-knowledge relay performance" width="720" />
+  <br/><br/>
+  <img src="docs/screenshots/4.png" alt="Bastion — hash verification and encryption discussion" width="720" />
+  <br/><br/>
+  <img src="docs/screenshots/6.png" alt="Bastion — industrial cyber aesthetic" width="720" />
+</p>
+
+</details>
+
+---
 
 ## Why Bastion Exists
 
@@ -49,27 +85,27 @@ Most Human-AI interaction today happens through chat interfaces with no structur
                                 └──────────────────────┘
 ```
 
-### Packages
+## Packages
 
-| Package | Description |
-|---------|-------------|
-| `@bastion/protocol` | Shared types, Zod schemas, constants, error codes — the single source of truth |
-| `@bastion/crypto` | E2E encryption (libsodium), KDF key chain, file encrypt/decrypt, audit hash chain |
-| `@bastion/relay` | WebSocket server, message routing, JWT auth, audit logging, file quarantine |
-| `@bastion/client-human` | Tauri + SvelteKit desktop app — messaging, challenge review, file transfers |
-| `@bastion/client-human-mobile` | React Native mobile app — same protocol, mobile-native UI |
-| `@bastion/client-ai` | Headless AI client for isolated VM — safety engine, provider adapter, file handling |
-| `@bastion/relay-admin-ui` | SvelteKit admin panel — provider management, blocklist, quarantine viewer |
+| Package                          | Description                                                                          |
+| -------------------------------- | ------------------------------------------------------------------------------------ |
+| `@bastion/protocol`            | Shared types, Zod schemas, constants, error codes — the single source of truth      |
+| `@bastion/crypto`              | E2E encryption (libsodium), KDF key chain, file encrypt/decrypt, audit hash chain    |
+| `@bastion/relay`               | WebSocket server, message routing, JWT auth, audit logging, file quarantine          |
+| `@bastion/client-human`        | Tauri + SvelteKit desktop app — messaging, challenge review, file transfers         |
+| `@bastion/client-human-mobile` | React Native mobile app — same protocol, mobile-native UI                           |
+| `@bastion/client-ai`           | Headless AI client for isolated VM — safety engine, provider adapter, file handling |
+| `@bastion/relay-admin-ui`      | SvelteKit admin panel — provider management, blocklist, quarantine viewer           |
 
-### The Three-Layer Safety Engine
+## The Three-Layer Safety Engine
 
 Every task submitted through Bastion is evaluated by the AI client's safety engine before execution:
 
-| Layer | Name | Function | Configurable |
-|-------|------|----------|--------------|
-| 1 | Absolute Boundary | Hardcoded denials — blocked operations, MaliClaw Clause, tool registry violations | No. Immutable. |
-| 2 | Contextual Analysis | Risk scoring based on operation type, target sensitivity, time of day, budget impact, historical patterns | Thresholds can be tightened only |
-| 3 | Human Challenge | Operations above the risk threshold are presented to the human with full context: reason, risk assessment, contributing factors, suggested alternatives. The human decides. | Challenge threshold can be lowered (more challenges), never raised |
+| Layer | Name                | Function                                                                                                                                                                    | Configurable                                                       |
+| ----- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| 1     | Absolute Boundary   | Hardcoded denials — blocked operations, MaliClaw Clause, tool registry violations                                                                                          | No. Immutable.                                                     |
+| 2     | Contextual Analysis | Risk scoring based on operation type, target sensitivity, time of day, budget impact, historical patterns                                                                   | Thresholds can be tightened only                                   |
+| 3     | Human Challenge     | Operations above the risk threshold are presented to the human with full context: reason, risk assessment, contributing factors, suggested alternatives. The human decides. | Challenge threshold can be lowered (more challenges), never raised |
 
 ## Quick Start
 
@@ -77,11 +113,12 @@ Every task submitted through Bastion is evaluated by the AI client's safety engi
 
 - **Node.js** >= 20.0.0 (developed on v24)
 - **PNPM** >= 9.0.0 (developed on v10.32)
+- **Rust** (for the desktop Human Client — [install via rustup](https://rustup.rs))
 
 ### Install and Build
 
 ```bash
-git clone https://git.glorktelligence.co.uk/glorktelligence/bastion.git
+git clone https://github.com/Glorktelligence/Bastion.git
 cd bastion
 pnpm install
 pnpm build
@@ -119,8 +156,9 @@ pnpm lint
 ### Development
 
 ```bash
-# Desktop client (SvelteKit dev server)
-pnpm --filter @bastion/client-human dev
+# Desktop client (Tauri + SvelteKit)
+cd packages/client-human
+pnpm tauri dev
 
 # Admin UI (SvelteKit dev server)
 pnpm --filter @bastion/relay-admin-ui dev
@@ -140,6 +178,17 @@ All messages are validated against Zod schemas at every boundary. Unknown messag
 
 Error codes follow the format `BASTION-CXXX` across 7 categories: Connection (1XXX), Auth (2XXX), Protocol (3XXX), Safety (4XXX), File Transfer (5XXX), Provider (6XXX), Configuration (7XXX).
 
+## Infrastructure
+
+Bastion includes deployment templates for self-hosted environments:
+
+- **[Docker Compose](packages/infrastructure/docker/)** — Dev environment with relay, AI client, and admin UI
+- **[Proxmox Templates](packages/infrastructure/proxmox/)** — VM/LXC configs with VLAN isolation
+- **[Systemd Services](packages/infrastructure/systemd/)** — Hardened service files with security directives
+- **[AppArmor Profiles](packages/infrastructure/apparmor/)** — Mandatory access control for AI client VM
+- **[Firewall Rules](packages/infrastructure/firewall/)** — nftables config for defence-in-depth
+- **[Automated Setup](packages/infrastructure/setup/)** — Intelligent provisioning with OS disk protection
+
 ## Documentation
 
 - [Getting Started Guide](docs/guides/getting-started.md) — Clone to running local instance walkthrough
@@ -152,16 +201,15 @@ Error codes follow the format `BASTION-CXXX` across 7 categories: Connection (1X
 - [Contributing Guide](CONTRIBUTING.md) — How to contribute
 - [Code of Conduct](CODE_OF_CONDUCT.md) — Community standards
 
-### Infrastructure
-
-- [Docker Compose](packages/infrastructure/docker/) — Dev environment with relay, AI client, and admin UI
-- [Proxmox Templates](packages/infrastructure/proxmox/) — VM/LXC configs for Naval Fleet deployment
-
 ## Status
 
-**Phase 5 complete.** The protocol, crypto layer, relay, AI client, desktop client, mobile client, admin UI, community documentation, CI/CD, and infrastructure templates are all implemented and tested. See the [project structure doc](docs/spec/bastion-project-structure.md) for the full task breakdown.
+**Pre-Release.** The protocol, crypto layer, relay, AI client, desktop client, mobile client, admin UI, community documentation, CI/CD, and infrastructure templates are all implemented and tested across 1,831 passing tests.
 
-This is a pre-release project. The protocol is stable but has not yet been deployed in production. Feedback, security review, and contributions are welcome.
+The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. The protocol is stable. The reference implementation works.
+
+This is a framework and protocol — not a consumer product. The hard parts are done. Fork it, adapt it, build on it.
+
+Feedback, security review, and contributions are welcome.
 
 ## Licence
 
