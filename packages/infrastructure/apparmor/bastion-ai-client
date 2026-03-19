@@ -1,0 +1,195 @@
+# AppArmor profile: Bastion AI Client
+#
+# Mandatory access control for the Bastion AI client process.
+# This profile restricts filesystem, network, and capability access
+# at the kernel level — even if the Node.js process is compromised,
+# it cannot escape these boundaries.
+#
+# Installation:
+#   sudo cp bastion-ai-client /etc/apparmor.d/bastion-ai-client
+#   sudo apparmor_parser -r /etc/apparmor.d/bastion-ai-client
+#
+# Test in complain mode first:
+#   sudo aa-complain /etc/apparmor.d/bastion-ai-client
+#   # Run AI client, check /var/log/syslog for ALLOWED entries
+#   # Once clean, switch to enforce:
+#   sudo aa-enforce /etc/apparmor.d/bastion-ai-client
+#
+# Check status:
+#   sudo aa-status | grep bastion
+#
+# Copyright 2026 Glorktelligence — Harry Smith
+# Licensed under the Apache License, Version 2.0
+
+#include <tunables/global>
+
+profile bastion-ai-client /usr/bin/node {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+
+  # =========================================================================
+  # Capabilities — NONE required
+  # =========================================================================
+  # AI client runs as unprivileged user, no caps needed
+  # Explicitly deny dangerous capabilities
+  deny capability sys_admin,
+  deny capability sys_ptrace,
+  deny capability sys_rawio,
+  deny capability net_raw,
+  deny capability mknod,
+  deny capability sys_module,
+  deny capability dac_override,
+  deny capability dac_read_search,
+  deny capability fowner,
+  deny capability fsetid,
+  deny capability setuid,
+  deny capability setgid,
+
+  # =========================================================================
+  # Network — relay WSS + AI API HTTPS + DNS only
+  # =========================================================================
+  network inet stream,     # TCP (WSS to relay, HTTPS to API)
+  network inet6 stream,    # TCP IPv6 (future-proofing)
+  network inet dgram,      # UDP (DNS resolution)
+  network inet6 dgram,     # UDP IPv6 DNS
+
+  # Deny raw sockets, packet sockets, netlink
+  deny network raw,
+  deny network packet,
+
+  # =========================================================================
+  # Node.js runtime — read-only
+  # =========================================================================
+  /usr/bin/node                    rmix,
+  /usr/lib/node_modules/**         r,
+  /usr/share/nodejs/**             r,
+
+  # Node.js may need /proc/self for various runtime checks
+  owner /proc/self/status          r,
+  owner /proc/self/maps            r,
+  owner /proc/self/auxv            r,
+  owner /proc/self/stat            r,
+  owner /proc/self/fd/             r,
+  owner /proc/self/cgroup          r,
+  /proc/sys/vm/overcommit_memory   r,
+  /proc/sys/kernel/yama/ptrace_scope r,
+
+  # =========================================================================
+  # Application code — read-only
+  # =========================================================================
+  /opt/bastion-ai/**               r,
+  /opt/bastion-ai/node_modules/**  r,
+  /opt/bastion-ai/.env             r,
+
+  # =========================================================================
+  # File workspace — SCOPED read-write
+  # =========================================================================
+  # This is the ONLY writable location for the AI client.
+  # Intake (received files) and outbound (staged files) live here.
+  /var/lib/bastion-ai/             rw,
+  /var/lib/bastion-ai/**           rw,
+
+  # =========================================================================
+  # Temporary files — private tmp (systemd PrivateTmp)
+  # =========================================================================
+  owner /tmp/**                    rw,
+
+  # =========================================================================
+  # System libraries — read-only
+  # =========================================================================
+  /lib/**                          r,
+  /lib64/**                        r,
+  /usr/lib/**                      r,
+  /usr/lib64/**                    r,
+  /etc/ld.so.cache                 r,
+  /etc/ld.so.preload               r,
+
+  # =========================================================================
+  # SSL/TLS certificates — read-only (for API HTTPS + relay WSS)
+  # =========================================================================
+  /etc/ssl/certs/**                r,
+  /etc/ssl/openssl.cnf             r,
+  /usr/share/ca-certificates/**    r,
+  /etc/ca-certificates/**          r,
+
+  # =========================================================================
+  # DNS resolution — read-only
+  # =========================================================================
+  /etc/resolv.conf                 r,
+  /etc/hosts                       r,
+  /etc/nsswitch.conf               r,
+  /etc/gai.conf                    r,
+  /run/systemd/resolve/stub-resolv.conf r,
+
+  # =========================================================================
+  # Timezone — read-only (for time-of-day safety factor in Layer 2)
+  # =========================================================================
+  /etc/localtime                   r,
+  /usr/share/zoneinfo/**           r,
+
+  # =========================================================================
+  # Device access — minimal pseudo-devices only
+  # =========================================================================
+  /dev/null                        rw,
+  /dev/zero                        r,
+  /dev/urandom                     r,
+  /dev/random                      r,
+
+  # =========================================================================
+  # Deny everything else explicitly
+  # =========================================================================
+  # System directories
+  deny /etc/shadow                 rwklx,
+  deny /etc/passwd                 w,
+  deny /etc/sudoers                rwklx,
+  deny /etc/sudoers.d/**           rwklx,
+  deny /etc/ssh/**                 w,
+  deny /etc/cron*                  rwklx,
+  deny /etc/systemd/**             w,
+
+  # Other user directories
+  deny /home/**                    rwklx,
+  deny /root/**                    rwklx,
+
+  # System paths
+  deny /boot/**                    rwklx,
+  deny /sys/**                     w,
+  deny /proc/sys/**                w,
+
+  # Package management
+  deny /usr/bin/apt*               x,
+  deny /usr/bin/dpkg*              x,
+  deny /usr/bin/pip*               x,
+  deny /usr/bin/npm                x,
+  deny /usr/bin/npx                x,
+  deny /usr/bin/pnpm               x,
+  deny /usr/bin/corepack           x,
+
+  # Dangerous utilities
+  deny /usr/bin/curl               x,
+  deny /usr/bin/wget               x,
+  deny /usr/bin/nc                 x,
+  deny /usr/bin/ncat               x,
+  deny /usr/bin/nmap               x,
+  deny /usr/bin/ssh                x,
+  deny /usr/bin/scp                x,
+  deny /usr/bin/rsync              x,
+  deny /usr/bin/dd                 x,
+  deny /usr/bin/mount              x,
+  deny /usr/bin/umount             x,
+  deny /usr/bin/su                 x,
+  deny /usr/bin/sudo               x,
+  deny /usr/bin/chown              x,
+  deny /usr/bin/chmod              x,
+  deny /usr/bin/chgrp              x,
+  deny /usr/bin/python*            x,
+  deny /usr/bin/perl               x,
+  deny /usr/bin/ruby               x,
+  deny /usr/bin/bash               x,
+  deny /usr/bin/sh                 x,
+  deny /usr/bin/dash               x,
+  deny /usr/bin/zsh                x,
+  deny /bin/bash                   x,
+  deny /bin/sh                     x,
+  deny /bin/dash                   x,
+}

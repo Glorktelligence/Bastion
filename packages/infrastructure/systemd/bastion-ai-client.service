@@ -1,0 +1,150 @@
+# bastion-ai-client.service — Bastion AI Client
+#
+# Headless AI client running in an isolated VM (VLAN 50).
+# Connects to the relay over WSS, processes messages through the
+# three-layer safety pipeline, and communicates with the AI provider API.
+#
+# SECURITY: This is the most restricted service in the Bastion deployment.
+# It runs inside an already-isolated VM, but systemd hardening provides
+# defence-in-depth at the process level.
+#
+# Installation:
+#   sudo cp bastion-ai-client.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable bastion-ai-client
+#   sudo systemctl start bastion-ai-client
+#
+# Logs:
+#   journalctl -u bastion-ai-client -f
+#
+# Copyright 2026 Glorktelligence — Harry Smith
+# Licensed under the Apache License, Version 2.0
+
+[Unit]
+Description=Bastion AI Client — isolated AI execution with safety pipeline
+Documentation=https://github.com/Glorktelligence/Bastion
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bastion-ai
+Group=bastion-ai
+WorkingDirectory=/opt/bastion-ai
+
+ExecStart=/usr/bin/node start-ai-client.mjs
+
+# ---------------------------------------------------------------------------
+# Environment
+# ---------------------------------------------------------------------------
+Environment=NODE_ENV=production
+
+# API key is loaded from /opt/bastion-ai/.env (chmod 600, owned by bastion-ai)
+EnvironmentFile=-/opt/bastion-ai/.env
+
+# ---------------------------------------------------------------------------
+# Restart policy
+# ---------------------------------------------------------------------------
+Restart=on-failure
+RestartSec=10
+StartLimitBurst=3
+StartLimitIntervalSec=120
+
+# ---------------------------------------------------------------------------
+# Security hardening — MAXIMUM RESTRICTION
+# ---------------------------------------------------------------------------
+# Prevent privilege escalation — non-negotiable
+NoNewPrivileges=yes
+
+# Filesystem protection — strict read-only with targeted write access
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadOnlyPaths=/opt/bastion-ai
+
+# Allow writes ONLY to the file workspace (intake + outbound)
+# This is the scoped workspace mount from the vision doc
+ReadWritePaths=/var/lib/bastion-ai
+
+# Protect kernel interfaces — no access whatsoever
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+
+# Capability bounding set — EMPTY. AI client needs NO special capabilities.
+# It connects outbound to the relay (unprivileged port) and HTTPS APIs.
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Restrict namespaces — no container/namespace creation
+RestrictNamespaces=yes
+
+# Restrict address families — TCP only (relay WSS + API HTTPS)
+# No UDP needed — DNS goes through system resolver
+# No raw sockets, no netlink, no packet sockets
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# No SUID/SGID execution
+RestrictSUIDSGID=yes
+
+# Memory execution protection — prevents JIT shellcode
+MemoryDenyWriteExecute=yes
+
+# System call filtering — tight allowlist
+SystemCallFilter=@system-service
+SystemCallFilter=~@mount @reboot @swap @clock @cpu-emulation @debug @module @obsolete @raw-io @privileged @resources
+SystemCallArchitectures=native
+
+# Private /dev — only pseudo-devices
+PrivateDevices=yes
+
+# Lock down /proc — can only see own PID
+ProcSubset=pid
+ProtectProc=invisible
+
+# No realtime scheduling
+RestrictRealtime=yes
+
+# Inaccessible paths — explicitly deny access to sensitive locations
+# even though ProtectSystem=strict already covers most of these
+InaccessiblePaths=/root
+InaccessiblePaths=/home
+InaccessiblePaths=/srv
+InaccessiblePaths=/media
+InaccessiblePaths=/mnt
+
+# Temporary filesystem overlays — /var/tmp is private
+PrivateTmp=yes
+
+# ---------------------------------------------------------------------------
+# Resource limits — process level (supplements cgroup config)
+# ---------------------------------------------------------------------------
+# File descriptors — enough for WebSocket + API connections + file handling
+LimitNOFILE=1024
+
+# Max processes — AI client is single-threaded Node.js, limit forks
+LimitNPROC=32
+
+# Max memory lock — prevent memory locking (no need for it)
+LimitMEMLOCK=0
+
+# Core dumps — disabled (prevent data leakage via core files)
+LimitCORE=0
+
+# ---------------------------------------------------------------------------
+# Watchdog — detect hangs
+# ---------------------------------------------------------------------------
+WatchdogSec=120
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bastion-ai-client
+
+[Install]
+WantedBy=multi-user.target
