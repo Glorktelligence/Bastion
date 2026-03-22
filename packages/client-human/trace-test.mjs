@@ -879,6 +879,62 @@ async function run() {
   }
 
   // -------------------------------------------------------------------
+  // Test 19b: Audit log store — integrity and audit_response handling
+  // -------------------------------------------------------------------
+  console.log('--- Test 19b: Audit log store — integrity and audit_response ---');
+  {
+    const audit = createAuditLogStore();
+
+    // Initial integrity is null
+    check('initial integrity null', audit.integrity.get() === null);
+
+    // Set integrity
+    audit.setIntegrity({ chainValid: true, entriesChecked: 42, lastVerifiedAt: '2026-03-22T12:00:00Z' });
+    check('integrity set', audit.integrity.get() !== null);
+    check('integrity chainValid', audit.integrity.get().chainValid === true);
+    check('integrity entriesChecked', audit.integrity.get().entriesChecked === 42);
+
+    // handleAuditResponse populates entries + integrity
+    audit.handleAuditResponse({
+      entries: [
+        { eventType: 'message_routed', sessionId: 'sess-1', detail: { from: 'human', timestamp: '2026-03-22T10:00:00Z' }, chainHash: 'hash-1' },
+        { eventType: 'auth_success', sessionId: 'sess-2', detail: { identity: 'alice', timestamp: '2026-03-22T10:01:00Z' }, chainHash: 'hash-2' },
+        { eventType: 'file_manifest', sessionId: 'sess-1', detail: { filename: 'report.pdf', timestamp: '2026-03-22T10:02:00Z' }, chainHash: 'hash-3' },
+      ],
+      totalCount: 3,
+      integrity: { chainValid: true, entriesChecked: 100, lastVerifiedAt: '2026-03-22T12:30:00Z' },
+    });
+    check('response entries loaded', audit.store.get().entries.length === 3);
+    check('response entry 0 eventType', audit.store.get().entries[0].eventType === 'message_routed');
+    check('response entry 1 eventType', audit.store.get().entries[1].eventType === 'auth_success');
+    check('response not loading', audit.store.get().loading === false);
+    check('response integrity updated', audit.integrity.get().entriesChecked === 100);
+    check('response integrity valid', audit.integrity.get().chainValid === true);
+
+    // handleAuditResponse with broken chain
+    audit.handleAuditResponse({
+      entries: [],
+      totalCount: 0,
+      integrity: { chainValid: false, entriesChecked: 50, lastVerifiedAt: '2026-03-22T13:00:00Z' },
+    });
+    check('broken chain integrity', audit.integrity.get().chainValid === false);
+    check('broken chain entries empty', audit.store.get().entries.length === 0);
+
+    // buildAuditQuery reflects current filter state
+    audit.setFilter({ eventType: 'auth_success', sessionId: 'sess-1' });
+    audit.setPageSize(25);
+    const query = audit.buildAuditQuery();
+    check('query eventType', query.eventType === 'auth_success');
+    check('query sessionId', query.sessionId === 'sess-1');
+    check('query limit', query.limit === 25);
+    check('query includeIntegrity', query.includeIntegrity === true);
+
+    // Clear resets integrity
+    audit.clear();
+    check('clear resets integrity', audit.integrity.get() === null);
+  }
+
+  // -------------------------------------------------------------------
   // Test 20: Settings store — defaults and floor values
   // -------------------------------------------------------------------
   console.log('--- Test 20: Settings store — defaults and floor values ---');

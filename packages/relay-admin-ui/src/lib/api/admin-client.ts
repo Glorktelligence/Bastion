@@ -159,4 +159,33 @@ export class AdminApiClient {
       matrix,
     });
   }
+
+  // -------------------------------------------------------------------------
+  // Audit
+  // -------------------------------------------------------------------------
+
+  /** Query audit events with optional filters. */
+  async queryAudit(filters?: {
+    startTime?: string;
+    endTime?: string;
+    eventType?: string;
+    sessionId?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<ApiResult> {
+    const params = new URLSearchParams();
+    if (filters?.startTime) params.set('startTime', filters.startTime);
+    if (filters?.endTime) params.set('endTime', filters.endTime);
+    if (filters?.eventType) params.set('eventType', filters.eventType);
+    if (filters?.sessionId) params.set('sessionId', filters.sessionId);
+    if (filters?.limit !== undefined) params.set('limit', String(filters.limit));
+    if (filters?.offset !== undefined) params.set('offset', String(filters.offset));
+    const qs = params.toString();
+    return this.request('GET', `/api/audit${qs ? `?${qs}` : ''}`);
+  }
+
+  /** Get chain integrity status. */
+  async getChainIntegrity(): Promise<ApiResult> {
+    return this.request('GET', '/api/audit/integrity');
+  }
 }

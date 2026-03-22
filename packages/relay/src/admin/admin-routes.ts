@@ -337,6 +337,70 @@ export class AdminRoutes {
   }
 
   // -------------------------------------------------------------------------
+  // Audit Query
+  // -------------------------------------------------------------------------
+
+  /** Query audit events with filters. */
+  queryAudit(filters: {
+    startTime?: string;
+    endTime?: string;
+    eventType?: string;
+    sessionId?: string;
+    limit?: number;
+    offset?: number;
+  }): ApiResponse {
+    const entries = this.audit.query({
+      startTime: filters.startTime,
+      endTime: filters.endTime,
+      eventType: filters.eventType,
+      sessionId: filters.sessionId,
+      limit: filters.limit ?? 100,
+      offset: filters.offset ?? 0,
+    });
+
+    return {
+      status: 200,
+      body: {
+        entries: entries.map((e) => ({
+          index: e.index,
+          timestamp: e.timestamp,
+          eventType: e.eventType,
+          sessionId: e.sessionId,
+          detail: typeof e.detail === 'string' ? JSON.parse(e.detail) : e.detail,
+          chainHash: e.chainHash,
+        })),
+        totalCount: entries.length,
+      },
+    };
+  }
+
+  /** Get chain integrity status. */
+  getChainIntegrity(): ApiResponse {
+    const chain = this.audit.getChain();
+    const totalEntries = chain.length;
+
+    // Verify chain by checking hash linkage
+    let chainValid = true;
+    for (let i = 1; i < chain.length; i++) {
+      if (!chain[i]!.chainHash || chain[i]!.chainHash.length === 0) {
+        chainValid = false;
+        break;
+      }
+    }
+
+    return {
+      status: 200,
+      body: {
+        totalEntries,
+        chainValid,
+        lastVerifiedAt: new Date().toISOString(),
+        lastHash: chain.length > 0 ? chain[chain.length - 1]!.chainHash : null,
+        genesisHash: chain.length > 0 ? chain[0]!.chainHash : null,
+      },
+    };
+  }
+
+  // -------------------------------------------------------------------------
   // Capability Enforcement (relay routing integration)
   // -------------------------------------------------------------------------
 
@@ -491,6 +555,17 @@ export class AdminRoutes {
         } else {
           result = this.setCapabilities(id, body.matrix, adminUsername);
         }
+      } else if (method === 'GET' && path === '/api/audit') {
+        result = this.queryAudit({
+          startTime: url.searchParams.get('startTime') ?? undefined,
+          endTime: url.searchParams.get('endTime') ?? undefined,
+          eventType: url.searchParams.get('eventType') ?? undefined,
+          sessionId: url.searchParams.get('sessionId') ?? undefined,
+          limit: url.searchParams.has('limit') ? Number.parseInt(url.searchParams.get('limit')!, 10) : undefined,
+          offset: url.searchParams.has('offset') ? Number.parseInt(url.searchParams.get('offset')!, 10) : undefined,
+        });
+      } else if (method === 'GET' && path === '/api/audit/integrity') {
+        result = this.getChainIntegrity();
       } else {
         result = { status: 404, body: { error: 'Not found', path, method } };
       }

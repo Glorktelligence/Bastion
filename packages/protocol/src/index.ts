@@ -59,6 +59,8 @@ export type {
   TokenRefreshPayload,
   ProviderStatusPayload,
   BudgetAlertPayload,
+  AuditQueryPayload,
+  AuditResponsePayload,
   MessagePayload,
 } from './types/messages.js';
 
@@ -168,6 +170,8 @@ export {
   TokenRefreshPayloadSchema,
   ProviderStatusPayloadSchema,
   BudgetAlertPayloadSchema,
+  AuditQueryPayloadSchema,
+  AuditResponsePayloadSchema,
   PAYLOAD_SCHEMAS,
 } from './schemas/message.schema.js';
 

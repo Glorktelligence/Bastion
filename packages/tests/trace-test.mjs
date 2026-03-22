@@ -186,6 +186,28 @@ function validPayloads() {
       budgetLimitUsd: 50.0, currentPeriod: '2026-03',
       estimatedCostForNextTask: 2.5,
     },
+    audit_query: {
+      startTime: '2026-03-01T00:00:00.000Z',
+      endTime: '2026-03-22T23:59:59.999Z',
+      eventType: 'message_routed',
+      limit: 50,
+      offset: 0,
+      includeIntegrity: true,
+    },
+    audit_response: {
+      entries: [{
+        eventType: 'message_routed',
+        sessionId: crypto.randomUUID(),
+        detail: { from: 'human', to: 'ai' },
+        chainHash: 'abc123def456',
+      }],
+      totalCount: 1,
+      integrity: {
+        chainValid: true,
+        entriesChecked: 10,
+        lastVerifiedAt: '2026-03-22T12:00:00.000Z',
+      },
+    },
   };
 }
 
@@ -275,8 +297,8 @@ async function run() {
         break;
       }
     }
-    check('all 23 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 23 entries', ALL_MESSAGE_TYPES.length === 23);
+    check('all 25 message types accepted in envelope', allTypesValid);
+    check('ALL_MESSAGE_TYPES has 25 entries', ALL_MESSAGE_TYPES.length === 25);
   }
   console.log();
 
@@ -309,11 +331,11 @@ async function run() {
   // =========================================================================
   // Test 4: All 23 payload schemas — valid data
   // =========================================================================
-  console.log('--- Test 4: All 23 payload schemas accept valid data ---');
+  console.log('--- Test 4: All 25 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 23 entries', typeKeys.length === 23);
-    check('PAYLOAD_SCHEMAS has 23 entries', Object.keys(PAYLOAD_SCHEMAS).length === 23);
+    check('MESSAGE_TYPES has 25 entries', typeKeys.length === 25);
+    check('PAYLOAD_SCHEMAS has 25 entries', Object.keys(PAYLOAD_SCHEMAS).length === 25);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -693,7 +715,7 @@ async function run() {
   // =========================================================================
   // Test 18: Serialise every message type round-trip
   // =========================================================================
-  console.log('--- Test 18: Serialise all 23 types round-trip ---');
+  console.log('--- Test 18: Serialise all 25 types round-trip ---');
   {
     let allPassed = true;
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
@@ -712,7 +734,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 23 message types survive serialisation round-trip', allPassed);
+    check('all 25 message types survive serialisation round-trip', allPassed);
   }
   console.log();
 

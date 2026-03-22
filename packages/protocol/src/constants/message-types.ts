@@ -3,7 +3,7 @@
 // See LICENSE file for full terms
 
 /**
- * All 23 message types in the Bastion protocol.
+ * All 25 message types in the Bastion protocol.
  *
  * Core spec (13): task, conversation, challenge, confirmation, denial,
  *   status, result, error, audit, file_manifest, file_offer, file_request, heartbeat
@@ -11,6 +11,8 @@
  * Supplementary spec (10): session_end, session_conflict, session_superseded,
  *   reconnect, config_update, config_ack, config_nack, token_refresh,
  *   provider_status, budget_alert
+ *
+ * Audit query/response (2): audit_query, audit_response
  */
 export const MESSAGE_TYPES = {
   // --- Core message types (Section 5.2) ---
@@ -39,6 +41,10 @@ export const MESSAGE_TYPES = {
   TOKEN_REFRESH: 'token_refresh',
   PROVIDER_STATUS: 'provider_status',
   BUDGET_ALERT: 'budget_alert',
+
+  // --- Audit query/response ---
+  AUDIT_QUERY: 'audit_query',
+  AUDIT_RESPONSE: 'audit_response',
 } as const;
 
 /** Union type of all valid message type strings. */

@@ -125,6 +125,28 @@ export const AuditPayloadSchema = z.object({
   chainHash: z.string().min(1),
 });
 
+export const AuditQueryPayloadSchema = z.object({
+  startTime: z.string().optional(),
+  endTime: z.string().optional(),
+  eventType: z.string().optional(),
+  sessionId: z.string().optional(),
+  limit: z.number().int().positive().optional(),
+  offset: z.number().int().nonnegative().optional(),
+  includeIntegrity: z.boolean().optional(),
+});
+
+export const AuditResponsePayloadSchema = z.object({
+  entries: z.array(AuditPayloadSchema),
+  totalCount: z.number().int().nonnegative(),
+  integrity: z
+    .object({
+      chainValid: z.boolean(),
+      entriesChecked: z.number().int().nonnegative(),
+      lastVerifiedAt: z.string(),
+    })
+    .nullable(),
+});
+
 export const HeartbeatMetricsSchema = z.object({
   uptimeMs: z.number().nonnegative(),
   memoryUsageMb: z.number().nonnegative(),
@@ -265,4 +287,6 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.TOKEN_REFRESH]: TokenRefreshPayloadSchema,
   [MESSAGE_TYPES.PROVIDER_STATUS]: ProviderStatusPayloadSchema,
   [MESSAGE_TYPES.BUDGET_ALERT]: BudgetAlertPayloadSchema,
+  [MESSAGE_TYPES.AUDIT_QUERY]: AuditQueryPayloadSchema,
+  [MESSAGE_TYPES.AUDIT_RESPONSE]: AuditResponsePayloadSchema,
 } as const;

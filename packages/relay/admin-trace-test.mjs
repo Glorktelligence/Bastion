@@ -570,6 +570,47 @@ async function run() {
   console.log();
 
   // -------------------------------------------------------------------
+  // Test 10b: Audit query API
+  // -------------------------------------------------------------------
+  console.log('--- Test 10b: Audit query API ---');
+  {
+    const registry = new ProviderRegistry();
+    const audit = new AuditLogger({ store: { path: ':memory:' } });
+    const routes = new AdminRoutes({ providerRegistry: registry, auditLogger: audit });
+
+    // Generate some audit events
+    routes.approveProvider('audit-p1', 'Provider 1', 'admin');
+    routes.approveProvider('audit-p2', 'Provider 2', 'admin');
+    routes.revokeProvider('audit-p1', 'admin');
+
+    // Query all
+    const all = routes.queryAudit({});
+    check('audit query returns entries', all.status === 200);
+    check('audit query has 3 entries', all.body.entries.length === 3);
+    check('audit query entries have eventType', all.body.entries[0].eventType !== undefined);
+    check('audit query entries have chainHash', all.body.entries[0].chainHash !== undefined);
+
+    // Query by event type
+    const approvals = routes.queryAudit({ eventType: AUDIT_EVENT_TYPES.PROVIDER_APPROVED });
+    check('audit query by type returns 2', approvals.body.entries.length === 2);
+
+    // Query with limit
+    const limited = routes.queryAudit({ limit: 1 });
+    check('audit query with limit 1', limited.body.entries.length === 1);
+
+    // Chain integrity check
+    const integrity = routes.getChainIntegrity();
+    check('integrity status 200', integrity.status === 200);
+    check('integrity chainValid', integrity.body.chainValid === true);
+    check('integrity totalEntries', integrity.body.totalEntries === 3);
+    check('integrity has lastHash', typeof integrity.body.lastHash === 'string');
+    check('integrity has genesisHash', typeof integrity.body.genesisHash === 'string');
+
+    audit.close();
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
   // Test 11: Capability matrix — defaults and custom
   // -------------------------------------------------------------------
   console.log('--- Test 11: Capability matrix — defaults and custom ---');

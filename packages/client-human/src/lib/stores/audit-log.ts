@@ -35,6 +35,12 @@ export interface AuditLogFilter {
   readonly fileTransferStatus?: string;
 }
 
+export interface ChainIntegrityStatus {
+  readonly chainValid: boolean;
+  readonly entriesChecked: number;
+  readonly lastVerifiedAt: string;
+}
+
 export interface AuditLogState {
   readonly entries: readonly AuditLogEntry[];
   readonly filter: AuditLogFilter;
@@ -42,6 +48,7 @@ export interface AuditLogState {
   readonly error: string | null;
   readonly pageSize: number;
   readonly currentPage: number;
+  readonly integrity: ChainIntegrityStatus | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -70,6 +77,7 @@ export function createAuditLogStore(): {
   totalCount: Readable<number>;
   pageCount: Readable<number>;
   currentPageEntries: Readable<readonly AuditLogEntry[]>;
+  integrity: Readable<ChainIntegrityStatus | null>;
   setEntries(entries: readonly AuditLogEntry[]): void;
   addEntry(entry: AuditLogEntry): void;
   setFilter(filter: Partial<AuditLogFilter>): void;
@@ -78,6 +86,21 @@ export function createAuditLogStore(): {
   setPageSize(size: number): void;
   setLoading(loading: boolean): void;
   setError(error: string | null): void;
+  setIntegrity(integrity: ChainIntegrityStatus | null): void;
+  handleAuditResponse(response: {
+    entries: readonly { eventType: string; sessionId: string; detail: Record<string, unknown>; chainHash: string }[];
+    totalCount: number;
+    integrity: ChainIntegrityStatus | null;
+  }): void;
+  buildAuditQuery(): {
+    startTime?: string;
+    endTime?: string;
+    eventType?: string;
+    sessionId?: string;
+    limit: number;
+    offset: number;
+    includeIntegrity: boolean;
+  };
   clear(): void;
 } {
   const store = writable<AuditLogState>({
@@ -87,6 +110,7 @@ export function createAuditLogStore(): {
     error: null,
     pageSize: DEFAULT_PAGE_SIZE,
     currentPage: 0,
+    integrity: null,
   });
 
   // -------------------------------------------------------------------------
@@ -131,6 +155,8 @@ export function createAuditLogStore(): {
 
   const totalCount = derived([filteredEntries], ([entries]) => entries.length);
 
+  const integrity = derived([store], ([state]) => state.integrity);
+
   const pageCount = derived([totalCount, store], ([count, state]) => Math.max(1, Math.ceil(count / state.pageSize)));
 
   const currentPageEntries = derived([filteredEntries, store], ([entries, state]) => {
@@ -174,6 +200,54 @@ export function createAuditLogStore(): {
     store.update((s) => ({ ...s, error }));
   }
 
+  function setIntegrity(integ: ChainIntegrityStatus | null): void {
+    store.update((s) => ({ ...s, integrity: integ }));
+  }
+
+  function handleAuditResponse(response: {
+    entries: readonly { eventType: string; sessionId: string; detail: Record<string, unknown>; chainHash: string }[];
+    totalCount: number;
+    integrity: ChainIntegrityStatus | null;
+  }): void {
+    const mapped: AuditLogEntry[] = response.entries.map((e, i) => ({
+      index: i,
+      timestamp: (e.detail.timestamp as string) ?? new Date().toISOString(),
+      eventType: e.eventType,
+      sessionId: e.sessionId,
+      detail: e.detail,
+      chainHash: e.chainHash,
+    }));
+    store.update((s) => ({
+      ...s,
+      entries: mapped,
+      loading: false,
+      error: null,
+      currentPage: 0,
+      integrity: response.integrity,
+    }));
+  }
+
+  function buildAuditQuery(): {
+    startTime?: string;
+    endTime?: string;
+    eventType?: string;
+    sessionId?: string;
+    limit: number;
+    offset: number;
+    includeIntegrity: boolean;
+  } {
+    const state = store.get();
+    return {
+      startTime: state.filter.startTime,
+      endTime: state.filter.endTime,
+      eventType: state.filter.eventType,
+      sessionId: state.filter.sessionId,
+      limit: state.pageSize,
+      offset: state.currentPage * state.pageSize,
+      includeIntegrity: true,
+    };
+  }
+
   function clear(): void {
     store.set({
       entries: [],
@@ -182,6 +256,7 @@ export function createAuditLogStore(): {
       error: null,
       pageSize: DEFAULT_PAGE_SIZE,
       currentPage: 0,
+      integrity: null,
     });
   }
 
@@ -191,6 +266,7 @@ export function createAuditLogStore(): {
     totalCount,
     pageCount,
     currentPageEntries,
+    integrity,
     setEntries,
     addEntry,
     setFilter,
@@ -199,6 +275,9 @@ export function createAuditLogStore(): {
     setPageSize,
     setLoading,
     setError,
+    setIntegrity,
+    handleAuditResponse,
+    buildAuditQuery,
     clear,
   };
 }

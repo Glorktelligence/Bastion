@@ -201,6 +201,21 @@ await group('API client: request formation and auth headers', async () => {
 
   await client.getCapabilities('claude-4');
   check(requests[4].url.includes('/capabilities'), 'capabilities URL');
+
+  // Audit API methods
+  await client.queryAudit({ eventType: 'message_routed', limit: 50 });
+  check(requests[5].url.includes('/api/audit'), 'audit query URL');
+  check(requests[5].url.includes('eventType=message_routed'), 'audit query has eventType param');
+  check(requests[5].url.includes('limit=50'), 'audit query has limit param');
+  check(requests[5].opts.method === 'GET', 'GET for audit query');
+
+  await client.getChainIntegrity();
+  check(requests[6].url.includes('/api/audit/integrity'), 'integrity URL');
+  check(requests[6].opts.method === 'GET', 'GET for integrity');
+
+  // Audit query with no filters
+  await client.queryAudit();
+  check(requests[7].url === 'https://127.0.0.1:9444/api/audit', 'audit query no params');
 });
 
 // ---------------------------------------------------------------------------

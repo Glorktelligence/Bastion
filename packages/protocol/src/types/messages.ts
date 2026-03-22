@@ -155,6 +155,28 @@ export interface AuditPayload {
   readonly chainHash: string;
 }
 
+/** Human → Relay: Query the audit trail. */
+export interface AuditQueryPayload {
+  readonly startTime?: string;
+  readonly endTime?: string;
+  readonly eventType?: string;
+  readonly sessionId?: string;
+  readonly limit?: number;
+  readonly offset?: number;
+  readonly includeIntegrity?: boolean;
+}
+
+/** Relay → Human: Audit trail query response. */
+export interface AuditResponsePayload {
+  readonly entries: readonly AuditPayload[];
+  readonly totalCount: number;
+  readonly integrity: {
+    readonly chainValid: boolean;
+    readonly entriesChecked: number;
+    readonly lastVerifiedAt: string;
+  } | null;
+}
+
 /** Periodic keepalive with system health metrics. */
 export interface HeartbeatPayload {
   readonly sessionId: SessionId;
@@ -303,4 +325,6 @@ export type MessagePayload =
   | { type: 'config_nack'; payload: ConfigNackPayload }
   | { type: 'token_refresh'; payload: TokenRefreshPayload }
   | { type: 'provider_status'; payload: ProviderStatusPayload }
-  | { type: 'budget_alert'; payload: BudgetAlertPayload };
+  | { type: 'budget_alert'; payload: BudgetAlertPayload }
+  | { type: 'audit_query'; payload: AuditQueryPayload }
+  | { type: 'audit_response'; payload: AuditResponsePayload };
