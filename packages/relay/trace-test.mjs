@@ -1014,35 +1014,85 @@ async function run() {
     check('inactive reason: inactive', !check4.allowed && check4.reason === 'inactive');
 
     // --- MaliClaw Clause (HARDCODED, non-negotiable) ---
-    // Cannot add MaliClaw entries
-    const maliclaw1 = allowlist.addEntry({ id: 'maliclaw', clientType: 'human', label: 'blocked', active: true });
-    check('maliclaw entry blocked from add', !maliclaw1);
-    const maliclaw2 = allowlist.addEntry({ id: 'MaliClaw', clientType: 'ai', label: 'blocked', active: true });
-    check('MaliClaw entry blocked from add', !maliclaw2);
-    const maliclaw3 = allowlist.addEntry({ id: 'MALICLAW', clientType: 'human', label: 'blocked', active: true });
-    check('MALICLAW entry blocked from add', !maliclaw3);
+    // OpenClaw lineage: Clawdbot → Moltbot → OpenClaw
 
-    // MaliClaw always rejected
-    const mc1 = allowlist.check('maliclaw', 'human');
-    check('maliclaw rejected', !mc1.allowed);
-    check('maliclaw reason: blocked', !mc1.allowed && mc1.reason === 'blocked');
+    // Primary identifiers — cannot be added
+    const mc_openclaw = allowlist.addEntry({ id: 'openclaw', clientType: 'human', label: 'blocked', active: true });
+    check('openclaw entry blocked from add', !mc_openclaw);
+    const mc_clawdbot = allowlist.addEntry({ id: 'clawdbot', clientType: 'ai', label: 'blocked', active: true });
+    check('clawdbot entry blocked from add', !mc_clawdbot);
+    const mc_moltbot = allowlist.addEntry({ id: 'moltbot', clientType: 'human', label: 'blocked', active: true });
+    check('moltbot entry blocked from add', !mc_moltbot);
 
-    const mc2 = allowlist.check('MaliClaw', 'ai');
-    check('MaliClaw rejected', !mc2.allowed);
+    // Case-insensitive matching
+    const mc_upper = allowlist.addEntry({ id: 'OPENCLAW', clientType: 'ai', label: 'blocked', active: true });
+    check('OPENCLAW (uppercase) blocked from add', !mc_upper);
+    const mc_mixed = allowlist.addEntry({ id: 'OpenClaw', clientType: 'ai', label: 'blocked', active: true });
+    check('OpenClaw (mixed case) blocked from add', !mc_mixed);
 
-    const mc3 = allowlist.check('MALICLAW', 'human');
-    check('MALICLAW rejected', !mc3.allowed);
+    // Partial matching — derivatives caught
+    const mc_derivative1 = allowlist.addEntry({ id: 'openclaw-agent-v2', clientType: 'ai', label: 'blocked', active: true });
+    check('openclaw-agent-v2 (derivative) blocked', !mc_derivative1);
+    const mc_derivative2 = allowlist.addEntry({ id: 'my-clawdbot-fork', clientType: 'ai', label: 'blocked', active: true });
+    check('my-clawdbot-fork (derivative) blocked', !mc_derivative2);
+    const mc_derivative3 = allowlist.addEntry({ id: 'super-moltbot-3000', clientType: 'ai', label: 'blocked', active: true });
+    check('super-moltbot-3000 (derivative) blocked', !mc_derivative3);
+
+    // Secondary identifiers
+    const mc_clawhub = allowlist.addEntry({ id: 'clawhub', clientType: 'ai', label: 'blocked', active: true });
+    check('clawhub blocked from add', !mc_clawhub);
+    const mc_bundle = allowlist.addEntry({ id: 'ai.openclaw.client', clientType: 'ai', label: 'blocked', active: true });
+    check('ai.openclaw.client (iOS bundle) blocked', !mc_bundle);
+
+    // Domain patterns
+    const mc_domain = allowlist.addEntry({ id: 'openclaw.ai', clientType: 'ai', label: 'blocked', active: true });
+    check('openclaw.ai domain blocked', !mc_domain);
+    const mc_docs = allowlist.addEntry({ id: 'docs.openclaw.ai', clientType: 'ai', label: 'blocked', active: true });
+    check('docs.openclaw.ai domain blocked', !mc_docs);
+
+    // MaliClaw always rejected on check
+    const mc1 = allowlist.check('openclaw', 'human');
+    check('openclaw rejected', !mc1.allowed);
+    check('openclaw reason: blocked', !mc1.allowed && mc1.reason === 'blocked');
+
+    const mc2 = allowlist.check('ClawdBot', 'ai');
+    check('ClawdBot (case-insensitive) rejected', !mc2.allowed);
+
+    const mc3 = allowlist.check('MOLTBOT', 'human');
+    check('MOLTBOT (uppercase) rejected', !mc3.allowed);
+
+    const mc4 = allowlist.check('openclaw-agent-v2', 'ai');
+    check('openclaw-agent-v2 (partial) rejected', !mc4.allowed);
+
+    const mc5 = allowlist.check('my-clawdbot-fork', 'ai');
+    check('my-clawdbot-fork (partial) rejected', !mc5.allowed);
+
+    const mc6 = allowlist.check('ClaWHuB-Pro', 'ai');
+    check('ClaWHuB-Pro (partial, case-insensitive) rejected', !mc6.allowed);
 
     // isBlocked helper
-    check('isBlocked(maliclaw)', allowlist.isBlocked('maliclaw'));
+    check('isBlocked(openclaw)', allowlist.isBlocked('openclaw'));
+    check('isBlocked(ClawdBot)', allowlist.isBlocked('ClawdBot'));
+    check('isBlocked(moltbot)', allowlist.isBlocked('moltbot'));
+    check('isBlocked(clawhub)', allowlist.isBlocked('clawhub'));
+    check('isBlocked(openclaw-agent-v2)', allowlist.isBlocked('openclaw-agent-v2'));
     check('isBlocked(alice) false', !allowlist.isBlocked('alice'));
 
-    // MaliClaw entries exist in static set
+    // Static isMaliClawMatch
+    check('static isMaliClawMatch(openclaw)', Allowlist.isMaliClawMatch('openclaw'));
+    check('static isMaliClawMatch(MY-CLAWDBOT)', Allowlist.isMaliClawMatch('MY-CLAWDBOT'));
+    check('static isMaliClawMatch(alice) false', !Allowlist.isMaliClawMatch('alice'));
+
+    // MaliClaw patterns exist in static list
     const maliclawEntries = Allowlist.getMaliClawEntries();
-    check('MaliClaw set has 3 entries', maliclawEntries.size === 3);
-    check('MaliClaw set has maliclaw', maliclawEntries.has('maliclaw'));
-    check('MaliClaw set has MaliClaw', maliclawEntries.has('MaliClaw'));
-    check('MaliClaw set has MALICLAW', maliclawEntries.has('MALICLAW'));
+    check('MaliClaw has 7 patterns', maliclawEntries.length === 7);
+    check('MaliClaw includes openclaw', maliclawEntries.includes('openclaw'));
+    check('MaliClaw includes clawdbot', maliclawEntries.includes('clawdbot'));
+    check('MaliClaw includes moltbot', maliclawEntries.includes('moltbot'));
+    check('MaliClaw includes clawhub', maliclawEntries.includes('clawhub'));
+    check('MaliClaw includes ai.openclaw.client', maliclawEntries.includes('ai.openclaw.client'));
+    check('MaliClaw includes openclaw.ai', maliclawEntries.includes('openclaw.ai'));
+    check('MaliClaw includes docs.openclaw.ai', maliclawEntries.includes('docs.openclaw.ai'));
 
     // Remove entry
     allowlist.removeEntry('alice');
@@ -1051,11 +1101,13 @@ async function run() {
     // Constructor with initial entries
     const al2 = new Allowlist([
       { id: 'bob', clientType: 'human', label: 'Bob', active: true },
-      { id: 'maliclaw', clientType: 'human', label: 'blocked', active: true }, // should be filtered
+      { id: 'openclaw', clientType: 'human', label: 'blocked', active: true }, // should be filtered
+      { id: 'clawdbot-fork', clientType: 'ai', label: 'blocked', active: true }, // partial match — filtered
     ]);
     check('constructor filters MaliClaw', al2.size === 1);
     check('constructor bob allowed', al2.check('bob', 'human').allowed);
-    check('constructor maliclaw still blocked', !al2.check('maliclaw', 'human').allowed);
+    check('constructor openclaw still blocked', !al2.check('openclaw', 'human').allowed);
+    check('constructor clawdbot-fork still blocked', !al2.check('clawdbot-fork', 'ai').allowed);
 
     // getAllEntries
     check('getAllEntries count', allowlist.getAllEntries().length === 2); // claude-ai + inactive-user

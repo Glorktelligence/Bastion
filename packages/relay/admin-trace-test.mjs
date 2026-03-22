@@ -524,23 +524,34 @@ async function run() {
     const audit = new AuditLogger({ store: { path: ':memory:' } });
     const routes = new AdminRoutes({ providerRegistry: registry, auditLogger: audit });
 
-    // Try to approve MaliClaw as provider ID
-    const result1 = routes.approveProvider('maliclaw', 'Test Provider', 'admin');
-    check('maliclaw id blocked', result1.status === 403);
-    check('maliclaw error code', result1.body.code === 'BASTION-1003');
+    // Try to approve OpenClaw lineage as provider ID
+    const result1 = routes.approveProvider('openclaw', 'Test Provider', 'admin');
+    check('openclaw id blocked', result1.status === 403);
+    check('openclaw error code', result1.body.code === 'BASTION-1003');
 
-    const result2 = routes.approveProvider('MALICLAW', 'Test Provider', 'admin');
-    check('MALICLAW id blocked', result2.status === 403);
+    const result2 = routes.approveProvider('clawdbot', 'Test Provider', 'admin');
+    check('clawdbot id blocked', result2.status === 403);
 
-    const result3 = routes.approveProvider('MaliClaw', 'Test Provider', 'admin');
-    check('MaliClaw id blocked', result3.status === 403);
+    const result3 = routes.approveProvider('moltbot', 'Test Provider', 'admin');
+    check('moltbot id blocked', result3.status === 403);
 
-    // Try to approve with MaliClaw as provider name
-    const result4 = routes.approveProvider('legit-id', 'maliclaw', 'admin');
-    check('maliclaw name blocked', result4.status === 403);
+    // Case-insensitive
+    const result3b = routes.approveProvider('OpenClaw-Agent', 'Test Provider', 'admin');
+    check('OpenClaw-Agent (partial, mixed case) blocked', result3b.status === 403);
 
-    const result5 = routes.approveProvider('legit-id', 'MaliClaw', 'admin');
-    check('MaliClaw name blocked', result5.status === 403);
+    // Try to approve with MaliClaw pattern as provider name
+    const result4 = routes.approveProvider('legit-id', 'openclaw', 'admin');
+    check('openclaw name blocked', result4.status === 403);
+
+    const result5 = routes.approveProvider('legit-id', 'ClaWHuB Marketplace', 'admin');
+    check('ClaWHuB Marketplace name blocked', result5.status === 403);
+
+    // Secondary identifiers
+    const result6 = routes.approveProvider('ai.openclaw.client', 'iOS Client', 'admin');
+    check('ai.openclaw.client id blocked', result6.status === 403);
+
+    const result7 = routes.approveProvider('legit-id2', 'docs.openclaw.ai', 'admin');
+    check('docs.openclaw.ai name blocked', result7.status === 403);
 
     // Verify nothing was added
     const list = routes.listProviders();
@@ -548,7 +559,7 @@ async function run() {
 
     // Verify audit log recorded the rejections
     const maliClawEvents = audit.query({ eventType: AUDIT_EVENT_TYPES.MALICLAW_REJECTED });
-    check('5 MaliClaw rejections logged', maliClawEvents.length === 5);
+    check('8 MaliClaw rejections logged', maliClawEvents.length === 8);
 
     // Legitimate provider should still work
     const legit = routes.approveProvider('real-provider', 'Real AI', 'admin');
@@ -1029,26 +1040,26 @@ async function run() {
       totpCode: AdminAuth.generateTotpCode(secret),
     });
 
-    // Try each MaliClaw variant as provider ID
+    // Try OpenClaw lineage as provider ID via HTTP
     const maliclaw1 = await adminRequest(port, 'POST', '/api/providers', {
-      id: 'maliclaw',
+      id: 'openclaw',
       name: 'Some Provider',
     }, creds());
-    check('HTTP maliclaw id → 403', maliclaw1.status === 403);
-    check('HTTP maliclaw code', maliclaw1.body.code === 'BASTION-1003');
+    check('HTTP openclaw id → 403', maliclaw1.status === 403);
+    check('HTTP openclaw code', maliclaw1.body.code === 'BASTION-1003');
 
     const maliclaw2 = await adminRequest(port, 'POST', '/api/providers', {
-      id: 'MALICLAW',
+      id: 'clawdbot-fork-v3',
       name: 'Another Provider',
     }, creds());
-    check('HTTP MALICLAW id → 403', maliclaw2.status === 403);
+    check('HTTP clawdbot-fork-v3 id → 403', maliclaw2.status === 403);
 
     // Try as provider name
     const maliclaw3 = await adminRequest(port, 'POST', '/api/providers', {
       id: 'legit',
-      name: 'MaliClaw',
+      name: 'MoltBot Reborn',
     }, creds());
-    check('HTTP MaliClaw name → 403', maliclaw3.status === 403);
+    check('HTTP MoltBot name → 403', maliclaw3.status === 403);
 
     // Verify no providers added
     const list = await adminRequest(port, 'GET', '/api/providers', null, creds());
@@ -1073,7 +1084,7 @@ async function run() {
     routes.revokeProvider('audit-provider', 'admin');
     routes.activateProvider('audit-provider', 'admin');
     routes.setCapabilities('audit-provider', defaultCapabilityMatrix(), 'admin');
-    routes.approveProvider('maliclaw', 'Bad', 'admin'); // Should be rejected
+    routes.approveProvider('openclaw', 'Bad', 'admin'); // Should be rejected
 
     // Verify all events logged
     const chain = audit.getChain();

@@ -17,7 +17,28 @@ import type { BlocklistEntry } from '../types.js';
 // MaliClaw Clause — HARDCODED, mirrors relay allowlist.ts
 // ---------------------------------------------------------------------------
 
-const MALICLAW_ENTRIES: readonly string[] = Object.freeze(['maliclaw', 'MALICLAW', 'MaliClaw']);
+/**
+ * MaliClaw patterns — mirrors relay allowlist.ts.
+ * Case-insensitive partial matching: any identifier containing one
+ * of these patterns is blocked.
+ *
+ * Naming lineage: Clawdbot → Moltbot → OpenClaw (same project, renamed twice).
+ */
+const MALICLAW_PATTERNS: readonly string[] = Object.freeze([
+  'openclaw',
+  'clawdbot',
+  'moltbot',
+  'clawhub',
+  'ai.openclaw.client',
+  'openclaw.ai',
+  'docs.openclaw.ai',
+]);
+
+/** Check if an identifier matches any MaliClaw pattern (case-insensitive, partial). */
+function isMaliClawMatch(identifier: string): boolean {
+  const lower = identifier.toLowerCase();
+  return MALICLAW_PATTERNS.some((pattern) => lower.includes(pattern));
+}
 
 // ---------------------------------------------------------------------------
 // State
@@ -32,7 +53,7 @@ export interface BlocklistState {
 
 function initialState(): BlocklistState {
   return {
-    maliClawEntries: MALICLAW_ENTRIES,
+    maliClawEntries: MALICLAW_PATTERNS,
     customEntries: [],
     loading: false,
     error: null,
@@ -85,12 +106,12 @@ export function createBlocklistStore(): BlocklistStore {
     maliClawCount,
     setCustomEntries(entries) {
       // Filter out any that collide with MaliClaw
-      const safe = entries.filter((e) => !MALICLAW_ENTRIES.includes(e.id));
+      const safe = entries.filter((e) => !isMaliClawMatch(e.id));
       store.update((s) => ({ ...s, customEntries: safe, error: null }));
     },
     addCustomEntry(entry) {
       // Cannot add MaliClaw IDs as custom entries
-      if (MALICLAW_ENTRIES.includes(entry.id)) return false;
+      if (isMaliClawMatch(entry.id)) return false;
       store.update((s) => {
         if (s.customEntries.some((e) => e.id === entry.id)) return s;
         return { ...s, customEntries: [...s.customEntries, entry] };
@@ -99,7 +120,7 @@ export function createBlocklistStore(): BlocklistStore {
     },
     removeCustomEntry(id) {
       // Cannot remove MaliClaw entries
-      if (MALICLAW_ENTRIES.includes(id)) return false;
+      if (isMaliClawMatch(id)) return false;
       let removed = false;
       store.update((s) => {
         const filtered = s.customEntries.filter((e) => e.id !== id);
@@ -109,7 +130,7 @@ export function createBlocklistStore(): BlocklistStore {
       return removed;
     },
     isMaliClaw(id) {
-      return MALICLAW_ENTRIES.includes(id);
+      return isMaliClawMatch(id);
     },
     setLoading(loading) {
       store.update((s) => ({ ...s, loading }));

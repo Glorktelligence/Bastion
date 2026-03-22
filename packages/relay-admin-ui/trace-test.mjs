@@ -362,51 +362,62 @@ await group('Blocklist store: MaliClaw immutability and custom entries', async (
   const blocklist = createBlocklistStore();
   const state = blocklist.store.get();
 
-  // MaliClaw entries always present
-  check(state.maliClawEntries.length === 3, '3 MaliClaw entries');
-  check(state.maliClawEntries.includes('maliclaw'), 'has maliclaw');
-  check(state.maliClawEntries.includes('MALICLAW'), 'has MALICLAW');
-  check(state.maliClawEntries.includes('MaliClaw'), 'has MaliClaw');
+  // MaliClaw patterns always present (OpenClaw lineage)
+  check(state.maliClawEntries.length === 7, '7 MaliClaw patterns');
+  check(state.maliClawEntries.includes('openclaw'), 'has openclaw');
+  check(state.maliClawEntries.includes('clawdbot'), 'has clawdbot');
+  check(state.maliClawEntries.includes('moltbot'), 'has moltbot');
+  check(state.maliClawEntries.includes('clawhub'), 'has clawhub');
+  check(state.maliClawEntries.includes('ai.openclaw.client'), 'has ai.openclaw.client');
+  check(state.maliClawEntries.includes('openclaw.ai'), 'has openclaw.ai');
+  check(state.maliClawEntries.includes('docs.openclaw.ai'), 'has docs.openclaw.ai');
 
-  check(blocklist.maliClawCount.get() === 3, 'maliClawCount = 3');
-  check(blocklist.isMaliClaw('maliclaw'), 'isMaliClaw(maliclaw) = true');
+  check(blocklist.maliClawCount.get() === 7, 'maliClawCount = 7');
+
+  // Case-insensitive partial matching
+  check(blocklist.isMaliClaw('openclaw'), 'isMaliClaw(openclaw) = true');
+  check(blocklist.isMaliClaw('OpenClaw-Agent'), 'isMaliClaw(OpenClaw-Agent) = true');
+  check(blocklist.isMaliClaw('my-clawdbot-fork'), 'isMaliClaw(my-clawdbot-fork) = true');
+  check(blocklist.isMaliClaw('MOLTBOT'), 'isMaliClaw(MOLTBOT) = true');
   check(!blocklist.isMaliClaw('someother'), 'isMaliClaw(someother) = false');
 
-  // Cannot add MaliClaw as custom
-  const added = blocklist.addCustomEntry({ id: 'maliclaw', label: 'test', addedAt: '', addedBy: '' });
-  check(added === false, 'cannot add MaliClaw as custom');
+  // Cannot add MaliClaw as custom (exact or partial match)
+  const added = blocklist.addCustomEntry({ id: 'openclaw', label: 'test', addedAt: '', addedBy: '' });
+  check(added === false, 'cannot add openclaw as custom');
+  const added2 = blocklist.addCustomEntry({ id: 'clawdbot-fork', label: 'test', addedAt: '', addedBy: '' });
+  check(added2 === false, 'cannot add clawdbot-fork as custom');
   check(blocklist.store.get().customEntries.length === 0, 'still 0 custom');
 
   // Add real custom entry
   const ok = blocklist.addCustomEntry({ id: 'bad-bot', label: 'Bad Bot', addedAt: new Date().toISOString(), addedBy: 'admin' });
   check(ok === true, 'added custom entry');
   check(blocklist.store.get().customEntries.length === 1, '1 custom entry');
-  check(blocklist.totalCount.get() === 4, 'total = 3 + 1');
+  check(blocklist.totalCount.get() === 8, 'total = 7 + 1');
 
   // Derived allEntries
   const all = blocklist.allEntries.get();
-  check(all.length === 4, '4 total entries');
-  check(all.filter(e => e.source === 'maliclaw').length === 3, '3 maliclaw');
+  check(all.length === 8, '8 total entries');
+  check(all.filter(e => e.source === 'maliclaw').length === 7, '7 maliclaw');
   check(all.filter(e => e.removable).length === 1, '1 removable');
 
-  // Cannot remove MaliClaw
-  check(blocklist.removeCustomEntry('maliclaw') === false, 'cannot remove maliclaw');
+  // Cannot remove MaliClaw entries
+  check(blocklist.removeCustomEntry('openclaw') === false, 'cannot remove openclaw');
 
   // Remove custom
   check(blocklist.removeCustomEntry('bad-bot') === true, 'removed bad-bot');
   check(blocklist.store.get().customEntries.length === 0, '0 custom after remove');
 
-  // setCustomEntries filters MaliClaw
+  // setCustomEntries filters MaliClaw (partial matching)
   blocklist.setCustomEntries([
     { id: 'safe-block', label: 'Safe', addedAt: '', addedBy: '' },
-    { id: 'MaliClaw', label: 'Sneak', addedAt: '', addedBy: '' },
+    { id: 'openclaw-agent', label: 'Sneak', addedAt: '', addedBy: '' },
   ]);
-  check(blocklist.store.get().customEntries.length === 1, 'MaliClaw filtered from setCustomEntries');
+  check(blocklist.store.get().customEntries.length === 1, 'openclaw-agent filtered from setCustomEntries');
   check(blocklist.store.get().customEntries[0].id === 'safe-block', 'only safe-block kept');
 
   // Reset preserves MaliClaw
   blocklist.reset();
-  check(blocklist.store.get().maliClawEntries.length === 3, 'MaliClaw preserved after reset');
+  check(blocklist.store.get().maliClawEntries.length === 7, 'MaliClaw preserved after reset');
   check(blocklist.store.get().customEntries.length === 0, 'custom cleared after reset');
 });
 

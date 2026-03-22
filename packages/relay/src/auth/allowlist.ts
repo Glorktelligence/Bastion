@@ -48,13 +48,35 @@ export type AllowlistRejectionReason = 'not_listed' | 'inactive' | 'blocked';
 // ---------------------------------------------------------------------------
 
 /**
- * The MaliClaw Clause: permanently blocked identifiers.
+ * The MaliClaw Clause: permanently blocked identifier patterns.
  *
  * These entries are HARDCODED per CLAUDE.md security non-negotiables.
  * They cannot be removed, disabled, or made configurable.
- * Any connection attempt from these identifiers is immediately rejected.
+ * Any connection attempt matching these patterns is immediately rejected.
+ *
+ * Naming lineage: Clawdbot → Moltbot → OpenClaw (same project, renamed twice).
+ * Matching is case-insensitive and partial — any identifier containing
+ * one of these patterns is blocked (e.g. 'openclaw-agent-v2' or
+ * 'my-clawdbot-fork' are both caught).
  */
-const MALICLAW_BLOCKED: ReadonlySet<string> = new Set(['maliclaw', 'MALICLAW', 'MaliClaw']);
+const MALICLAW_PATTERNS: readonly string[] = Object.freeze([
+  // Primary identifiers (project name lineage)
+  'openclaw',             // Current project name
+  'clawdbot',             // Original project name
+  'moltbot',              // Intermediate project name
+  // Secondary identifiers
+  'clawhub',              // Plugin marketplace
+  'ai.openclaw.client',   // iOS bundle ID
+  // Domain patterns
+  'openclaw.ai',          // Main site
+  'docs.openclaw.ai',     // Documentation site
+]);
+
+/** Check if an identifier matches any MaliClaw pattern (case-insensitive, partial). */
+function isMaliClawMatch(identifier: string): boolean {
+  const lower = identifier.toLowerCase();
+  return MALICLAW_PATTERNS.some((pattern) => lower.includes(pattern));
+}
 
 // ---------------------------------------------------------------------------
 // Allowlist
@@ -79,7 +101,7 @@ export class Allowlist {
     if (entries) {
       for (const entry of entries) {
         // Prevent adding MaliClaw entries
-        if (MALICLAW_BLOCKED.has(entry.id)) continue;
+        if (isMaliClawMatch(entry.id)) continue;
         this.entries.set(entry.id, entry);
       }
     }
@@ -100,7 +122,7 @@ export class Allowlist {
    * @returns true if added, false if blocked by MaliClaw
    */
   addEntry(entry: AllowlistEntry): boolean {
-    if (MALICLAW_BLOCKED.has(entry.id)) {
+    if (isMaliClawMatch(entry.id)) {
       return false;
     }
     this.entries.set(entry.id, entry);
@@ -130,7 +152,7 @@ export class Allowlist {
    */
   check(clientId: string, clientType: ClientType): AllowlistCheckResult {
     // MaliClaw Clause — always checked first, non-negotiable
-    if (MALICLAW_BLOCKED.has(clientId)) {
+    if (isMaliClawMatch(clientId)) {
       return { allowed: false, reason: 'blocked' };
     }
 
@@ -157,7 +179,7 @@ export class Allowlist {
    * @returns true if permanently blocked
    */
   isBlocked(clientId: string): boolean {
-    return MALICLAW_BLOCKED.has(clientId);
+    return isMaliClawMatch(clientId);
   }
 
   /** Get all allowlist entries. */
@@ -165,8 +187,13 @@ export class Allowlist {
     return [...this.entries.values()];
   }
 
-  /** Get the set of MaliClaw blocked identifiers (read-only). */
-  static getMaliClawEntries(): ReadonlySet<string> {
-    return MALICLAW_BLOCKED;
+  /** Get the MaliClaw blocked patterns (read-only, for display). */
+  static getMaliClawEntries(): readonly string[] {
+    return MALICLAW_PATTERNS;
+  }
+
+  /** Check if an identifier matches any MaliClaw pattern. */
+  static isMaliClawMatch(identifier: string): boolean {
+    return isMaliClawMatch(identifier);
   }
 }

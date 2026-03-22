@@ -194,8 +194,7 @@ export class AdminRoutes {
     matrix?: CapabilityMatrix,
   ): ApiResponse {
     // MaliClaw Clause — check before any action
-    const maliClaw = Allowlist.getMaliClawEntries();
-    if (maliClaw.has(id) || maliClaw.has(name)) {
+    if (Allowlist.isMaliClawMatch(id) || Allowlist.isMaliClawMatch(name)) {
       this.audit.logEvent(AUDIT_EVENT_TYPES.MALICLAW_REJECTED, 'admin', {
         action: 'approve_provider',
         providerId: id,
