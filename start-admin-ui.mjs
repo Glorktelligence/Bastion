@@ -15,6 +15,7 @@
 // ---------------------------------------------------------------------------
 
 import { createServer } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, extname, resolve } from 'node:path';
@@ -24,6 +25,7 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
 const PORT = parseInt(process.env.BASTION_ADMIN_UI_PORT || '9445');
 const HOST = '127.0.0.1';
+const ADMIN_API_PORT = parseInt(process.env.BASTION_ADMIN_PORT || '9444');
 const BUILD_DIR = resolve(__dirname, 'packages/relay-admin-ui/build');
 
 // ---------------------------------------------------------------------------
@@ -66,15 +68,62 @@ if (!existsSync(indexPath)) {
 console.log('=== Project Bastion — Admin UI Server ===');
 console.log(`Serving: ${BUILD_DIR}`);
 console.log(`Address: http://${HOST}:${PORT}`);
+console.log(`API proxy: /api/* → https://127.0.0.1:${ADMIN_API_PORT}`);
 console.log('Access:  SSH tunnel only');
 console.log('');
+
+// ---------------------------------------------------------------------------
+// API proxy — forward /api/* to the admin HTTPS server
+// ---------------------------------------------------------------------------
+
+function proxyApiRequest(req, res) {
+  const body = [];
+  req.on('data', (chunk) => body.push(chunk));
+  req.on('end', () => {
+    const proxyReq = httpsRequest(
+      {
+        hostname: '127.0.0.1',
+        port: ADMIN_API_PORT,
+        path: req.url,
+        method: req.method,
+        headers: {
+          ...req.headers,
+          host: `127.0.0.1:${ADMIN_API_PORT}`,
+        },
+        rejectUnauthorized: false, // Accept self-signed certs
+      },
+      (proxyRes) => {
+        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        proxyRes.pipe(res);
+      },
+    );
+
+    proxyReq.on('error', (err) => {
+      console.error(`[!] API proxy error: ${err.message}`);
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Admin API unreachable', detail: err.message }));
+    });
+
+    if (body.length > 0) {
+      proxyReq.write(Buffer.concat(body));
+    }
+    proxyReq.end();
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Static file server
 // ---------------------------------------------------------------------------
 
 const server = createServer(async (req, res) => {
-  // Only allow GET and HEAD
+  // Proxy /api/* requests to the admin HTTPS server
+  const urlPath = (req.url || '/').split('?')[0];
+  if (urlPath.startsWith('/api/')) {
+    proxyApiRequest(req, res);
+    return;
+  }
+
+  // Only allow GET and HEAD for static files
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.writeHead(405, { 'Content-Type': 'text/plain' });
     res.end('Method Not Allowed');
@@ -147,6 +196,8 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`[★] Admin UI serving on http://${HOST}:${PORT}`);
-  console.log('[★] SSH tunnel: ssh -L 9445:127.0.0.1:9445 -L 9444:127.0.0.1:9444 relay-host');
-  console.log('[★] Then open: http://localhost:9445');
+  console.log(`[★] API proxy: /api/* → https://127.0.0.1:${ADMIN_API_PORT} (self-signed OK)`);
+  console.log('[★] SSH tunnel: ssh -L 9445:127.0.0.1:9445 relay-host');
+  console.log('[★] Only one tunnel needed — API requests are proxied server-side');
+  console.log('[★] Open: http://localhost:9445');
 });
