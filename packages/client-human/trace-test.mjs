@@ -1019,6 +1019,15 @@ async function run() {
     settings.markSaved();
     check('dirty cleared after markSaved', settings.store.get().dirty === false);
     check('lastSaved set', settings.store.get().lastSaved !== null);
+
+    // User context
+    check('initial userContext empty', settings.store.get().userContext === '');
+    settings.setUserContext('Harry is a sysadmin who manages the Naval Fleet.');
+    check('userContext set', settings.store.get().userContext === 'Harry is a sysadmin who manages the Naval Fleet.');
+    check('userContext derived', settings.userContext.get() === 'Harry is a sysadmin who manages the Naval Fleet.');
+
+    settings.setUserContext('Updated context.');
+    check('userContext updated', settings.userContext.get() === 'Updated context.');
   }
 
   // -------------------------------------------------------------------

@@ -177,6 +177,22 @@ export interface AuditResponsePayload {
   } | null;
 }
 
+/** AI → Relay: Register as a provider with capabilities. */
+export interface ProviderRegisterPayload {
+  readonly providerId: string;
+  readonly providerName: string;
+  readonly capabilities: {
+    readonly conversation: boolean;
+    readonly taskExecution: boolean;
+    readonly fileTransfer: boolean;
+  };
+}
+
+/** Human → AI (via Relay): Update user context for system prompt. */
+export interface ContextUpdatePayload {
+  readonly content: string;
+}
+
 /** Periodic keepalive with system health metrics. */
 export interface HeartbeatPayload {
   readonly sessionId: SessionId;
@@ -327,4 +343,6 @@ export type MessagePayload =
   | { type: 'provider_status'; payload: ProviderStatusPayload }
   | { type: 'budget_alert'; payload: BudgetAlertPayload }
   | { type: 'audit_query'; payload: AuditQueryPayload }
-  | { type: 'audit_response'; payload: AuditResponsePayload };
+  | { type: 'audit_response'; payload: AuditResponsePayload }
+  | { type: 'provider_register'; payload: ProviderRegisterPayload }
+  | { type: 'context_update'; payload: ContextUpdatePayload };

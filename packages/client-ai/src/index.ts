@@ -47,6 +47,7 @@ export {
   createToolRegistry,
   createApiKeyManager,
   createAnthropicAdapter,
+  ConversationManager,
 } from './provider/index.js';
 export type {
   ToolRegistry,
@@ -63,6 +64,8 @@ export type {
   ValidatedToolCall,
   RejectedToolCall,
   FetchFn,
+  ConversationMessage,
+  ConversationManagerConfig,
 } from './provider/index.js';
 
 // ---------------------------------------------------------------------------

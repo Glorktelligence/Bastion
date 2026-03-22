@@ -61,6 +61,8 @@ export type {
   BudgetAlertPayload,
   AuditQueryPayload,
   AuditResponsePayload,
+  ProviderRegisterPayload,
+  ContextUpdatePayload,
   MessagePayload,
 } from './types/messages.js';
 
@@ -172,6 +174,8 @@ export {
   BudgetAlertPayloadSchema,
   AuditQueryPayloadSchema,
   AuditResponsePayloadSchema,
+  ProviderRegisterPayloadSchema,
+  ContextUpdatePayloadSchema,
   PAYLOAD_SCHEMAS,
 } from './schemas/message.schema.js';
 

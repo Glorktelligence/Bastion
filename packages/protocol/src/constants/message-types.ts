@@ -3,7 +3,7 @@
 // See LICENSE file for full terms
 
 /**
- * All 25 message types in the Bastion protocol.
+ * All 27 message types in the Bastion protocol.
  *
  * Core spec (13): task, conversation, challenge, confirmation, denial,
  *   status, result, error, audit, file_manifest, file_offer, file_request, heartbeat
@@ -13,6 +13,7 @@
  *   provider_status, budget_alert
  *
  * Audit query/response (2): audit_query, audit_response
+ * Provider/context (2): provider_register, context_update
  */
 export const MESSAGE_TYPES = {
   // --- Core message types (Section 5.2) ---
@@ -45,6 +46,10 @@ export const MESSAGE_TYPES = {
   // --- Audit query/response ---
   AUDIT_QUERY: 'audit_query',
   AUDIT_RESPONSE: 'audit_response',
+
+  // --- Provider/context ---
+  PROVIDER_REGISTER: 'provider_register',
+  CONTEXT_UPDATE: 'context_update',
 } as const;
 
 /** Union type of all valid message type strings. */

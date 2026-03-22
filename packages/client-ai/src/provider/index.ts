@@ -38,3 +38,7 @@ export type {
   RejectedToolCall,
   FetchFn,
 } from './anthropic-adapter.js';
+
+// Conversation Manager
+export { ConversationManager } from './conversation-manager.js';
+export type { ConversationMessage, ConversationManagerConfig } from './conversation-manager.js';

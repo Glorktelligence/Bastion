@@ -208,6 +208,18 @@ function validPayloads() {
         lastVerifiedAt: '2026-03-22T12:00:00.000Z',
       },
     },
+    provider_register: {
+      providerId: 'anthropic-bastion',
+      providerName: 'Anthropic (Bastion Official)',
+      capabilities: {
+        conversation: true,
+        taskExecution: true,
+        fileTransfer: false,
+      },
+    },
+    context_update: {
+      content: 'Harry is the operator. He works on infrastructure and security projects.',
+    },
   };
 }
 
@@ -297,8 +309,8 @@ async function run() {
         break;
       }
     }
-    check('all 25 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 25 entries', ALL_MESSAGE_TYPES.length === 25);
+    check('all 27 message types accepted in envelope', allTypesValid);
+    check('ALL_MESSAGE_TYPES has 27 entries', ALL_MESSAGE_TYPES.length === 27);
   }
   console.log();
 
@@ -331,11 +343,11 @@ async function run() {
   // =========================================================================
   // Test 4: All 23 payload schemas — valid data
   // =========================================================================
-  console.log('--- Test 4: All 25 payload schemas accept valid data ---');
+  console.log('--- Test 4: All 27 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 25 entries', typeKeys.length === 25);
-    check('PAYLOAD_SCHEMAS has 25 entries', Object.keys(PAYLOAD_SCHEMAS).length === 25);
+    check('MESSAGE_TYPES has 27 entries', typeKeys.length === 27);
+    check('PAYLOAD_SCHEMAS has 27 entries', Object.keys(PAYLOAD_SCHEMAS).length === 27);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -734,7 +746,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 25 message types survive serialisation round-trip', allPassed);
+    check('all 27 message types survive serialisation round-trip', allPassed);
   }
   console.log();
 

@@ -44,6 +44,7 @@ export interface SettingsStoreState {
   readonly dirty: boolean;
   readonly lastSaved: string | null;
   readonly error: string | null;
+  readonly userContext: string;
 }
 
 export interface SettingUpdateResult {
@@ -191,7 +192,9 @@ export function createSettingsStore(initial?: Partial<SafetySettings>): {
   store: Writable<SettingsStoreState>;
   floorValues: Readable<SafetySettings>;
   isAtFloor: Readable<Record<keyof SafetySettings, boolean>>;
+  userContext: Readable<string>;
   tryUpdate(key: keyof SafetySettings, value: unknown): SettingUpdateResult;
+  setUserContext(content: string): void;
   resetToDefaults(): void;
   markSaved(): void;
 } {
@@ -202,6 +205,7 @@ export function createSettingsStore(initial?: Partial<SafetySettings>): {
     dirty: false,
     lastSaved: null,
     error: null,
+    userContext: '',
   });
 
   const floorStore = writable(SAFETY_FLOOR_VALUES);
@@ -259,11 +263,19 @@ export function createSettingsStore(initial?: Partial<SafetySettings>): {
     }));
   }
 
+  const userContext = derived([store], ([s]) => s.userContext);
+
+  function setUserContext(content: string): void {
+    store.update((s) => ({ ...s, userContext: content }));
+  }
+
   return {
     store,
     floorValues,
     isAtFloor,
+    userContext,
     tryUpdate,
+    setUserContext,
     resetToDefaults,
     markSaved,
   };

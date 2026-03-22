@@ -147,6 +147,20 @@ export const AuditResponsePayloadSchema = z.object({
     .nullable(),
 });
 
+export const ProviderRegisterPayloadSchema = z.object({
+  providerId: z.string().min(1),
+  providerName: z.string().min(1),
+  capabilities: z.object({
+    conversation: z.boolean(),
+    taskExecution: z.boolean(),
+    fileTransfer: z.boolean(),
+  }),
+});
+
+export const ContextUpdatePayloadSchema = z.object({
+  content: z.string(),
+});
+
 export const HeartbeatMetricsSchema = z.object({
   uptimeMs: z.number().nonnegative(),
   memoryUsageMb: z.number().nonnegative(),
@@ -289,4 +303,6 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.BUDGET_ALERT]: BudgetAlertPayloadSchema,
   [MESSAGE_TYPES.AUDIT_QUERY]: AuditQueryPayloadSchema,
   [MESSAGE_TYPES.AUDIT_RESPONSE]: AuditResponsePayloadSchema,
+  [MESSAGE_TYPES.PROVIDER_REGISTER]: ProviderRegisterPayloadSchema,
+  [MESSAGE_TYPES.CONTEXT_UPDATE]: ContextUpdatePayloadSchema,
 } as const;

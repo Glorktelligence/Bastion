@@ -15,6 +15,7 @@ import {
   createToolRegistry,
   createApiKeyManager,
   createAnthropicAdapter,
+  ConversationManager,
 } from './dist/index.js';
 import {
   BastionRelay,
@@ -1349,6 +1350,67 @@ async function run() {
       check('valid tool is ssh_command', r5.response.toolCalls[0].toolId === 'ssh_command');
       check('rejected tool is secret_tool', r5.response.rejectedToolCalls[0].toolId === 'secret_tool');
     }
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: ConversationManager
+  // -------------------------------------------------------------------
+  console.log('--- Test: ConversationManager ---');
+  {
+    // Basic message management
+    const cm = new ConversationManager({ userContextPath: '/tmp/bastion-test-nonexistent-ctx.md' });
+    check('initial messages empty', cm.messageCount === 0);
+    check('initial user context empty', cm.getUserContext() === '');
+
+    cm.addUserMessage('Hello, what can you do?');
+    check('1 message after user msg', cm.messageCount === 1);
+
+    cm.addAssistantMessage('I can help with tasks within the Bastion protocol.');
+    check('2 messages after assistant msg', cm.messageCount === 2);
+
+    const msgs = cm.getMessages();
+    check('first msg is user', msgs[0].role === 'user');
+    check('second msg is assistant', msgs[1].role === 'assistant');
+    check('user content correct', msgs[0].content === 'Hello, what can you do?');
+
+    // System prompt without user context
+    const prompt = cm.getSystemPrompt();
+    check('system prompt has role context', prompt.includes('Bastion secure messaging protocol'));
+    check('system prompt has no user context section', !prompt.includes('User Context'));
+
+    // User context
+    cm.updateUserContext('Harry works on infrastructure security.');
+    check('user context set', cm.getUserContext() === 'Harry works on infrastructure security.');
+    const promptWithCtx = cm.getSystemPrompt();
+    check('prompt has user context', promptWithCtx.includes('Harry works on infrastructure'));
+    check('prompt has role context before user context', promptWithCtx.indexOf('Bastion secure messaging') < promptWithCtx.indexOf('Harry works'));
+
+    // Token estimation
+    const tokens = cm.estimateTokenCount();
+    check('token estimate positive', tokens > 0);
+    check('token estimate reasonable', tokens > 10 && tokens < 10000);
+
+    // Clear preserves user context
+    cm.clear();
+    check('cleared messages', cm.messageCount === 0);
+    check('user context preserved after clear', cm.getUserContext() === 'Harry works on infrastructure security.');
+
+    // Token budget enforcement
+    const cm2 = new ConversationManager({ tokenBudget: 200, userContextPath: '/tmp/bastion-test-nonexistent-ctx.md' });
+    // Each message ~25 chars → ~6 tokens. System prompt ~200 chars → ~50 tokens. Budget 200.
+    for (let i = 0; i < 40; i++) {
+      cm2.addUserMessage(`Message number ${i} with some padding text here.`);
+      cm2.addAssistantMessage(`Response number ${i} with some padding text here.`);
+    }
+    check('budget enforced: fewer than 80 messages', cm2.messageCount < 80);
+    check('budget enforced: at least 6 preserved', cm2.messageCount >= 6);
+    check('token count within budget', cm2.estimateTokenCount() <= 200 || cm2.messageCount === 6);
+
+    // Static role context
+    const roleCtx = ConversationManager.getRoleContext();
+    check('static role context exists', roleCtx.includes('Bastion secure messaging protocol'));
+    check('role context mentions safety', roleCtx.includes('dangerous'));
   }
   console.log();
 
