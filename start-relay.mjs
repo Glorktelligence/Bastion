@@ -110,11 +110,70 @@ const adminAuth = new AdminAuth({
 });
 console.log(`[✓] Admin auth ready (user: ${adminUsername})`);
 
+// ---------------------------------------------------------------------------
+// Live status tracking for admin dashboard
+// ---------------------------------------------------------------------------
+
+/** Rolling message counter for messages-per-minute calculation. */
+const messageTimestamps = [];
+const MESSAGE_WINDOW_MS = 60_000;
+
+/** Per-connection message counters. */
+const connectionMessageCounts = new Map();
+
+function recordMessage(connectionId) {
+  messageTimestamps.push(Date.now());
+  connectionMessageCounts.set(connectionId, (connectionMessageCounts.get(connectionId) || 0) + 1);
+}
+
+function getMessagesPerMinute() {
+  const cutoff = Date.now() - MESSAGE_WINDOW_MS;
+  // Trim old entries
+  while (messageTimestamps.length > 0 && messageTimestamps[0] < cutoff) {
+    messageTimestamps.shift();
+  }
+  return messageTimestamps.length;
+}
+
+/** RelayStatusProvider implementation wired to live relay state. */
+const statusProvider = {
+  getConnections() {
+    const ids = relay.getConnectionIds();
+    return ids.map((connId) => {
+      const connInfo = relay.getConnection(connId);
+      const client = router.getClient(connId);
+      const clientType = client ? client.identity.type : 'unknown';
+      const authenticated = !!client;
+      const providerId = undefined; // Could be wired to adminRoutes.getConnectionProvider(connId)
+      return {
+        connectionId: connId,
+        remoteAddress: connInfo?.remoteAddress ?? 'unknown',
+        connectedAt: connInfo?.connectedAt ?? new Date().toISOString(),
+        clientType,
+        authenticated,
+        providerId,
+        messageCount: connectionMessageCounts.get(connId) || 0,
+      };
+    });
+  },
+  getActiveSessionCount() {
+    // A session is active when both human and AI are paired
+    return (humanConnectionId && aiConnectionId && router.getPeer(humanConnectionId)) ? 1 : 0;
+  },
+  getMessagesPerMinute() {
+    return getMessagesPerMinute();
+  },
+  getQuarantineStatus() {
+    return { active: 0, capacity: 100 };
+  },
+};
+
 const adminRoutes = new AdminRoutes({
   providerRegistry,
   auditLogger,
+  statusProvider,
 });
-console.log('[✓] Admin routes initialised');
+console.log('[✓] Admin routes initialised (live status provider wired)');
 
 const adminServer = new AdminServer({
   port: ADMIN_PORT,
@@ -290,6 +349,7 @@ relay.on('message', async (data, info) => {
 
   const sent = relay.send(peerId, data);
   if (sent) {
+    recordMessage(connId);
     const client = router.getClient(connId);
     const peer = router.getClient(peerId);
     console.log(`[→] ${client?.identity.displayName || connId.slice(0, 8)} → ${peer?.identity.displayName || peerId.slice(0, 8)}: ${msg.type}`);
@@ -325,6 +385,7 @@ relay.on('disconnection', (info, code, reason) => {
 
   // Unregister from router (also unpairs)
   router.unregisterClient(connId);
+  connectionMessageCounts.delete(connId);
 
   // Clear tracking and notify remaining peer
   if (connId === humanConnectionId) {
