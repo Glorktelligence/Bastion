@@ -188,4 +188,18 @@ export class AdminApiClient {
   async getChainIntegrity(): Promise<ApiResult> {
     return this.request('GET', '/api/audit/integrity');
   }
+
+  // -------------------------------------------------------------------------
+  // Live Status
+  // -------------------------------------------------------------------------
+
+  /** Get live relay status (connections, sessions, throughput, quarantine). */
+  async getStatus(): Promise<ApiResult> {
+    return this.request('GET', '/api/status');
+  }
+
+  /** Get all active connections with metadata. */
+  async getConnections(): Promise<ApiResult> {
+    return this.request('GET', '/api/connections');
+  }
 }

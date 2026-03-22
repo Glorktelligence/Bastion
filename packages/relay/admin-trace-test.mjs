@@ -611,6 +611,68 @@ async function run() {
   console.log();
 
   // -------------------------------------------------------------------
+  // Test 10c: Live status and connections API
+  // -------------------------------------------------------------------
+  console.log('--- Test 10c: Live status and connections API ---');
+  {
+    const registry = new ProviderRegistry();
+    const audit = new AuditLogger({ store: { path: ':memory:' } });
+
+    // Without status provider — returns zeros
+    const routesNoProvider = new AdminRoutes({ providerRegistry: registry, auditLogger: audit });
+    const emptyStatus = routesNoProvider.getStatus();
+    check('empty status 200', emptyStatus.status === 200);
+    check('empty total 0', emptyStatus.body.connectedClients.total === 0);
+    check('empty sessions 0', emptyStatus.body.activeSessions === 0);
+    check('empty msg/min 0', emptyStatus.body.messagesPerMinute === 0);
+
+    const emptyConns = routesNoProvider.getConnectionsList();
+    check('empty connections 200', emptyConns.status === 200);
+    check('empty connections array', emptyConns.body.connections.length === 0);
+
+    // With mock status provider
+    const mockConnections = [
+      { connectionId: 'c1', remoteAddress: '10.0.10.5', connectedAt: '2026-03-22T10:00:00Z', clientType: 'human', authenticated: true, messageCount: 15 },
+      { connectionId: 'c2', remoteAddress: '10.0.50.10', connectedAt: '2026-03-22T10:01:00Z', clientType: 'ai', authenticated: true, providerId: 'anthropic', messageCount: 12 },
+      { connectionId: 'c3', remoteAddress: '10.0.10.20', connectedAt: '2026-03-22T10:05:00Z', clientType: 'unknown', authenticated: false, messageCount: 0 },
+    ];
+    const mockProvider = {
+      getConnections: () => mockConnections,
+      getActiveSessionCount: () => 1,
+      getMessagesPerMinute: () => 42.5,
+      getQuarantineStatus: () => ({ active: 3, capacity: 100 }),
+    };
+
+    const routes = new AdminRoutes({ providerRegistry: registry, auditLogger: audit, statusProvider: mockProvider });
+
+    // GET /api/status
+    const status = routes.getStatus();
+    check('status 200', status.status === 200);
+    check('status total 3', status.body.connectedClients.total === 3);
+    check('status human 1', status.body.connectedClients.human === 1);
+    check('status ai 1', status.body.connectedClients.ai === 1);
+    check('status unknown 1', status.body.connectedClients.unknown === 1);
+    check('status sessions 1', status.body.activeSessions === 1);
+    check('status msg/min 42.5', status.body.messagesPerMinute === 42.5);
+    check('status quarantine active 3', status.body.quarantine.active === 3);
+    check('status quarantine capacity 100', status.body.quarantine.capacity === 100);
+
+    // GET /api/connections
+    const conns = routes.getConnectionsList();
+    check('connections 200', conns.status === 200);
+    check('connections total 3', conns.body.total === 3);
+    check('connections array length 3', conns.body.connections.length === 3);
+    check('conn[0] is human', conns.body.connections[0].clientType === 'human');
+    check('conn[0] remoteAddress', conns.body.connections[0].remoteAddress === '10.0.10.5');
+    check('conn[1] providerId', conns.body.connections[1].providerId === 'anthropic');
+    check('conn[2] not authenticated', conns.body.connections[2].authenticated === false);
+    check('conn[1] messageCount 12', conns.body.connections[1].messageCount === 12);
+
+    audit.close();
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
   // Test 11: Capability matrix — defaults and custom
   // -------------------------------------------------------------------
   console.log('--- Test 11: Capability matrix — defaults and custom ---');

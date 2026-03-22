@@ -216,6 +216,15 @@ await group('API client: request formation and auth headers', async () => {
   // Audit query with no filters
   await client.queryAudit();
   check(requests[7].url === 'https://127.0.0.1:9444/api/audit', 'audit query no params');
+
+  // Status and connections API methods
+  await client.getStatus();
+  check(requests[8].url === 'https://127.0.0.1:9444/api/status', 'status URL');
+  check(requests[8].opts.method === 'GET', 'GET for status');
+
+  await client.getConnections();
+  check(requests[9].url === 'https://127.0.0.1:9444/api/connections', 'connections URL');
+  check(requests[9].opts.method === 'GET', 'GET for connections');
 });
 
 // ---------------------------------------------------------------------------

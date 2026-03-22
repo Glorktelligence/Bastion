@@ -202,6 +202,8 @@ export type {
   CapabilityMatrix,
   FileTransferCapabilities,
   ApiResponse,
+  RelayStatusProvider,
+  LiveConnectionInfo,
 } from './admin/admin-routes.js';
 
 // ---------------------------------------------------------------------------

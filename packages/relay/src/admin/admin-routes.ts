@@ -103,10 +103,41 @@ export interface ApiResponse {
 // Configuration
 // ---------------------------------------------------------------------------
 
+/** Live connection info returned by the status provider. */
+export interface LiveConnectionInfo {
+  readonly connectionId: string;
+  readonly remoteAddress: string;
+  readonly connectedAt: string;
+  readonly clientType: 'human' | 'ai' | 'unknown';
+  readonly authenticated: boolean;
+  readonly providerId?: string;
+  readonly messageCount: number;
+}
+
+/**
+ * Provider of live relay state for the admin API.
+ *
+ * Decouples AdminRoutes from BastionRelay/MessageRouter internals.
+ * Implement this interface and pass it via config to enable
+ * GET /api/status and GET /api/connections.
+ */
+export interface RelayStatusProvider {
+  /** Get all active connections with metadata. */
+  getConnections(): readonly LiveConnectionInfo[];
+  /** Number of paired (human↔AI) sessions. */
+  getActiveSessionCount(): number;
+  /** Rolling messages-per-minute rate. */
+  getMessagesPerMinute(): number;
+  /** Quarantine status: active entries and capacity. */
+  getQuarantineStatus(): { active: number; capacity: number };
+}
+
 /** Configuration for admin routes. */
 export interface AdminRoutesConfig {
   readonly providerRegistry: ProviderRegistry;
   readonly auditLogger: AuditLogger;
+  /** Optional live relay state provider for status/connections endpoints. */
+  readonly statusProvider?: RelayStatusProvider;
 }
 
 // ---------------------------------------------------------------------------
@@ -132,12 +163,14 @@ export class AdminRoutes {
   private readonly capabilities: Map<string, CapabilityMatrix>;
   /** Connection ID → Provider ID mapping for capability enforcement. */
   private readonly connectionProviders: Map<string, string>;
+  private readonly statusProvider: RelayStatusProvider | null;
 
   constructor(config: AdminRoutesConfig) {
     this.registry = config.providerRegistry;
     this.audit = config.auditLogger;
     this.capabilities = new Map();
     this.connectionProviders = new Map();
+    this.statusProvider = config.statusProvider ?? null;
   }
 
   /** Number of providers with custom capability matrices. */
@@ -401,6 +434,56 @@ export class AdminRoutes {
   }
 
   // -------------------------------------------------------------------------
+  // Live Status
+  // -------------------------------------------------------------------------
+
+  /** Get live relay status (connections, sessions, throughput, quarantine). */
+  getStatus(): ApiResponse {
+    if (!this.statusProvider) {
+      return {
+        status: 200,
+        body: {
+          connectedClients: { total: 0, human: 0, ai: 0, unknown: 0 },
+          activeSessions: 0,
+          messagesPerMinute: 0,
+          quarantine: { active: 0, capacity: 100 },
+        },
+      };
+    }
+
+    const conns = this.statusProvider.getConnections();
+    const human = conns.filter((c) => c.clientType === 'human').length;
+    const ai = conns.filter((c) => c.clientType === 'ai').length;
+    const unknown = conns.filter((c) => c.clientType === 'unknown').length;
+
+    return {
+      status: 200,
+      body: {
+        connectedClients: { total: conns.length, human, ai, unknown },
+        activeSessions: this.statusProvider.getActiveSessionCount(),
+        messagesPerMinute: this.statusProvider.getMessagesPerMinute(),
+        quarantine: this.statusProvider.getQuarantineStatus(),
+      },
+    };
+  }
+
+  /** Get all active connections with metadata. */
+  getConnectionsList(): ApiResponse {
+    if (!this.statusProvider) {
+      return { status: 200, body: { connections: [], total: 0 } };
+    }
+
+    const connections = this.statusProvider.getConnections();
+    return {
+      status: 200,
+      body: {
+        connections,
+        total: connections.length,
+      },
+    };
+  }
+
+  // -------------------------------------------------------------------------
   // Capability Enforcement (relay routing integration)
   // -------------------------------------------------------------------------
 
@@ -555,6 +638,10 @@ export class AdminRoutes {
         } else {
           result = this.setCapabilities(id, body.matrix, adminUsername);
         }
+      } else if (method === 'GET' && path === '/api/status') {
+        result = this.getStatus();
+      } else if (method === 'GET' && path === '/api/connections') {
+        result = this.getConnectionsList();
       } else if (method === 'GET' && path === '/api/audit') {
         result = this.queryAudit({
           startTime: url.searchParams.get('startTime') ?? undefined,
