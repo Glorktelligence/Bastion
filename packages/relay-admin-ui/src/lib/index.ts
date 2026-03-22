@@ -55,6 +55,9 @@ export {
 export { AdminApiClient } from './api/admin-client.js';
 export type { AdminCredentials, AdminClientConfig } from './api/admin-client.js';
 
+export { DataService } from './api/data-service.js';
+export type { DataServiceConfig } from './api/data-service.js';
+
 // ---------------------------------------------------------------------------
 // Stores
 // ---------------------------------------------------------------------------

@@ -26,6 +26,7 @@ import {
   formatTimestamp,
   relativeTime,
   AdminApiClient,
+  DataService,
   createOverviewStore,
   createProvidersStore,
   defaultCapabilityMatrix,
@@ -765,6 +766,203 @@ await group('Connections store: bulk setConnections and error/loading', async ()
 
   connections.setLoading(true);
   check(connections.store.get().loading === true, 'loading true');
+});
+
+// ---------------------------------------------------------------------------
+// Test 18: DataService — fetches API and populates stores
+// ---------------------------------------------------------------------------
+await group('DataService: fetchStatus populates overview store', async () => {
+  // Mock fetch that returns status data
+  const mockFetch = async (url, opts) => {
+    if (url.includes('/api/status')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          connectedClients: { total: 3, human: 1, ai: 1, unknown: 1 },
+          activeSessions: 1,
+          messagesPerMinute: 42,
+          quarantine: { active: 2, capacity: 100 },
+        }),
+      };
+    }
+    if (url.includes('/api/audit')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          entries: [
+            { index: 0, timestamp: '2026-03-22T10:00:00Z', eventType: 'message_routed', sessionId: 's1', detail: {} },
+            { index: 1, timestamp: '2026-03-22T10:01:00Z', eventType: 'auth_success', sessionId: 's2', detail: {} },
+          ],
+          totalCount: 2,
+        }),
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  const client = new AdminApiClient({
+    baseUrl: 'https://127.0.0.1:9444',
+    credentials: { username: 'admin', password: 'pass', totpCode: '123456' },
+    fetchImpl: mockFetch,
+  });
+
+  const service = new DataService({ client });
+  const overview = createOverviewStore();
+
+  await service.fetchStatus(overview);
+  check(overview.store.get().connectedClients === 3, 'clients populated from API');
+  check(overview.store.get().activeSessions === 1, 'sessions populated');
+  check(overview.store.get().throughput.perMinute === 42, 'msg/min populated');
+  check(overview.store.get().quarantine.count === 2, 'quarantine count populated');
+  check(overview.store.get().loading === false, 'loading cleared');
+  check(overview.store.get().error === null, 'no error');
+
+  await service.fetchAuditEvents(overview);
+  check(overview.store.get().recentAuditEvents.length === 2, 'audit events populated');
+
+  service.destroy();
+});
+
+await group('DataService: fetchConnections populates connections store', async () => {
+  const mockFetch = async (url) => {
+    if (url.includes('/api/connections')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          connections: [
+            { connectionId: 'c1', remoteAddress: '10.0.10.5', connectedAt: '2026-03-22T10:00:00Z', clientType: 'human', authenticated: true, messageCount: 15 },
+            { connectionId: 'c2', remoteAddress: '10.0.50.10', connectedAt: '2026-03-22T10:01:00Z', clientType: 'ai', authenticated: true, providerId: 'anthropic', messageCount: 12 },
+          ],
+          total: 2,
+        }),
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  const client = new AdminApiClient({
+    baseUrl: 'https://127.0.0.1:9444',
+    credentials: { username: 'admin', password: 'pass', totpCode: '123456' },
+    fetchImpl: mockFetch,
+  });
+
+  const service = new DataService({ client });
+  const connections = createConnectionsStore();
+
+  await service.fetchConnections(connections);
+  check(connections.totalCount.get() === 2, 'connections populated');
+  check(connections.humanCount.get() === 1, 'human count correct');
+  check(connections.aiCount.get() === 1, 'ai count correct');
+  check(connections.store.get().loading === false, 'loading cleared');
+
+  service.destroy();
+});
+
+await group('DataService: fetchProviders and approveProvider', async () => {
+  let approveCount = 0;
+  const mockFetch = async (url, opts) => {
+    if (url.includes('/api/providers') && opts?.method === 'POST') {
+      approveCount++;
+      return {
+        ok: true,
+        status: 201,
+        json: async () => ({ id: 'new-provider', name: 'New Provider', active: true }),
+      };
+    }
+    if (url.includes('/api/providers')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          providers: approveCount > 0
+            ? [{ id: 'new-provider', name: 'New Provider', active: true, capabilities: [], approvedAt: '2026-03-22T10:00:00Z', approvedBy: 'admin' }]
+            : [],
+          total: approveCount > 0 ? 1 : 0,
+        }),
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  const client = new AdminApiClient({
+    baseUrl: 'https://127.0.0.1:9444',
+    credentials: { username: 'admin', password: 'pass', totpCode: '123456' },
+    fetchImpl: mockFetch,
+  });
+
+  const service = new DataService({ client });
+  const providers = createProvidersStore();
+
+  await service.fetchProviders(providers);
+  check(providers.totalCount.get() === 0, 'initially empty');
+
+  const ok = await service.approveProvider(providers, 'new-provider', 'New Provider');
+  check(ok === true, 'approve returned true');
+  check(providers.totalCount.get() === 1, 'provider added after approve');
+
+  service.destroy();
+});
+
+await group('DataService: error handling surfaces in stores', async () => {
+  const failFetch = async () => ({
+    ok: false,
+    status: 500,
+    json: async () => ({ error: 'Internal server error' }),
+  });
+
+  const client = new AdminApiClient({
+    baseUrl: 'https://127.0.0.1:9444',
+    credentials: { username: 'admin', password: 'pass', totpCode: '123456' },
+    fetchImpl: failFetch,
+  });
+
+  const service = new DataService({ client });
+  const overview = createOverviewStore();
+
+  await service.fetchStatus(overview);
+  check(overview.store.get().error !== null, 'error set on failure');
+  check(overview.store.get().error.includes('Internal server error'), 'error message propagated');
+  check(overview.store.get().loading === false, 'loading cleared on error');
+
+  service.destroy();
+});
+
+await group('DataService: fetchConfig populates config store', async () => {
+  const mockFetch = async (url) => {
+    if (url.includes('/api/audit/integrity')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          totalEntries: 150,
+          chainValid: true,
+          lastVerifiedAt: '2026-03-22T12:00:00Z',
+          genesisHash: 'genesis-abc',
+          lastHash: 'last-xyz',
+        }),
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  const client = new AdminApiClient({
+    baseUrl: 'https://127.0.0.1:9444',
+    credentials: { username: 'admin', password: 'pass', totpCode: '123456' },
+    fetchImpl: mockFetch,
+  });
+
+  const service = new DataService({ client });
+  const config = createConfigStore();
+
+  await service.fetchConfig(config);
+  check(config.store.get().auditChainIntegrity.totalEntries === 150, 'integrity entries populated');
+  check(config.store.get().auditChainIntegrity.chainValid === true, 'chain valid populated');
+  check(config.chainHealthy.get() === true, 'chainHealthy derived true');
+
+  service.destroy();
 });
 
 // ---------------------------------------------------------------------------
