@@ -61,15 +61,15 @@ export type AllowlistRejectionReason = 'not_listed' | 'inactive' | 'blocked';
  */
 const MALICLAW_PATTERNS: readonly string[] = Object.freeze([
   // Primary identifiers (project name lineage)
-  'openclaw',             // Current project name
-  'clawdbot',             // Original project name
-  'moltbot',              // Intermediate project name
+  'openclaw', // Current project name
+  'clawdbot', // Original project name
+  'moltbot', // Intermediate project name
   // Secondary identifiers
-  'clawhub',              // Plugin marketplace
-  'ai.openclaw.client',   // iOS bundle ID
+  'clawhub', // Plugin marketplace
+  'ai.openclaw.client', // iOS bundle ID
   // Domain patterns
-  'openclaw.ai',          // Main site
-  'docs.openclaw.ai',     // Documentation site
+  'openclaw.ai', // Main site
+  'docs.openclaw.ai', // Documentation site
 ]);
 
 /** Check if an identifier matches any MaliClaw pattern (case-insensitive, partial). */
