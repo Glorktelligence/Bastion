@@ -48,8 +48,8 @@ export class DataService {
   // Overview polling
   // -----------------------------------------------------------------------
 
-  /** Fetch status once and populate the overview store. */
-  async fetchStatus(store: OverviewStore): Promise<void> {
+  /** Fetch status once and populate the overview store. Returns false on auth failure. */
+  async fetchStatus(store: OverviewStore): Promise<boolean> {
     store.setLoading(true);
     const result = await this.client.getStatus();
     if (result.ok) {
@@ -61,10 +61,16 @@ export class DataService {
       const q = d.quarantine as { active: number; capacity: number } | undefined;
       store.setQuarantine({ count: q?.active ?? 0, maxEntries: q?.capacity ?? 100, oldestAge: null });
       store.setError(null);
-    } else {
-      store.setError(result.error ?? 'Failed to fetch status');
+      store.setLoading(false);
+      return true;
     }
+    store.setError(result.error ?? 'Failed to fetch status');
     store.setLoading(false);
+    // Stop polling on auth failure — don't retry endlessly
+    if (result.status === 401 || result.status === 403) {
+      this.stopStatusPolling();
+    }
+    return false;
   }
 
   /** Fetch recent audit events and populate the overview store. */
@@ -109,6 +115,9 @@ export class DataService {
       store.setError(null);
     } else {
       store.setError(result.error ?? 'Failed to fetch connections');
+      if (result.status === 401 || result.status === 403) {
+        this.stopConnectionsPolling();
+      }
     }
     store.setLoading(false);
   }

@@ -380,30 +380,35 @@ async function run() {
     const port = server.boundPort;
     check('bound to a port', port > 0);
 
-    // Unauthenticated request → 401
+    // GET requests are unauthenticated (read-only monitoring)
     const unauth = await adminRequest(port, 'GET', '/api/health', null, null);
-    check('unauthenticated → 401', unauth.status === 401);
-    check('unauth reason', unauth.body.reason === 'missing_credentials');
+    check('unauthenticated GET → 200', unauth.status === 200);
+    check('health ok without auth', unauth.body.status === 'ok');
 
-    // Authenticated request → 200
+    // POST without credentials → 401
+    const unauthPost = await adminRequest(port, 'POST', '/api/providers', { id: 'test', name: 'Test' }, null);
+    check('unauthenticated POST → 401', unauthPost.status === 401);
+    check('unauth reason', unauthPost.body.reason === 'missing_credentials');
+
+    // Authenticated POST → works
     const code = AdminAuth.generateTotpCode(secret);
     const health = await adminRequest(port, 'GET', '/api/health', null, {
       username: 'admin',
       password: 'admin123',
       totpCode: code,
     });
-    check('authenticated → 200', health.status === 200);
+    check('authenticated GET → 200', health.status === 200);
     check('health ok', health.body.status === 'ok');
 
-    // Wrong credentials → 401
-    const badAuth = await adminRequest(port, 'GET', '/api/health', null, {
+    // Wrong credentials on POST → 401
+    const badAuth = await adminRequest(port, 'POST', '/api/providers', { id: 'x', name: 'x' }, {
       username: 'admin',
       password: 'wrong',
       totpCode: '000000',
     });
-    check('bad credentials → 401', badAuth.status === 401);
+    check('bad credentials POST → 401', badAuth.status === 401);
 
-    // Auth failure logged
+    // Auth failure logged (from POST attempts)
     const authFailures = audit.query({ eventType: AUDIT_EVENT_TYPES.AUTH_FAILURE });
     check('auth failures logged', authFailures.length >= 1);
 

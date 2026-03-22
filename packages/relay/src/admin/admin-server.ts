@@ -222,7 +222,18 @@ export class AdminServer {
       return;
     }
 
-    // Authenticate
+    // GET requests are unauthenticated — read-only monitoring.
+    // The admin server is localhost-only behind an SSH tunnel; the tunnel is the access control.
+    // Mutations (POST/PUT/DELETE) still require admin credentials.
+    const method = req.method?.toUpperCase() ?? 'GET';
+    const isReadOnly = method === 'GET' || method === 'HEAD';
+
+    if (isReadOnly) {
+      await this.routes.handleRequest(req, res, '_readonly');
+      return;
+    }
+
+    // Authenticate mutations
     const authResult = this.authenticate(req);
     if (!authResult.authenticated) {
       if (this.audit) {
@@ -242,7 +253,7 @@ export class AdminServer {
       return;
     }
 
-    // Route the request
+    // Route authenticated mutation
     await this.routes.handleRequest(req, res, authResult.username);
   }
 
