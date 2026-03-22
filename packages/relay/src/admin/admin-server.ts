@@ -204,8 +204,14 @@ export class AdminServer {
   // -------------------------------------------------------------------------
 
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    // CORS headers for admin panel
-    res.setHeader('Access-Control-Allow-Origin', 'https://localhost');
+    // CORS headers for admin panel — allow any localhost origin (dev server, SSH tunnel)
+    const origin = req.headers.origin ?? '';
+    const isLocalOrigin =
+      origin.startsWith('https://localhost') ||
+      origin.startsWith('http://localhost') ||
+      origin.startsWith('https://127.0.0.1') ||
+      origin.startsWith('http://127.0.0.1');
+    res.setHeader('Access-Control-Allow-Origin', isLocalOrigin ? origin : 'https://localhost');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Authorization, X-TOTP, Content-Type');
 

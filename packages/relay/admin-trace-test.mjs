@@ -673,6 +673,92 @@ async function run() {
   console.log();
 
   // -------------------------------------------------------------------
+  // Test 10d: Full pipeline — HTTP status/connections/audit with live data
+  // -------------------------------------------------------------------
+  console.log('--- Test 10d: Full pipeline via HTTP —status, connections, audit ---');
+  {
+    const { cert, key } = await generateSelfSigned();
+    const secret = AdminAuth.generateTotpSecret();
+    const passwordHash = AdminAuth.hashPassword('admin-pass');
+
+    const registry = new ProviderRegistry();
+    const auditLogger = new AuditLogger({ store: { path: ':memory:' } });
+
+    // Simulate live connections
+    const liveConnections = [
+      { connectionId: 'http-c1', remoteAddress: '10.0.10.5', connectedAt: '2026-03-22T10:00:00Z', clientType: 'human', authenticated: true, messageCount: 42 },
+      { connectionId: 'http-c2', remoteAddress: '10.0.50.10', connectedAt: '2026-03-22T10:01:00Z', clientType: 'ai', authenticated: true, providerId: 'anthropic-bastion', messageCount: 38 },
+    ];
+    const liveProvider = {
+      getConnections: () => liveConnections,
+      getActiveSessionCount: () => 1,
+      getMessagesPerMinute: () => 15,
+      getQuarantineStatus: () => ({ active: 2, capacity: 100 }),
+    };
+
+    const routes = new AdminRoutes({ providerRegistry: registry, auditLogger, statusProvider: liveProvider });
+
+    // Generate audit events
+    routes.approveProvider('http-test-provider', 'HTTP Test', 'admin');
+
+    const auth = new AdminAuth({
+      accounts: [{ username: 'admin', passwordHash, totpSecret: secret, active: true }],
+    });
+
+    const server = new AdminServer({
+      port: 0,
+      host: '127.0.0.1',
+      tls: { cert, key },
+      auth,
+      routes,
+      auditLogger,
+    });
+
+    await server.start();
+    const port = server.boundPort;
+
+    const creds = () => ({
+      username: 'admin',
+      password: 'admin-pass',
+      totpCode: AdminAuth.generateTotpCode(secret),
+    });
+
+    // GET /api/status via HTTP
+    const status = await adminRequest(port, 'GET', '/api/status', null, creds());
+    check('HTTP status 200', status.status === 200);
+    check('HTTP status total 2', status.body.connectedClients.total === 2);
+    check('HTTP status human 1', status.body.connectedClients.human === 1);
+    check('HTTP status ai 1', status.body.connectedClients.ai === 1);
+    check('HTTP status sessions 1', status.body.activeSessions === 1);
+    check('HTTP status msg/min 15', status.body.messagesPerMinute === 15);
+    check('HTTP status quarantine active 2', status.body.quarantine.active === 2);
+
+    // GET /api/connections via HTTP
+    const conns = await adminRequest(port, 'GET', '/api/connections', null, creds());
+    check('HTTP connections 200', conns.status === 200);
+    check('HTTP connections total 2', conns.body.total === 2);
+    check('HTTP conn[0] human', conns.body.connections[0].clientType === 'human');
+    check('HTTP conn[0] msgs 42', conns.body.connections[0].messageCount === 42);
+    check('HTTP conn[1] provider', conns.body.connections[1].providerId === 'anthropic-bastion');
+
+    // GET /api/audit via HTTP — should have the provider approval event
+    const audit = await adminRequest(port, 'GET', '/api/audit', null, creds());
+    check('HTTP audit 200', audit.status === 200);
+    check('HTTP audit has entries', audit.body.entries.length > 0);
+    check('HTTP audit first event type', audit.body.entries[0].eventType === 'provider_approved');
+
+    // GET /api/audit/integrity via HTTP
+    const integrity = await adminRequest(port, 'GET', '/api/audit/integrity', null, creds());
+    check('HTTP integrity 200', integrity.status === 200);
+    check('HTTP integrity valid', integrity.body.chainValid === true);
+    check('HTTP integrity totalEntries > 0', integrity.body.totalEntries > 0);
+
+    await server.shutdown();
+    auditLogger.close();
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
   // Test 11: Capability matrix — defaults and custom
   // -------------------------------------------------------------------
   console.log('--- Test 11: Capability matrix — defaults and custom ---');
