@@ -5,8 +5,10 @@
 import StatCard from '$lib/components/StatCard.svelte';
 import AuditEventRow from '$lib/components/AuditEventRow.svelte';
 import { createOverviewStore } from '$lib/stores/overview.js';
+import { createSharedService } from '$lib/api/service-instance.js';
 
 const overview = createOverviewStore();
+const service = createSharedService();
 
 /** @type {import('$lib/stores/overview.js').OverviewState} */
 let state = $state(overview.store.get());
@@ -21,7 +23,14 @@ $effect(() => {
 	const unsub1 = overview.store.subscribe((s) => { state = s; });
 	const unsub2 = overview.healthStatus.subscribe((h) => { health = h; });
 	const unsub3 = overview.quarantineUtilisation.subscribe((u) => { quarantineUtil = u; });
-	return () => { unsub1(); unsub2(); unsub3(); };
+
+	// Start polling live data from the admin API
+	service.startStatusPolling(overview);
+
+	return () => {
+		unsub1(); unsub2(); unsub3();
+		service.stopStatusPolling();
+	};
 });
 
 /** @type {'success' | 'warning' | 'error' | 'info'} */

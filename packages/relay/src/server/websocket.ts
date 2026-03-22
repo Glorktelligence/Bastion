@@ -138,6 +138,13 @@ export class BastionRelay extends EventEmitter<RelayEvents> {
     return this.running;
   }
 
+  /** The actual port the server is bound to (useful when configured with port 0). */
+  get boundPort(): number {
+    const addr = this.httpsServer?.address();
+    if (addr && typeof addr === 'object') return addr.port;
+    return this.config.port;
+  }
+
   /** Number of active connections. */
   get connectionCount(): number {
     return this.connections.size;

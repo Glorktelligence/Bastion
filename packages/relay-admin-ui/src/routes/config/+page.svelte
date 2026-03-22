@@ -4,8 +4,10 @@
 
 import ConfigPanel from '$lib/components/ConfigPanel.svelte';
 import { createConfigStore } from '$lib/stores/config.js';
+import { createSharedService } from '$lib/api/service-instance.js';
 
 const config = createConfigStore();
+const service = createSharedService();
 
 /** @type {import('$lib/stores/config.js').ConfigState} */
 let state = $state(config.store.get());
@@ -24,6 +26,10 @@ $effect(() => {
 	const unsub2 = config.tlsHealthy.subscribe((h) => { tlsHealthy = h; });
 	const unsub3 = config.chainHealthy.subscribe((h) => { chainHealthy = h; });
 	const unsub4 = config.systemHealthy.subscribe((h) => { systemHealthy = h; });
+
+	// Fetch config/integrity from the admin API
+	service.fetchConfig(config);
+
 	return () => { unsub1(); unsub2(); unsub3(); unsub4(); };
 });
 

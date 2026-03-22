@@ -307,6 +307,45 @@ relay.on('message', async (data, info) => {
     return;
   }
 
+  // ----- provider_register: AI client registers as a provider -----
+  if (msg.type === 'provider_register') {
+    const { providerId, providerName, capabilities } = msg.payload || msg;
+    if (providerId && providerName) {
+      try {
+        const result = adminRoutes.approveProvider(providerId, providerName, 'self-register');
+        if (result.status === 201 || result.status === 200) {
+          console.log(`[✓] Provider registered: ${providerName} (${providerId})`);
+          relay.send(connId, JSON.stringify({
+            type: 'config_ack',
+            configType: 'provider_register',
+            appliedAt: new Date().toISOString(),
+          }));
+        } else {
+          console.log(`[!] Provider registration rejected: ${result.body.error}`);
+          relay.send(connId, JSON.stringify({
+            type: 'config_nack',
+            configType: 'provider_register',
+            reason: result.body.error || 'Registration rejected',
+            errorDetail: JSON.stringify(result.body),
+          }));
+        }
+      } catch (err) {
+        console.error(`[!] Provider registration error: ${err.message}`);
+      }
+    }
+    return;
+  }
+
+  // ----- context_update: forward to AI client -----
+  if (msg.type === 'context_update') {
+    const peerId = router.getPeer(connId);
+    if (peerId) {
+      relay.send(peerId, data);
+      console.log(`[→] context_update forwarded to peer ${peerId.slice(0, 8)}`);
+    }
+    return;
+  }
+
   // ----- token_refresh: re-issue JWT -----
   if (msg.type === 'token_refresh') {
     try {

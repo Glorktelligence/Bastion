@@ -7,6 +7,8 @@ import {
   AdminRoutes,
   AdminServer,
   AdminServerError,
+  BastionRelay,
+  JwtService,
   defaultCapabilityMatrix,
   ProviderRegistry,
   Allowlist,
@@ -1407,6 +1409,146 @@ async function run() {
     check('unmapped connection allowed', unmapped.allowed);
 
     audit.close();
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test 21: Real E2E — relay + clients + admin status (not mocked)
+  // -------------------------------------------------------------------
+  console.log('--- Test 21: Real E2E — relay, clients, admin status ---');
+  {
+    const { cert, key } = await generateSelfSigned();
+    const auditLogger = new AuditLogger({ store: { path: ':memory:' } });
+    const providerRegistry = new ProviderRegistry();
+    const jwtService = new JwtService({ secret: randomBytes(32), issuer: 'bastion-relay' });
+
+    // Real relay
+    const relay = new BastionRelay({ port: 0, tls: { cert, key }, auditLogger });
+
+    // Real router
+    const router = new MessageRouter({
+      send: (connId, data) => relay.send(connId, data),
+      log: () => {},
+    });
+
+    // Message counters (mirrors start-relay.mjs)
+    const msgTimestamps = [];
+    const connMsgCounts = new Map();
+    let humanConnId = null;
+    let aiConnId = null;
+
+    const statusProvider = {
+      getConnections() {
+        return relay.getConnectionIds().map((id) => {
+          const info = relay.getConnection(id);
+          const client = router.getClient(id);
+          return {
+            connectionId: id,
+            remoteAddress: info?.remoteAddress ?? 'unknown',
+            connectedAt: info?.connectedAt ?? new Date().toISOString(),
+            clientType: client ? client.identity.type : 'unknown',
+            authenticated: !!client,
+            messageCount: connMsgCounts.get(id) || 0,
+          };
+        });
+      },
+      getActiveSessionCount() {
+        return (humanConnId && aiConnId && router.getPeer(humanConnId)) ? 1 : 0;
+      },
+      getMessagesPerMinute() {
+        const cutoff = Date.now() - 60000;
+        while (msgTimestamps.length > 0 && msgTimestamps[0] < cutoff) msgTimestamps.shift();
+        return msgTimestamps.length;
+      },
+      getQuarantineStatus() { return { active: 0, capacity: 100 }; },
+    };
+
+    const adminRoutes = new AdminRoutes({ providerRegistry, auditLogger, statusProvider });
+
+    // Admin server
+    const secret = AdminAuth.generateTotpSecret();
+    const passwordHash = AdminAuth.hashPassword('admin-pass');
+    const adminAuth = new AdminAuth({
+      accounts: [{ username: 'admin', passwordHash, totpSecret: secret, active: true }],
+    });
+    const adminServer = new AdminServer({
+      port: 0, host: '127.0.0.1', tls: { cert, key }, auth: adminAuth, routes: adminRoutes, auditLogger,
+    });
+
+    await relay.start();
+    await adminServer.start();
+    const relayPort = relay.boundPort;
+    const adminPort = adminServer.boundPort;
+
+    const creds = () => ({
+      username: 'admin',
+      password: 'admin-pass',
+      totpCode: AdminAuth.generateTotpCode(secret),
+    });
+
+    // Connect two WebSocket clients
+    const WebSocket = (await import('ws')).default;
+
+    const humanWs = new WebSocket(`wss://127.0.0.1:${relayPort}`, { rejectUnauthorized: false });
+    await new Promise((resolve) => humanWs.on('open', resolve));
+    const humanInfo = relay.getConnectionIds().find((id) => !router.getClient(id));
+    // Register human
+    const humanIdentity = { id: 'human-e2e', type: 'human', displayName: 'Harry (E2E)' };
+    router.registerClient(humanInfo, humanIdentity);
+    humanConnId = humanInfo;
+    auditLogger.logEvent('auth_success', randomUUID(), { clientType: 'human' });
+
+    const aiWs = new WebSocket(`wss://127.0.0.1:${relayPort}`, { rejectUnauthorized: false });
+    await new Promise((resolve) => aiWs.on('open', resolve));
+    const aiInfo = relay.getConnectionIds().find((id) => id !== humanInfo && !router.getClient(id));
+    const aiIdentity = { id: 'ai-e2e', type: 'ai', displayName: 'Claude (E2E)' };
+    router.registerClient(aiInfo, aiIdentity);
+    aiConnId = aiInfo;
+    auditLogger.logEvent('auth_success', randomUUID(), { clientType: 'ai' });
+
+    // Pair
+    router.pairClients(humanConnId, aiConnId);
+
+    // Route a message human → AI
+    const testMsg = JSON.stringify({ type: 'conversation', payload: { content: 'hello' } });
+    relay.send(aiConnId, testMsg);
+    msgTimestamps.push(Date.now());
+    connMsgCounts.set(humanConnId, 1);
+    auditLogger.logEvent('message_routed', randomUUID(), { messageType: 'conversation' });
+
+    // Now query admin API — should return REAL non-zero data
+    const statusResult = await adminRequest(adminPort, 'GET', '/api/status', null, creds());
+    check('E2E status 200', statusResult.status === 200);
+    check('E2E status total >= 2', statusResult.body.connectedClients.total >= 2);
+    check('E2E status human >= 1', statusResult.body.connectedClients.human >= 1);
+    check('E2E status ai >= 1', statusResult.body.connectedClients.ai >= 1);
+    check('E2E status sessions 1', statusResult.body.activeSessions === 1);
+    check('E2E status msg/min >= 1', statusResult.body.messagesPerMinute >= 1);
+
+    const connsResult = await adminRequest(adminPort, 'GET', '/api/connections', null, creds());
+    check('E2E connections 200', connsResult.status === 200);
+    check('E2E connections >= 2', connsResult.body.connections.length >= 2);
+    const humanConn = connsResult.body.connections.find((c) => c.clientType === 'human');
+    const aiConn = connsResult.body.connections.find((c) => c.clientType === 'ai');
+    check('E2E human connection found', !!humanConn);
+    check('E2E ai connection found', !!aiConn);
+    check('E2E human authenticated', humanConn?.authenticated === true);
+    check('E2E human msgCount >= 1', humanConn?.messageCount >= 1);
+
+    const auditResult = await adminRequest(adminPort, 'GET', '/api/audit', null, creds());
+    check('E2E audit 200', auditResult.status === 200);
+    check('E2E audit has entries', auditResult.body.entries.length >= 3);
+    const eventTypes = auditResult.body.entries.map((e) => e.eventType);
+    check('E2E audit has auth_success', eventTypes.includes('auth_success'));
+    check('E2E audit has message_routed', eventTypes.includes('message_routed'));
+
+    // Cleanup
+    humanWs.close();
+    aiWs.close();
+    await new Promise((r) => setTimeout(r, 100));
+    await relay.shutdown();
+    await adminServer.shutdown();
+    auditLogger.close();
   }
   console.log();
 

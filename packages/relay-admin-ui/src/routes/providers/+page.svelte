@@ -4,8 +4,27 @@
 
 import ProviderCard from '$lib/components/ProviderCard.svelte';
 import { createProvidersStore } from '$lib/stores/providers.js';
+import { createSharedService } from '$lib/api/service-instance.js';
 
 const providers = createProvidersStore();
+const service = createSharedService();
+
+let showApproveForm = $state(false);
+let approveId = $state('');
+let approveName = $state('');
+let approving = $state(false);
+
+async function handleApprove() {
+	if (!approveId.trim() || !approveName.trim()) return;
+	approving = true;
+	const ok = await service.approveProvider(providers, approveId.trim(), approveName.trim());
+	approving = false;
+	if (ok) {
+		showApproveForm = false;
+		approveId = '';
+		approveName = '';
+	}
+}
 
 /** @type {import('$lib/stores/providers.js').ProvidersState} */
 let state = $state(providers.store.get());
@@ -24,6 +43,10 @@ $effect(() => {
 	const unsub2 = providers.activeProviders.subscribe((p) => { activeProviders = p; });
 	const unsub3 = providers.activeCount.subscribe((c) => { activeCount = c; });
 	const unsub4 = providers.totalCount.subscribe((c) => { totalCount = c; });
+
+	// Fetch providers on mount
+	service.fetchProviders(providers);
+
 	return () => { unsub1(); unsub2(); unsub3(); unsub4(); };
 });
 </script>
@@ -33,9 +56,28 @@ $effect(() => {
 		<h2>Provider Management</h2>
 		<div class="header-stats">
 			<span class="stat">{activeCount} active / {totalCount} total</span>
-			<button class="btn-primary">Approve Provider</button>
+			<button class="btn-primary" onclick={() => { showApproveForm = !showApproveForm; }}>
+				{showApproveForm ? 'Cancel' : 'Approve Provider'}
+			</button>
 		</div>
 	</div>
+
+	{#if showApproveForm}
+		<div class="approve-form">
+			<h3>Approve New Provider</h3>
+			<label>
+				Provider ID
+				<input type="text" bind:value={approveId} placeholder="e.g. anthropic-bastion" />
+			</label>
+			<label>
+				Provider Name
+				<input type="text" bind:value={approveName} placeholder="e.g. Anthropic (Bastion Official)" />
+			</label>
+			<button class="btn-primary" onclick={handleApprove} disabled={approving || !approveId.trim() || !approveName.trim()}>
+				{approving ? 'Approving...' : 'Approve'}
+			</button>
+		</div>
+	{/if}
 
 	{#if state.loading}
 		<p class="loading">Loading...</p>
@@ -99,6 +141,39 @@ $effect(() => {
 
 	.btn-primary:hover {
 		background: var(--accent-secondary);
+	}
+
+	.approve-form {
+		background: var(--bg-surface);
+		border: 1px solid var(--accent-primary);
+		border-radius: 0.5rem;
+		padding: 1.25rem;
+		margin-bottom: 1.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.approve-form h3 {
+		margin: 0 0 0.5rem;
+		font-size: 1rem;
+	}
+
+	.approve-form label {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+
+	.approve-form input {
+		padding: 0.375rem 0.5rem;
+		border: 1px solid var(--border-default);
+		border-radius: 0.25rem;
+		background: var(--bg-base);
+		color: var(--text-primary);
+		font-size: 0.875rem;
 	}
 
 	.empty-state {

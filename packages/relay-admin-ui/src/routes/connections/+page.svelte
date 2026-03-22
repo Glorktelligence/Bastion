@@ -5,8 +5,10 @@
 import StatCard from '$lib/components/StatCard.svelte';
 import ConnectionTable from '$lib/components/ConnectionTable.svelte';
 import { createConnectionsStore } from '$lib/stores/connections.js';
+import { createSharedService } from '$lib/api/service-instance.js';
 
 const connections = createConnectionsStore();
+const service = createSharedService();
 
 /** @type {import('$lib/stores/connections.js').ConnectionsState} */
 let state = $state(connections.store.get());
@@ -33,7 +35,14 @@ $effect(() => {
 	const unsub4 = connections.aiCount.subscribe((c) => { aiCount = c; });
 	const unsub5 = connections.authenticatedCount.subscribe((c) => { authenticatedCount = c; });
 	const unsub6 = connections.totalCount.subscribe((c) => { totalCount = c; });
-	return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); };
+
+	// Start polling connections from the admin API
+	service.startConnectionsPolling(connections);
+
+	return () => {
+		unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6();
+		service.stopConnectionsPolling();
+	};
 });
 
 const filterTypes = /** @type {const} */ (['all', 'human', 'ai', 'unknown']);
