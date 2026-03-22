@@ -52,7 +52,9 @@ Most Human-AI interaction today happens through chat interfaces with no structur
 - **Safety is structural, not bolted on.** A three-layer evaluation engine (absolute boundaries → contextual analysis → human challenge) runs on every task before execution. Safety floors can be tightened but never lowered below factory defaults.
 - **Files go through quarantine.** Every file transfer passes through an airlock with hash verification at submission, quarantine, and delivery. No shortcuts.
 - **The AI cannot modify its own permissions.** Tool registries, safety configurations, and API keys are controlled by the human operator through authenticated channels. This is hardcoded, not configurable.
-- **Transparency is the default.** Every action is audited with a tamper-evident hash chain. Cost tracking, custody chains for files, and structured challenge/response flows give the human operator full visibility.
+- **Transparency is the default.** Every action is audited with a tamper-evident hash chain. The audit trail is queryable from the human client and the admin dashboard — chain integrity is verified on every read. Cost tracking, custody chains for files, and structured challenge/response flows give the human operator full visibility.
+- **Session context is continuous.** The AI maintains a conversation buffer across the session with token budget enforcement. A user-defined context file injects informative context into the system prompt — below the immutable role context, never overriding safety.
+- **AI providers are governed.** Providers register via the protocol with declared capabilities. The relay validates registrations against the MaliClaw Clause and capability matrix before allowing messages. The admin dashboard shows live provider status, connection counts, and message rates.
 - **The MaliClaw Clause is permanent.** A hardcoded blocklist of known-dangerous AI providers and identifiers that cannot be removed, bypassed, or configured away. It exists because some doors should not be openable.
 
 ## Architecture
@@ -168,11 +170,12 @@ pnpm --filter @bastion/relay-admin-ui dev
 
 Bastion defines 27 message types across structured categories:
 
-- **Session**: `session_init`, `session_established`, `session_end`, `heartbeat`, `token_refresh`
-- **Conversation**: `conversation`, `task`, `result`, `status`, `denial`, `error`, `confirmation`
-- **Safety**: `challenge`, `challenge_response`
-- **File Transfer**: `file_manifest`, `file_offer`, `file_request`, `file_chunk`, `file_complete`, `file_ack`
-- **Admin**: `config_update`, `config_ack`, `provider_status`, `capability_update`
+- **Core**: `task`, `conversation`, `challenge`, `confirmation`, `denial`, `status`, `result`, `error`, `audit`, `heartbeat`
+- **File Transfer**: `file_manifest`, `file_offer`, `file_request`
+- **Session**: `session_end`, `session_conflict`, `session_superseded`, `reconnect`, `token_refresh`
+- **Admin/Config**: `config_update`, `config_ack`, `config_nack`, `provider_status`, `budget_alert`
+- **Audit**: `audit_query`, `audit_response`
+- **Provider/Context**: `provider_register`, `context_update`
 
 All messages are validated against Zod schemas at every boundary. Unknown message types are rejected. The protocol version is checked on session establishment.
 

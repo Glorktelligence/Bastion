@@ -459,18 +459,90 @@ npx react-native run-ios --configuration Release
 npx react-native run-android --variant=release
 ```
 
-## Step 6: Admin Panel Access
+## Step 6: Admin Dashboard
 
-The admin panel binds to `127.0.0.1` only. To access it remotely, use an SSH tunnel:
+The admin dashboard provides live monitoring: connected clients, active sessions, message throughput, quarantine status, audit trail, and provider management.
+
+### Build the Admin UI
 
 ```bash
-# From your workstation
-ssh -L 9444:127.0.0.1:9444 bastion@10.0.30.10
-
-# Then open https://localhost:9444 in your browser
+cd /opt/bastion
+pnpm --filter @bastion/relay-admin-ui build
 ```
 
-Or use WireGuard VPN to access the relay's local network directly.
+### Environment Variables
+
+Add admin credentials to `/opt/bastion/.env`:
+
+```bash
+# Admin authentication (for mutations — POST/PUT/DELETE)
+BASTION_ADMIN_USERNAME=admin
+BASTION_ADMIN_PASSWORD=<strong-password>
+# Or pre-hash: BASTION_ADMIN_PASSWORD_HASH=<scrypt-hash>
+BASTION_ADMIN_TOTP_SECRET=<base32-totp-secret>
+
+# Admin UI port (static file server with API proxy)
+BASTION_ADMIN_UI_PORT=9445
+```
+
+If you omit these, `start-relay.mjs` auto-generates credentials and prints them to stdout on startup.
+
+### Systemd Service for the Admin UI
+
+Create `/etc/systemd/system/bastion-admin-ui.service`:
+
+```ini
+[Unit]
+Description=Bastion Admin UI
+After=bastion-relay.service
+Wants=bastion-relay.service
+
+[Service]
+Type=simple
+User=bastion
+Group=bastion
+WorkingDirectory=/opt/bastion
+ExecStart=/usr/bin/node /opt/bastion/start-admin-ui.mjs
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/bastion
+PrivateTmp=true
+
+# IMPORTANT: Do NOT use MemoryDenyWriteExecute=true with Node.js.
+# Node's V8 JIT compiler requires W+X memory pages. This directive
+# kills the process immediately with no error message.
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now bastion-admin-ui
+```
+
+### Remote Access via SSH Tunnel
+
+The admin UI proxies `/api/*` requests to the admin HTTPS server internally, so you only need one tunnel:
+
+```bash
+# From your workstation — one tunnel is enough
+ssh -L 9445:127.0.0.1:9445 bastion@10.0.30.10
+
+# Then open http://localhost:9445
+```
+
+The admin UI server (start-admin-ui.mjs) handles the self-signed certificate internally — the browser talks plain HTTP to the UI server, which proxies to HTTPS on the loopback.
+
+### Access Model
+
+- **GET endpoints are unauthenticated** — read-only monitoring works without credentials. The SSH tunnel is the access control.
+- **Mutations require admin credentials** — POST/PUT/DELETE (approve provider, revoke, set capabilities) require the username/password/TOTP configured above.
 
 **Never expose the admin panel to a public interface.** The relay enforces this — attempting to bind to `0.0.0.0` logs a `SECURITY_VIOLATION` audit event and refuses to start.
 

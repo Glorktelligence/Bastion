@@ -83,12 +83,30 @@ These cannot be disabled or configured away:
 4. **AI self-modification prohibition**: The AI client cannot modify its own tool registry, safety configuration, or API keys.
 5. **Admin panel locality**: The admin server binds to localhost only. Public binding attempts are logged as security violations and refused.
 
+### Admin Dashboard Access Model
+
+The admin dashboard is accessed via SSH tunnel — the tunnel is the access control:
+
+- **GET endpoints are unauthenticated**: Read-only monitoring (status, connections, audit, config) does not require credentials. The admin API server binds to `127.0.0.1` only — it is physically unreachable without an SSH tunnel or local access.
+- **Mutations require admin credentials**: POST/PUT/DELETE (approve provider, revoke, set capabilities) require Basic auth + TOTP verification with scrypt-hashed password.
+- **Self-signed certificate proxy**: The production admin UI (start-admin-ui.mjs) proxies `/api/*` requests to the admin HTTPS server with `rejectUnauthorized: false`. This is safe because both services run on `127.0.0.1` — traffic never leaves the loopback interface.
+
+### Provider Registration Attack Surface
+
+AI clients self-register via the `provider_register` message type. The relay validates all registrations:
+
+- MaliClaw Clause is checked before registration — blocked identifiers are rejected.
+- Registration creates a provider entry visible in the admin dashboard.
+- Capability matrices can be restricted per-provider after registration.
+- A compromised AI client could register with misleading metadata, but the relay's capability enforcement limits what any provider can actually do regardless of what they claim.
+
 ### Known Limitations
 
 - **Single-device sessions**: Only one human client device connected at a time. Session swap requires explicit confirmation but relies on the legitimacy of the JWT presented.
 - **Symmetric KDF chain**: No per-message Diffie-Hellman ratchet. A compromised session key exposes all messages in that session (but not past or future sessions).
 - **Trust-on-first-use for relay**: The client trusts the relay's TLS certificate. Certificate pinning is not yet implemented.
 - **Budget tracking is advisory**: Cost tracking relies on the AI client self-reporting. A compromised AI client could underreport.
+- **Read-only admin is unauthenticated**: Anyone with SSH tunnel access can view monitoring data. This is by design (the tunnel is the access control) but means a compromised SSH session exposes relay metadata.
 
 ## Security Design Principles
 

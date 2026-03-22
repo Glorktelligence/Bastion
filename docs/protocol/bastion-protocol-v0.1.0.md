@@ -340,7 +340,7 @@ Tokens expire every 15 minutes. Clients should refresh at 13 minutes (2 minutes 
 
 ## 7. Message Types
 
-The Bastion protocol defines 23 message types across two categories: core (13) and supplementary (10).
+The Bastion protocol defines 27 message types across four categories: core (13), supplementary (10), audit (2), and provider/context (2).
 
 ### 7.1 Core Message Types
 
@@ -658,6 +658,65 @@ The Bastion protocol defines 23 message types across two categories: core (13) a
 | `currentPeriod` | string | Period identifier (e.g. "2026-03") |
 | `estimatedCostForNextTask` | number (optional) | Projected cost for next task |
 
+### 7.3 Audit Query/Response
+
+#### `audit_query`
+
+**Direction:** Human → Relay
+**Purpose:** Query the relay's tamper-evident audit trail.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `startTime` | string (optional) | ISO 8601 — filter entries after this time |
+| `endTime` | string (optional) | ISO 8601 — filter entries before this time |
+| `eventType` | string (optional) | Filter by event type (e.g. "message_routed") |
+| `sessionId` | string (optional) | Filter by session |
+| `limit` | number (optional) | Max entries to return |
+| `offset` | number (optional) | Skip first N entries (pagination) |
+| `includeIntegrity` | boolean (optional) | Include chain integrity verification in response |
+
+#### `audit_response`
+
+**Direction:** Relay → Human
+**Purpose:** Audit trail query results with optional chain integrity status.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `entries` | AuditPayload[] | Matching audit entries (metadata only — never plaintext content) |
+| `totalCount` | number | Total entries matching the query |
+| `integrity` | object or null | Chain integrity check result (if requested) |
+| `integrity.chainValid` | boolean | Whether the hash chain is unbroken |
+| `integrity.entriesChecked` | number | Number of entries verified |
+| `integrity.lastVerifiedAt` | string | ISO 8601 timestamp of verification |
+
+### 7.4 Provider and Context
+
+#### `provider_register`
+
+**Direction:** AI → Relay
+**Purpose:** AI client registers itself as a governed provider with declared capabilities.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `providerId` | string | Unique provider identifier (e.g. "anthropic-bastion") |
+| `providerName` | string | Display name (e.g. "Anthropic (Bastion Official)") |
+| `capabilities.conversation` | boolean | Supports freeform conversation |
+| `capabilities.taskExecution` | boolean | Supports structured task execution |
+| `capabilities.fileTransfer` | boolean | Supports file transfer |
+
+The relay validates the registration against the MaliClaw Clause and responds with `config_ack` (success) or `config_nack` (rejected).
+
+#### `context_update`
+
+**Direction:** Human → AI (via Relay)
+**Purpose:** Update the user-defined context injected into the AI's system prompt.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `content` | string | User context text (informative, not authoritative) |
+
+The user context sits below the immutable role context in the prompt hierarchy. It is written to `/var/lib/bastion-ai/user-context.md` on the AI VM and reloaded into the conversation manager.
+
 ---
 
 ## 8. Safety Evaluation
@@ -939,7 +998,7 @@ These properties are enforced by the protocol and cannot be disabled, configured
 | Admin lockout threshold | 5 failed attempts in 15 minutes |
 | Admin lockout duration | 1 hour |
 | Reconnection backoff | 5s, 15s, 30s, 60s, 120s (repeating) |
-| Message types | 23 total (13 core + 10 supplementary) |
+| Message types | 27 total (13 core + 10 supplementary + 2 audit + 2 provider/context) |
 | Error code categories | 7 (1XXX–7XXX) |
 | Error codes | 43 total |
 

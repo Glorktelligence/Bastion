@@ -82,6 +82,14 @@ test(crypto): add KDF chain rotation coverage
 
 The scope should be the package name without the `@bastion/` prefix. For cross-package changes, use the primary package or `project` for repo-wide changes.
 
+**AI co-contributor attribution**: When work is produced with Claude (Anthropic), include the co-author trailer after a blank line following the commit body:
+
+```
+Co-authored-by: Claude <noreply@anthropic.com>
+```
+
+This is standard Git co-author attribution. GitHub recognises it and lists both contributors.
+
 ### 3. Code Standards
 
 - **TypeScript** with strict mode. Check `tsconfig.base.json` for compiler options.
