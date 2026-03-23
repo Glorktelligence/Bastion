@@ -234,6 +234,8 @@ function handleRelayMessage(data: string): void {
     auditLog.handleAuditResponse({
       entries:
         (p.entries as Array<{
+          index?: number;
+          timestamp?: string;
           eventType: string;
           sessionId: string;
           detail: Record<string, unknown>;

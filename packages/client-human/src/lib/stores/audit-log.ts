@@ -88,7 +88,14 @@ export function createAuditLogStore(): {
   setError(error: string | null): void;
   setIntegrity(integrity: ChainIntegrityStatus | null): void;
   handleAuditResponse(response: {
-    entries: readonly { eventType: string; sessionId: string; detail: Record<string, unknown>; chainHash: string }[];
+    entries: readonly {
+      index?: number;
+      timestamp?: string;
+      eventType: string;
+      sessionId: string;
+      detail: Record<string, unknown>;
+      chainHash: string;
+    }[];
     totalCount: number;
     integrity: ChainIntegrityStatus | null;
   }): void;
@@ -205,13 +212,20 @@ export function createAuditLogStore(): {
   }
 
   function handleAuditResponse(response: {
-    entries: readonly { eventType: string; sessionId: string; detail: Record<string, unknown>; chainHash: string }[];
+    entries: readonly {
+      index?: number;
+      timestamp?: string;
+      eventType: string;
+      sessionId: string;
+      detail: Record<string, unknown>;
+      chainHash: string;
+    }[];
     totalCount: number;
     integrity: ChainIntegrityStatus | null;
   }): void {
     const mapped: AuditLogEntry[] = response.entries.map((e, i) => ({
-      index: i,
-      timestamp: (e.detail.timestamp as string) ?? new Date().toISOString(),
+      index: e.index ?? i,
+      timestamp: e.timestamp ?? (e.detail.timestamp as string) ?? new Date().toISOString(),
       eventType: e.eventType,
       sessionId: e.sessionId,
       detail: e.detail,

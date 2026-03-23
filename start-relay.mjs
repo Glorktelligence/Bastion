@@ -199,6 +199,10 @@ function tryPairClients() {
   try {
     router.pairClients(humanConnectionId, aiConnectionId);
     console.log(`[★] Clients paired: human=${humanConnectionId.slice(0, 8)} ↔ ai=${aiConnectionId.slice(0, 8)}`);
+    auditLogger.logEvent('session_paired', sessionIds.get(humanConnectionId) || 'unknown', {
+      humanConnectionId,
+      aiConnectionId,
+    });
 
     // Notify both sides that their peer is active
     const peerActiveMsg = JSON.stringify({
@@ -219,6 +223,10 @@ function tryPairClients() {
 
 relay.on('connection', (_ws, info) => {
   console.log(`[+] Client connected: ${info.id.slice(0, 8)} from ${info.remoteAddress}`);
+  auditLogger.logEvent('connection_opened', info.id, {
+    remoteAddress: info.remoteAddress,
+    connectedAt: info.connectedAt,
+  });
 });
 
 relay.on('message', async (data, info) => {
@@ -313,6 +321,8 @@ relay.on('message', async (data, info) => {
         const result = adminRoutes.approveProvider(providerId, providerName, 'self-register');
         if (result.status === 201 || result.status === 200) {
           console.log(`[✓] Provider registered: ${providerName} (${providerId})`);
+          const sid = sessionIds.get(connId);
+          if (sid) auditLogger.logEvent('provider_registered', sid, { providerId, providerName });
           relay.send(connId, JSON.stringify({
             type: 'config_ack',
             configType: 'provider_register',
@@ -368,6 +378,8 @@ relay.on('message', async (data, info) => {
       },
     }));
     console.log(`[→] audit_response sent to ${connId.slice(0, 8)} (${result.body.entries?.length || 0} entries)`);
+    const sid = sessionIds.get(connId);
+    if (sid) auditLogger.logEvent('audit_query', sid, { entriesReturned: result.body.entries?.length || 0, eventType: q.eventType });
     return;
   }
 
@@ -377,6 +389,8 @@ relay.on('message', async (data, info) => {
     if (peerId) {
       relay.send(peerId, data);
       console.log(`[→] context_update forwarded to peer ${peerId.slice(0, 8)}`);
+      const sid = sessionIds.get(connId);
+      if (sid) auditLogger.logEvent('context_update', sid, { contentLength: (msg.payload?.content ?? '').length });
     }
     return;
   }
