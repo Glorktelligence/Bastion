@@ -250,6 +250,44 @@ client.on('message', async (data) => {
     return;
   }
 
+  // Handle memory_list — return all memories to human client
+  if (msg.type === 'memory_list') {
+    const category = msg.payload?.category;
+    const memories = category ? memoryStore.getMemoriesByCategory(category) : memoryStore.getMemories();
+    client.send(JSON.stringify({
+      type: 'memory_list_response',
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: IDENTITY,
+      payload: {
+        memories: memories.map(m => ({ id: m.id, content: m.content, category: m.category, createdAt: m.createdAt, updatedAt: m.updatedAt })),
+        totalCount: memories.length,
+      },
+    }));
+    console.log(`[→] Memory list: ${memories.length} memories`);
+    return;
+  }
+
+  // Handle memory_update — edit an existing memory
+  if (msg.type === 'memory_update') {
+    const { memoryId, content } = msg.payload || msg;
+    if (memoryId && content) {
+      const ok = memoryStore.updateMemory(memoryId, content);
+      console.log(`[${ok ? '✓' : '!'}] Memory ${ok ? 'updated' : 'not found'}: ${memoryId.slice(0, 8)}`);
+    }
+    return;
+  }
+
+  // Handle memory_delete — remove a memory
+  if (msg.type === 'memory_delete') {
+    const { memoryId } = msg.payload || msg;
+    if (memoryId) {
+      const ok = memoryStore.deleteMemory(memoryId);
+      console.log(`[${ok ? '✓' : '!'}] Memory ${ok ? 'deleted' : 'not found'}: ${memoryId.slice(0, 8)}`);
+    }
+    return;
+  }
+
   // Handle context_update — update user context file
   if (msg.type === 'context_update') {
     const content = msg.payload?.content ?? msg.content ?? '';

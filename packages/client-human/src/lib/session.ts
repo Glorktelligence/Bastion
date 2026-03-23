@@ -18,6 +18,7 @@ import { type AuditLogEntry, createAuditLogStore } from './stores/audit-log.js';
 import { type ChallengeStats, createChallengeStatsStore } from './stores/challenge-stats.js';
 import { type ActiveChallenge, createChallengesStore } from './stores/challenges.js';
 import { type ConnectionStoreState, createConnectionStore } from './stores/connection.js';
+import { type MemoryEntry, createMemoriesStore } from './stores/memories.js';
 import { type DisplayMessage, createMessagesStore } from './stores/messages.js';
 import { SAFETY_FLOOR_VALUES, createSettingsStore } from './stores/settings.js';
 import { type TrackedTask, createTasksStore } from './stores/tasks.js';
@@ -46,6 +47,7 @@ export const tasks = createTasksStore();
 export const auditLog = createAuditLogStore();
 export const settings = createSettingsStore();
 export const challengeStats = createChallengeStatsStore(challenges.store);
+export const memories = createMemoriesStore();
 
 /** Connection state — plain writable, populated by createConnectionStore when connected. */
 export const connection: Writable<ConnectionStoreState> = writable<ConnectionStoreState>({
@@ -247,6 +249,43 @@ function handleRelayMessage(data: string): void {
     return;
   }
 
+  // Memory decision — AI confirmed a memory save
+  if (type === 'memory_decision') {
+    const p = payload as Record<string, unknown>;
+    memories.setNotification(`Memory saved (${String(p.memoryId ?? '').slice(0, 8)})`);
+    // Refresh the memory list
+    if (client) {
+      client.send(
+        JSON.stringify({
+          type: 'memory_list',
+          id: crypto.randomUUID(),
+          timestamp: new Date().toISOString(),
+          sender: IDENTITY,
+          payload: {},
+        }),
+      );
+    }
+    return;
+  }
+
+  // Memory list response — populate memories store
+  if (type === 'memory_list_response') {
+    const p = payload as Record<string, unknown>;
+    const mems =
+      (p.memories as Array<{ id: string; content: string; category: string; createdAt: string; updatedAt: string }>) ??
+      [];
+    memories.setMemories(
+      mems.map((m) => ({
+        id: m.id,
+        content: m.content,
+        category: m.category as MemoryEntry['category'],
+        createdAt: m.createdAt,
+        updatedAt: m.updatedAt,
+      })),
+    );
+    return;
+  }
+
   // Audit events from relay → audit log store
   if (type === 'audit_event') {
     const p = payload as Record<string, unknown>;
@@ -266,5 +305,5 @@ function handleRelayMessage(data: string): void {
 }
 
 // Re-export types that routes commonly need
-export type { DisplayMessage, ActiveChallenge, TrackedTask, AuditLogEntry, ChallengeStats };
+export type { DisplayMessage, ActiveChallenge, TrackedTask, AuditLogEntry, ChallengeStats, MemoryEntry };
 export { SAFETY_FLOOR_VALUES };

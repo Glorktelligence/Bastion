@@ -384,7 +384,7 @@ relay.on('message', async (data, info) => {
   }
 
   // ----- memory_proposal / memory_decision: forward between paired clients -----
-  if (msg.type === 'memory_proposal' || msg.type === 'memory_decision') {
+  if (msg.type === 'memory_proposal' || msg.type === 'memory_decision' || msg.type === 'memory_list' || msg.type === 'memory_list_response' || msg.type === 'memory_update' || msg.type === 'memory_delete') {
     const peerId = router.getPeer(connId);
     if (peerId) {
       relay.send(peerId, data);

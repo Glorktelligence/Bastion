@@ -231,6 +231,24 @@ function validPayloads() {
       decision: 'approve',
       memoryId: crypto.randomUUID(),
     },
+    memory_list: {},
+    memory_list_response: {
+      memories: [{
+        id: crypto.randomUUID(),
+        content: 'Harry prefers concise answers.',
+        category: 'preference',
+        createdAt: '2026-03-23T10:00:00.000Z',
+        updatedAt: '2026-03-23T10:00:00.000Z',
+      }],
+      totalCount: 1,
+    },
+    memory_update: {
+      memoryId: crypto.randomUUID(),
+      content: 'Harry prefers concise answers with command examples.',
+    },
+    memory_delete: {
+      memoryId: crypto.randomUUID(),
+    },
   };
 }
 
@@ -320,8 +338,8 @@ async function run() {
         break;
       }
     }
-    check('all 29 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 29 entries', ALL_MESSAGE_TYPES.length === 29);
+    check('all 33 message types accepted in envelope', allTypesValid);
+    check('ALL_MESSAGE_TYPES has 33 entries', ALL_MESSAGE_TYPES.length === 33);
   }
   console.log();
 
@@ -354,11 +372,11 @@ async function run() {
   // =========================================================================
   // Test 4: All 23 payload schemas — valid data
   // =========================================================================
-  console.log('--- Test 4: All 29 payload schemas accept valid data ---');
+  console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 29 entries', typeKeys.length === 29);
-    check('PAYLOAD_SCHEMAS has 29 entries', Object.keys(PAYLOAD_SCHEMAS).length === 29);
+    check('MESSAGE_TYPES has 33 entries', typeKeys.length === 33);
+    check('PAYLOAD_SCHEMAS has 33 entries', Object.keys(PAYLOAD_SCHEMAS).length === 33);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -757,7 +775,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 29 message types survive serialisation round-trip', allPassed);
+    check('all 33 message types survive serialisation round-trip', allPassed);
   }
   console.log();
 

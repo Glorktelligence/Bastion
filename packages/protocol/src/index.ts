@@ -65,6 +65,10 @@ export type {
   ContextUpdatePayload,
   MemoryProposalPayload,
   MemoryDecisionPayload,
+  MemoryListPayload,
+  MemoryListResponsePayload,
+  MemoryUpdatePayload,
+  MemoryDeletePayload,
   MessagePayload,
 } from './types/messages.js';
 
@@ -180,6 +184,10 @@ export {
   ContextUpdatePayloadSchema,
   MemoryProposalPayloadSchema,
   MemoryDecisionPayloadSchema,
+  MemoryListPayloadSchema,
+  MemoryListResponsePayloadSchema,
+  MemoryUpdatePayloadSchema,
+  MemoryDeletePayloadSchema,
   PAYLOAD_SCHEMAS,
 } from './schemas/message.schema.js';
 

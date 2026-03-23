@@ -175,6 +175,32 @@ export const MemoryDecisionPayloadSchema = z.object({
   memoryId: z.string().optional(),
 });
 
+export const MemoryListPayloadSchema = z.object({
+  category: z.enum(['preference', 'fact', 'workflow', 'project']).optional(),
+});
+
+export const MemoryListResponsePayloadSchema = z.object({
+  memories: z.array(
+    z.object({
+      id: z.string().min(1),
+      content: z.string().min(1),
+      category: z.enum(['preference', 'fact', 'workflow', 'project']),
+      createdAt: z.string(),
+      updatedAt: z.string(),
+    }),
+  ),
+  totalCount: z.number().int().nonnegative(),
+});
+
+export const MemoryUpdatePayloadSchema = z.object({
+  memoryId: z.string().min(1),
+  content: z.string().min(1),
+});
+
+export const MemoryDeletePayloadSchema = z.object({
+  memoryId: z.string().min(1),
+});
+
 export const HeartbeatMetricsSchema = z.object({
   uptimeMs: z.number().nonnegative(),
   memoryUsageMb: z.number().nonnegative(),
@@ -321,4 +347,8 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.CONTEXT_UPDATE]: ContextUpdatePayloadSchema,
   [MESSAGE_TYPES.MEMORY_PROPOSAL]: MemoryProposalPayloadSchema,
   [MESSAGE_TYPES.MEMORY_DECISION]: MemoryDecisionPayloadSchema,
+  [MESSAGE_TYPES.MEMORY_LIST]: MemoryListPayloadSchema,
+  [MESSAGE_TYPES.MEMORY_LIST_RESPONSE]: MemoryListResponsePayloadSchema,
+  [MESSAGE_TYPES.MEMORY_UPDATE]: MemoryUpdatePayloadSchema,
+  [MESSAGE_TYPES.MEMORY_DELETE]: MemoryDeletePayloadSchema,
 } as const;

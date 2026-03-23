@@ -209,6 +209,34 @@ export interface MemoryDecisionPayload {
   readonly memoryId?: string;
 }
 
+/** Human → AI (via Relay): Request all memories. */
+export interface MemoryListPayload {
+  readonly category?: 'preference' | 'fact' | 'workflow' | 'project';
+}
+
+/** AI → Human (via Relay): Full memory list response. */
+export interface MemoryListResponsePayload {
+  readonly memories: readonly {
+    readonly id: string;
+    readonly content: string;
+    readonly category: 'preference' | 'fact' | 'workflow' | 'project';
+    readonly createdAt: string;
+    readonly updatedAt: string;
+  }[];
+  readonly totalCount: number;
+}
+
+/** Human → AI (via Relay): Edit an existing memory. */
+export interface MemoryUpdatePayload {
+  readonly memoryId: string;
+  readonly content: string;
+}
+
+/** Human → AI (via Relay): Delete a memory. */
+export interface MemoryDeletePayload {
+  readonly memoryId: string;
+}
+
 /** Periodic keepalive with system health metrics. */
 export interface HeartbeatPayload {
   readonly sessionId: SessionId;
@@ -363,4 +391,8 @@ export type MessagePayload =
   | { type: 'provider_register'; payload: ProviderRegisterPayload }
   | { type: 'context_update'; payload: ContextUpdatePayload }
   | { type: 'memory_proposal'; payload: MemoryProposalPayload }
-  | { type: 'memory_decision'; payload: MemoryDecisionPayload };
+  | { type: 'memory_decision'; payload: MemoryDecisionPayload }
+  | { type: 'memory_list'; payload: MemoryListPayload }
+  | { type: 'memory_list_response'; payload: MemoryListResponsePayload }
+  | { type: 'memory_update'; payload: MemoryUpdatePayload }
+  | { type: 'memory_delete'; payload: MemoryDeletePayload };
