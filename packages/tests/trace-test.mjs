@@ -220,6 +220,17 @@ function validPayloads() {
     context_update: {
       content: 'Harry is the operator. He works on infrastructure and security projects.',
     },
+    memory_proposal: {
+      proposalId: crypto.randomUUID(),
+      content: 'Harry prefers concise answers with command examples.',
+      category: 'preference',
+      sourceMessageId: crypto.randomUUID(),
+    },
+    memory_decision: {
+      proposalId: crypto.randomUUID(),
+      decision: 'approve',
+      memoryId: crypto.randomUUID(),
+    },
   };
 }
 
@@ -309,8 +320,8 @@ async function run() {
         break;
       }
     }
-    check('all 27 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 27 entries', ALL_MESSAGE_TYPES.length === 27);
+    check('all 29 message types accepted in envelope', allTypesValid);
+    check('ALL_MESSAGE_TYPES has 29 entries', ALL_MESSAGE_TYPES.length === 29);
   }
   console.log();
 
@@ -343,11 +354,11 @@ async function run() {
   // =========================================================================
   // Test 4: All 23 payload schemas — valid data
   // =========================================================================
-  console.log('--- Test 4: All 27 payload schemas accept valid data ---');
+  console.log('--- Test 4: All 29 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 27 entries', typeKeys.length === 27);
-    check('PAYLOAD_SCHEMAS has 27 entries', Object.keys(PAYLOAD_SCHEMAS).length === 27);
+    check('MESSAGE_TYPES has 29 entries', typeKeys.length === 29);
+    check('PAYLOAD_SCHEMAS has 29 entries', Object.keys(PAYLOAD_SCHEMAS).length === 29);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -746,7 +757,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 27 message types survive serialisation round-trip', allPassed);
+    check('all 29 message types survive serialisation round-trip', allPassed);
   }
   console.log();
 

@@ -42,3 +42,7 @@ export type {
 // Conversation Manager
 export { ConversationManager } from './conversation-manager.js';
 export type { ConversationMessage, ConversationManagerConfig } from './conversation-manager.js';
+
+// Memory Store
+export { MemoryStore } from './memory-store.js';
+export type { Memory, MemoryStoreConfig } from './memory-store.js';

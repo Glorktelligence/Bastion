@@ -383,6 +383,25 @@ relay.on('message', async (data, info) => {
     return;
   }
 
+  // ----- memory_proposal / memory_decision: forward between paired clients -----
+  if (msg.type === 'memory_proposal' || msg.type === 'memory_decision') {
+    const peerId = router.getPeer(connId);
+    if (peerId) {
+      relay.send(peerId, data);
+      console.log(`[→] ${msg.type} forwarded to peer ${peerId.slice(0, 8)}`);
+      const sid = sessionIds.get(connId);
+      if (sid) {
+        auditLogger.logEvent(msg.type === 'memory_proposal' ? 'memory_proposed' : 'memory_decided', sid, {
+          proposalId: msg.payload?.proposalId || 'unknown',
+          decision: msg.payload?.decision,
+          category: msg.payload?.category,
+          // Content is private — only metadata in audit trail
+        });
+      }
+    }
+    return;
+  }
+
   // ----- context_update: forward to AI client -----
   if (msg.type === 'context_update') {
     const peerId = router.getPeer(connId);

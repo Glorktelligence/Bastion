@@ -161,6 +161,20 @@ export const ContextUpdatePayloadSchema = z.object({
   content: z.string(),
 });
 
+export const MemoryProposalPayloadSchema = z.object({
+  proposalId: z.string().min(1),
+  content: z.string().min(1),
+  category: z.enum(['preference', 'fact', 'workflow', 'project']),
+  sourceMessageId: z.string().min(1),
+});
+
+export const MemoryDecisionPayloadSchema = z.object({
+  proposalId: z.string().min(1),
+  decision: z.enum(['approve', 'edit', 'reject']),
+  editedContent: z.string().optional(),
+  memoryId: z.string().optional(),
+});
+
 export const HeartbeatMetricsSchema = z.object({
   uptimeMs: z.number().nonnegative(),
   memoryUsageMb: z.number().nonnegative(),
@@ -305,4 +319,6 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.AUDIT_RESPONSE]: AuditResponsePayloadSchema,
   [MESSAGE_TYPES.PROVIDER_REGISTER]: ProviderRegisterPayloadSchema,
   [MESSAGE_TYPES.CONTEXT_UPDATE]: ContextUpdatePayloadSchema,
+  [MESSAGE_TYPES.MEMORY_PROPOSAL]: MemoryProposalPayloadSchema,
+  [MESSAGE_TYPES.MEMORY_DECISION]: MemoryDecisionPayloadSchema,
 } as const;

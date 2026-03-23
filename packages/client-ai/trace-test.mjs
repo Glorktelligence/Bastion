@@ -16,6 +16,7 @@ import {
   createApiKeyManager,
   createAnthropicAdapter,
   ConversationManager,
+  MemoryStore,
 } from './dist/index.js';
 import {
   BastionRelay,
@@ -1415,6 +1416,91 @@ async function run() {
     check('role context identifies Anthropic', roleCtx.includes('made by Anthropic'));
     check('role context mentions safety', roleCtx.includes('dangerous'));
     check('role context has repo link', roleCtx.includes('github.com/Glorktelligence/Bastion'));
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: MemoryStore — CRUD and prompt injection
+  // -------------------------------------------------------------------
+  console.log('--- Test: MemoryStore ---');
+  {
+    const store = new MemoryStore({ path: ':memory:', maxPromptMemories: 5 });
+    check('initial count 0', store.count === 0);
+
+    // Add memories
+    const id1 = store.addMemory('Harry prefers concise answers', 'preference', 'msg-001');
+    check('addMemory returns id', typeof id1 === 'string' && id1.length > 0);
+    check('count after add', store.count === 1);
+
+    const id2 = store.addMemory('Works on Naval Fleet infrastructure', 'fact', 'msg-002');
+    const id3 = store.addMemory('Uses nftables for firewall', 'workflow', 'msg-003');
+    check('count 3', store.count === 3);
+
+    // Get all
+    const all = store.getMemories();
+    check('getMemories returns 3', all.length === 3);
+    check('memories have content', all[0].content.length > 0);
+    check('memories have category', ['preference', 'fact', 'workflow', 'project'].includes(all[0].category));
+    check('memories have timestamps', all[0].createdAt.length > 0);
+
+    // Get by category
+    const prefs = store.getMemoriesByCategory('preference');
+    check('1 preference', prefs.length === 1);
+    check('preference content', prefs[0].content === 'Harry prefers concise answers');
+
+    const facts = store.getMemoriesByCategory('fact');
+    check('1 fact', facts.length === 1);
+
+    // Update
+    const updated = store.updateMemory(id1, 'Harry prefers concise answers with command examples');
+    check('update returns true', updated);
+    const afterUpdate = store.getMemories();
+    const found = afterUpdate.find(m => m.id === id1);
+    check('updated content', found?.content === 'Harry prefers concise answers with command examples');
+
+    // Search
+    const results = store.searchMemories('Naval');
+    check('search finds 1', results.length === 1);
+    check('search result correct', results[0].content.includes('Naval Fleet'));
+
+    const noResults = store.searchMemories('nonexistent');
+    check('search finds 0 for nonexistent', noResults.length === 0);
+
+    // Delete
+    const deleted = store.deleteMemory(id3);
+    check('delete returns true', deleted);
+    check('count after delete', store.count === 2);
+
+    const deleteMissing = store.deleteMemory('nonexistent-id');
+    check('delete missing returns false', !deleteMissing);
+
+    // Prompt injection
+    const promptText = store.getPromptMemories();
+    check('prompt has memories', promptText.includes('Remembered Context'));
+    check('prompt has preference', promptText.includes('[preference]'));
+    check('prompt has content', promptText.includes('concise answers'));
+
+    // Max prompt memories limit
+    for (let i = 0; i < 10; i++) {
+      store.addMemory(`Memory ${i} for limit test`, 'fact', `msg-limit-${i}`);
+    }
+    check('total count > 5', store.count > 5);
+    const limitedPrompt = store.getPromptMemories();
+    // maxPromptMemories is 5 — should only have 5 in the prompt
+    const lineCount = limitedPrompt.split('\n').filter(l => l.startsWith('- [')).length;
+    check('prompt limited to 5 memories', lineCount === 5);
+
+    // ConversationManager integration
+    const cm = new ConversationManager({
+      userContextPath: '/tmp/bastion-test-nonexistent-ctx.md',
+      memoryStore: store,
+    });
+    const sysPrompt = cm.getSystemPrompt();
+    check('system prompt has memories', sysPrompt.includes('Remembered Context'));
+    check('system prompt has role context', sysPrompt.includes('Project Bastion'));
+    check('memories after role context', sysPrompt.indexOf('Project Bastion') < sysPrompt.indexOf('Remembered Context'));
+
+    store.close();
   }
   console.log();
 

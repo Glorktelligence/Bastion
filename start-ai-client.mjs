@@ -5,6 +5,7 @@ import {
   createToolRegistry,
   createAnthropicAdapter,
   ConversationManager,
+  MemoryStore,
   evaluateSafety,
   defaultSafetyConfig,
   createPatternHistory,
@@ -62,12 +63,24 @@ const adapter = createAnthropicAdapter(keyManager, toolRegistry, {
 console.log('[✓] Anthropic adapter initialised');
 
 // ---------------------------------------------------------------------------
-// Conversation manager — session context + user context
+// Memory store — persistent Layer 2 memory
+// ---------------------------------------------------------------------------
+
+const MEMORIES_DB = process.env.BASTION_MEMORIES_DB || '/var/lib/bastion-ai/memories.db';
+const memoryStore = new MemoryStore({ path: MEMORIES_DB, maxPromptMemories: 20 });
+console.log(`[✓] Memory store initialised (${memoryStore.count} memories, db: ${MEMORIES_DB})`);
+
+// Pending memory proposals (proposalId → {content, category, source})
+const pendingProposals = new Map();
+
+// ---------------------------------------------------------------------------
+// Conversation manager — session context + user context + memories
 // ---------------------------------------------------------------------------
 
 const conversationManager = new ConversationManager({
   tokenBudget: parseInt(process.env.BASTION_TOKEN_BUDGET || '100000', 10),
   userContextPath: process.env.BASTION_USER_CONTEXT_PATH || '/var/lib/bastion-ai/user-context.md',
+  memoryStore,
 });
 console.log(`[✓] Conversation manager initialised (budget: ${conversationManager.estimateTokenCount() || 0} base tokens)`);
 if (conversationManager.getUserContext()) {
@@ -208,6 +221,32 @@ client.on('message', async (data) => {
     } else if (decision === 'approve' || decision === 'modify') {
       console.log(`[✓] Task ${decision}d by human — would proceed with execution`);
     }
+    return;
+  }
+
+  // Handle memory_proposal — human wants to save a memory (via "Remember" button)
+  if (msg.type === 'memory_proposal') {
+    const p = msg.payload || msg;
+    const { proposalId, content, category, sourceMessageId } = p;
+    console.log(`[←] Memory proposal: "${content.substring(0, 60)}..." (${category})`);
+
+    // Store as pending — the AI confirms by saving and sending memory_decision back
+    const memoryId = memoryStore.addMemory(content, category, sourceMessageId || 'unknown');
+    console.log(`[✓] Memory saved: ${memoryId}`);
+
+    // Send approval confirmation back to human
+    client.send(JSON.stringify({
+      type: 'memory_decision',
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: IDENTITY,
+      payload: {
+        proposalId,
+        decision: 'approve',
+        memoryId,
+      },
+    }));
+    console.log(`[→] Memory decision: approved (${memoryStore.count} total memories)`);
     return;
   }
 

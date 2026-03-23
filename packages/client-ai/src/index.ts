@@ -48,6 +48,7 @@ export {
   createApiKeyManager,
   createAnthropicAdapter,
   ConversationManager,
+  MemoryStore,
 } from './provider/index.js';
 export type {
   ToolRegistry,
@@ -66,6 +67,8 @@ export type {
   FetchFn,
   ConversationMessage,
   ConversationManagerConfig,
+  Memory,
+  MemoryStoreConfig,
 } from './provider/index.js';
 
 // ---------------------------------------------------------------------------

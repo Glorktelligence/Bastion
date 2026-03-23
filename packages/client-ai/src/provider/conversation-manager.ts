@@ -11,6 +11,7 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
+import type { MemoryStore } from './memory-store.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,6 +27,8 @@ export interface ConversationManagerConfig {
   readonly tokenBudget?: number;
   /** Path to user-context.md file. Default: '/var/lib/bastion-ai/user-context.md'. */
   readonly userContextPath?: string;
+  /** Optional memory store for persistent Layer 2 memory. */
+  readonly memoryStore?: MemoryStore;
 }
 
 // ---------------------------------------------------------------------------
@@ -70,12 +73,14 @@ const ROLE_CONTEXT =
 export class ConversationManager {
   private readonly tokenBudget: number;
   private readonly userContextPath: string;
+  private readonly memoryStore: MemoryStore | null;
   private messages: ConversationMessage[];
   private userContext: string;
 
   constructor(config?: ConversationManagerConfig) {
     this.tokenBudget = config?.tokenBudget ?? DEFAULT_TOKEN_BUDGET;
     this.userContextPath = config?.userContextPath ?? DEFAULT_USER_CONTEXT_PATH;
+    this.memoryStore = config?.memoryStore ?? null;
     this.messages = [];
     this.userContext = '';
     this.loadUserContext();
@@ -97,12 +102,22 @@ export class ConversationManager {
     this.enforceTokenBudget();
   }
 
-  /** Get the assembled system prompt (role context + user context). */
+  /** Get the assembled system prompt (role context + memories + user context). */
   getSystemPrompt(): string {
-    if (this.userContext.trim().length === 0) {
-      return ROLE_CONTEXT;
+    const parts = [ROLE_CONTEXT];
+
+    // Layer 2: persistent memories (top 20 by recency)
+    if (this.memoryStore) {
+      const memBlock = this.memoryStore.getPromptMemories();
+      if (memBlock) parts.push(memBlock);
     }
-    return `${ROLE_CONTEXT}\n\n--- User Context ---\n${this.userContext}`;
+
+    // User context (informative, below memories)
+    if (this.userContext.trim().length > 0) {
+      parts.push(`--- User Context ---\n${this.userContext}`);
+    }
+
+    return parts.join('\n\n');
   }
 
   /** Get the conversation messages for the API call. */

@@ -193,6 +193,22 @@ export interface ContextUpdatePayload {
   readonly content: string;
 }
 
+/** Human → AI (via Relay): Propose a memory to save. Human-initiated via "Remember" button. */
+export interface MemoryProposalPayload {
+  readonly proposalId: string;
+  readonly content: string;
+  readonly category: 'preference' | 'fact' | 'workflow' | 'project';
+  readonly sourceMessageId: string;
+}
+
+/** AI → Human (via Relay): Decision on a memory proposal. */
+export interface MemoryDecisionPayload {
+  readonly proposalId: string;
+  readonly decision: 'approve' | 'edit' | 'reject';
+  readonly editedContent?: string;
+  readonly memoryId?: string;
+}
+
 /** Periodic keepalive with system health metrics. */
 export interface HeartbeatPayload {
   readonly sessionId: SessionId;
@@ -345,4 +361,6 @@ export type MessagePayload =
   | { type: 'audit_query'; payload: AuditQueryPayload }
   | { type: 'audit_response'; payload: AuditResponsePayload }
   | { type: 'provider_register'; payload: ProviderRegisterPayload }
-  | { type: 'context_update'; payload: ContextUpdatePayload };
+  | { type: 'context_update'; payload: ContextUpdatePayload }
+  | { type: 'memory_proposal'; payload: MemoryProposalPayload }
+  | { type: 'memory_decision'; payload: MemoryDecisionPayload };

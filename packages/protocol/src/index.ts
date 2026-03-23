@@ -63,6 +63,8 @@ export type {
   AuditResponsePayload,
   ProviderRegisterPayload,
   ContextUpdatePayload,
+  MemoryProposalPayload,
+  MemoryDecisionPayload,
   MessagePayload,
 } from './types/messages.js';
 
@@ -176,6 +178,8 @@ export {
   AuditResponsePayloadSchema,
   ProviderRegisterPayloadSchema,
   ContextUpdatePayloadSchema,
+  MemoryProposalPayloadSchema,
+  MemoryDecisionPayloadSchema,
   PAYLOAD_SCHEMAS,
 } from './schemas/message.schema.js';
 

@@ -3,7 +3,7 @@
 // See LICENSE file for full terms
 
 /**
- * All 27 message types in the Bastion protocol.
+ * All 29 message types in the Bastion protocol.
  *
  * Core spec (13): task, conversation, challenge, confirmation, denial,
  *   status, result, error, audit, file_manifest, file_offer, file_request, heartbeat
@@ -50,6 +50,10 @@ export const MESSAGE_TYPES = {
   // --- Provider/context ---
   PROVIDER_REGISTER: 'provider_register',
   CONTEXT_UPDATE: 'context_update',
+
+  // --- Memory ---
+  MEMORY_PROPOSAL: 'memory_proposal',
+  MEMORY_DECISION: 'memory_decision',
 } as const;
 
 /** Union type of all valid message type strings. */
