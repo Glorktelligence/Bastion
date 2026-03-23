@@ -16,9 +16,13 @@ const client = new AdminApiClient({
 	credentials: { username: '', password: '', totpCode: '' },
 });
 
-// Check admin status on mount
+// Check admin status once on mount — not reactive
+let checked = false;
 $effect(() => {
-	checkAdminStatus();
+	if (!checked) {
+		checked = true;
+		checkAdminStatus();
+	}
 	return () => {};
 });
 

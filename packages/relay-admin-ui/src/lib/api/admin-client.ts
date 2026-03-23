@@ -53,18 +53,31 @@ export class AdminApiClient {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
     this.credentials = config.credentials;
     this.fetchFn = config.fetchImpl ?? globalThis.fetch;
+    this.restoreSession();
   }
 
-  /** Set session token from login response. */
+  /** Set session token from login response. Persists to sessionStorage. */
   setSessionToken(token: string, expiresAt: string): void {
     this.sessionToken = token;
     this.sessionExpiresAt = new Date(expiresAt).getTime();
+    try {
+      globalThis.sessionStorage?.setItem('bastion_admin_token', token);
+      globalThis.sessionStorage?.setItem('bastion_admin_expires', String(this.sessionExpiresAt));
+    } catch {
+      // sessionStorage unavailable (SSR or test) — token stays in memory only
+    }
   }
 
-  /** Clear session token (logout). */
+  /** Clear session token (logout). Clears sessionStorage. */
   clearSessionToken(): void {
     this.sessionToken = null;
     this.sessionExpiresAt = null;
+    try {
+      globalThis.sessionStorage?.removeItem('bastion_admin_token');
+      globalThis.sessionStorage?.removeItem('bastion_admin_expires');
+    } catch {
+      // sessionStorage unavailable
+    }
   }
 
   /** Whether a valid (non-expired) session token is held. */
@@ -72,13 +85,43 @@ export class AdminApiClient {
     return this.sessionToken !== null && (this.sessionExpiresAt === null || Date.now() < this.sessionExpiresAt);
   }
 
+  /** Restore session from sessionStorage if available and not expired. */
+  private restoreSession(): void {
+    try {
+      const token = globalThis.sessionStorage?.getItem('bastion_admin_token');
+      const expires = globalThis.sessionStorage?.getItem('bastion_admin_expires');
+      if (token && expires) {
+        const expiresAt = Number(expires);
+        if (Date.now() < expiresAt) {
+          this.sessionToken = token;
+          this.sessionExpiresAt = expiresAt;
+        } else {
+          // Expired — clean up
+          globalThis.sessionStorage?.removeItem('bastion_admin_token');
+          globalThis.sessionStorage?.removeItem('bastion_admin_expires');
+        }
+      }
+    } catch {
+      // sessionStorage unavailable
+    }
+  }
+
   private mutationHeaders(): Record<string, string> {
-    // Use Bearer token if available, fall back to Basic+TOTP
+    // Use Bearer token if available
     if (this.sessionToken) {
       return { Authorization: `Bearer ${this.sessionToken}`, 'Content-Type': 'application/json' };
     }
-    const basic = btoa(`${this.credentials.username}:${this.credentials.password}`);
-    return { Authorization: `Basic ${basic}`, 'X-TOTP': this.credentials.totpCode, 'Content-Type': 'application/json' };
+    // Fall back to Basic+TOTP only if credentials are actually configured
+    if (this.credentials.username && this.credentials.password) {
+      const basic = btoa(`${this.credentials.username}:${this.credentials.password}`);
+      return {
+        Authorization: `Basic ${basic}`,
+        'X-TOTP': this.credentials.totpCode,
+        'Content-Type': 'application/json',
+      };
+    }
+    // No auth available — send without (server will 401)
+    return { 'Content-Type': 'application/json' };
   }
 
   private async request<T = Record<string, unknown>>(
