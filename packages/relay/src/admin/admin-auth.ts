@@ -175,9 +175,35 @@ export class AdminAuth {
     return this.accounts.size;
   }
 
+  /** Whether any admin accounts are configured. */
+  get isConfigured(): boolean {
+    return this.accounts.size > 0;
+  }
+
   /** Number of trusted certificate fingerprints. */
   get trustedCertCount(): number {
     return this.trustedFingerprints.size;
+  }
+
+  /**
+   * Add an admin account at runtime (for first-time setup).
+   *
+   * @param account — the account to add
+   * @throws AdminAuthError if username already exists
+   */
+  addAccount(account: AdminAccount): void {
+    if (this.accounts.has(account.username)) {
+      throw new AdminAuthError(`Account already exists: ${account.username}`);
+    }
+    this.accounts.set(account.username, account);
+  }
+
+  /**
+   * Get all account records (for persistence).
+   * Returns username + passwordHash + totpSecret. Never plaintext passwords.
+   */
+  getAccounts(): readonly AdminAccount[] {
+    return [...this.accounts.values()];
   }
 
   /**

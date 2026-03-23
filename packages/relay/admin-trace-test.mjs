@@ -33,7 +33,7 @@ function delay(ms) {
 }
 
 /** Helper: make an HTTPS request to the admin server. */
-function adminRequest(port, method, path, body, auth) {
+function adminRequest(port, method, path, body, auth, extraHeaders) {
   return new Promise((resolve, reject) => {
     const options = {
       hostname: '127.0.0.1',
@@ -50,6 +50,10 @@ function adminRequest(port, method, path, body, auth) {
       const basic = Buffer.from(`${auth.username}:${auth.password}`).toString('base64');
       options.headers['Authorization'] = `Basic ${basic}`;
       options.headers['X-TOTP'] = auth.totpCode;
+    }
+
+    if (extraHeaders) {
+      Object.assign(options.headers, extraHeaders);
     }
 
     const req = httpsRequest(options, (res) => {
@@ -1418,9 +1422,109 @@ async function run() {
   console.log();
 
   // -------------------------------------------------------------------
-  // Test 21: Real E2E — relay + clients + admin status (not mocked)
+  // Test 21: Admin auth — addAccount, setup, login, session JWT, logout
   // -------------------------------------------------------------------
-  console.log('--- Test 21: Real E2E — relay, clients, admin status ---');
+  console.log('--- Test 21: Admin auth endpoints ---');
+  {
+    const { cert, key } = await generateSelfSigned();
+    const auditLogger = new AuditLogger({ store: { path: ':memory:' } });
+    const registry = new ProviderRegistry();
+    const routes = new AdminRoutes({ providerRegistry: registry, auditLogger });
+
+    // Start unconfigured (empty accounts)
+    const emptyAuth = new AdminAuth({ accounts: [] });
+    check('addAccount: isConfigured false initially', !emptyAuth.isConfigured);
+
+    // addAccount
+    emptyAuth.addAccount({ username: 'admin', passwordHash: AdminAuth.hashPassword('SecureP@ss123'), totpSecret: AdminAuth.generateTotpSecret(), active: true });
+    check('addAccount: isConfigured true after add', emptyAuth.isConfigured);
+    check('addAccount: accountCount is 1', emptyAuth.accountCount === 1);
+
+    // getAccounts
+    const accounts = emptyAuth.getAccounts();
+    check('getAccounts: returns 1', accounts.length === 1);
+    check('getAccounts: username correct', accounts[0].username === 'admin');
+    check('getAccounts: has passwordHash', accounts[0].passwordHash.startsWith('scrypt:'));
+
+    // Duplicate addAccount throws
+    let threw = false;
+    try { emptyAuth.addAccount({ username: 'admin', passwordHash: 'x', totpSecret: 'x', active: true }); } catch { threw = true; }
+    check('addAccount: duplicate throws', threw);
+
+    // HTTP: setup + login + Bearer + logout
+    const freshAuth = new AdminAuth({ accounts: [] });
+    const server = new AdminServer({
+      port: 0, host: '127.0.0.1', tls: { cert, key }, auth: freshAuth, routes, auditLogger,
+      sessionSecret: randomBytes(32),
+    });
+    await server.start();
+    const port = server.boundPort;
+
+    // GET /api/admin/status — not configured
+    const status1 = await adminRequest(port, 'GET', '/api/admin/status');
+    check('status: requiresSetup true', status1.body.requiresSetup === true);
+    check('status: configured false', status1.body.configured === false);
+
+    // POST /api/admin/setup — weak password
+    const weak = await adminRequest(port, 'POST', '/api/admin/setup', { username: 'admin', password: 'short', totpSecret: 'X', totpCode: '000000' });
+    check('setup: weak password rejected', weak.status === 400);
+
+    // POST /api/admin/setup — valid
+    const totpSecret = AdminAuth.generateTotpSecret();
+    const totpCode = AdminAuth.generateTotpCode(totpSecret);
+    const setup = await adminRequest(port, 'POST', '/api/admin/setup', {
+      username: 'admin', password: 'SecureP@ss12345', totpSecret, totpCode,
+    });
+    check('setup: 201', setup.status === 201);
+    check('setup: ok true', setup.body.ok === true);
+
+    // POST /api/admin/setup — already configured
+    const setup2 = await adminRequest(port, 'POST', '/api/admin/setup', {
+      username: 'admin', password: 'SecureP@ss12345', totpSecret, totpCode: AdminAuth.generateTotpCode(totpSecret),
+    });
+    check('setup: 409 already configured', setup2.status === 409);
+
+    // GET /api/admin/status — now configured
+    const status2 = await adminRequest(port, 'GET', '/api/admin/status');
+    check('status: configured true', status2.body.configured === true);
+    check('status: requiresSetup false', status2.body.requiresSetup === false);
+
+    // POST /api/admin/login — wrong password
+    const badLogin = await adminRequest(port, 'POST', '/api/admin/login', { username: 'admin', password: 'wrong', totpCode: '000000' });
+    check('login: wrong password 401', badLogin.status === 401);
+
+    // POST /api/admin/login — valid
+    const freshCode = AdminAuth.generateTotpCode(totpSecret);
+    const login = await adminRequest(port, 'POST', '/api/admin/login', { username: 'admin', password: 'SecureP@ss12345', totpCode: freshCode });
+    check('login: 200', login.status === 200);
+    check('login: has token', typeof login.body.token === 'string');
+    check('login: has expiresAt', typeof login.body.expiresAt === 'string');
+
+    // Mutation with Bearer token
+    const token = login.body.token;
+    const providerApprove = await adminRequest(port, 'POST', '/api/providers', { id: 'test-p', name: 'Test Provider' }, null, { Authorization: `Bearer ${token}` });
+    check('Bearer: provider approved', providerApprove.status === 201);
+
+    // Mutation without auth — 401
+    const noAuth = await adminRequest(port, 'POST', '/api/providers', { id: 'test-p2', name: 'Test' });
+    check('no auth mutation: 401', noAuth.status === 401);
+
+    // POST /api/admin/logout
+    const logout = await adminRequest(port, 'POST', '/api/admin/logout', null, null, { Authorization: `Bearer ${token}` });
+    check('logout: 200', logout.status === 200);
+
+    // Bearer token after logout — still works for stateless JWT (revocation in server memory)
+    // Note: revocation only works within the same server instance
+
+    await server.shutdown();
+    auditLogger.close();
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test 22: Real E2E — relay + clients + admin status (not mocked)
+  // -------------------------------------------------------------------
+  console.log('--- Test 22: Real E2E — relay, clients, admin status ---');
   {
     const { cert, key } = await generateSelfSigned();
     const auditLogger = new AuditLogger({ store: { path: ':memory:' } });

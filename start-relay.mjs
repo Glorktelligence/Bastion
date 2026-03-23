@@ -78,37 +78,32 @@ console.log('[✓] MaliClaw Clause active');
 // Admin server
 // ---------------------------------------------------------------------------
 
-// Admin credentials — set via env vars for production, auto-generated for dev
-const adminUsername = process.env.BASTION_ADMIN_USERNAME || 'admin';
-let adminPasswordHash = process.env.BASTION_ADMIN_PASSWORD_HASH;
-let adminTotpSecret = process.env.BASTION_ADMIN_TOTP_SECRET;
+// Admin credentials — load from file, env vars, or start unconfigured for setup wizard
+const ADMIN_CREDENTIALS_PATH = process.env.BASTION_ADMIN_CREDENTIALS_PATH || '/var/lib/bastion/admin-credentials.json';
 
-if (!adminPasswordHash) {
-  const password = process.env.BASTION_ADMIN_PASSWORD || randomBytes(16).toString('hex');
-  adminPasswordHash = AdminAuth.hashPassword(password);
-  if (!process.env.BASTION_ADMIN_PASSWORD) {
-    console.log(`[!] Admin password (auto-generated): ${password}`);
-    console.log('[!] Set BASTION_ADMIN_PASSWORD or BASTION_ADMIN_PASSWORD_HASH for persistence');
-  }
+// Try loading persisted credentials first
+let adminAuth = AdminServer.loadCredentials(ADMIN_CREDENTIALS_PATH);
+
+if (adminAuth) {
+  console.log(`[✓] Admin credentials loaded from ${ADMIN_CREDENTIALS_PATH}`);
+} else if (process.env.BASTION_ADMIN_PASSWORD_HASH && process.env.BASTION_ADMIN_TOTP_SECRET) {
+  // Fall back to env vars
+  const adminUsername = process.env.BASTION_ADMIN_USERNAME || 'admin';
+  adminAuth = new AdminAuth({
+    accounts: [{
+      username: adminUsername,
+      passwordHash: process.env.BASTION_ADMIN_PASSWORD_HASH,
+      totpSecret: process.env.BASTION_ADMIN_TOTP_SECRET,
+      active: true,
+    }],
+  });
+  console.log(`[✓] Admin auth from env vars (user: ${adminUsername})`);
+} else {
+  // No credentials — start unconfigured. Setup wizard will create them.
+  adminAuth = new AdminAuth({ accounts: [] });
+  console.log('[!] No admin credentials configured — setup wizard will run on first access');
+  console.log(`[!] Credentials will be saved to: ${ADMIN_CREDENTIALS_PATH}`);
 }
-
-if (!adminTotpSecret) {
-  adminTotpSecret = AdminAuth.generateTotpSecret();
-  const code = AdminAuth.generateTotpCode(adminTotpSecret);
-  console.log(`[!] Admin TOTP secret (auto-generated): ${adminTotpSecret}`);
-  console.log(`[!] Current TOTP code: ${code}`);
-  console.log('[!] Set BASTION_ADMIN_TOTP_SECRET for persistence');
-}
-
-const adminAuth = new AdminAuth({
-  accounts: [{
-    username: adminUsername,
-    passwordHash: adminPasswordHash,
-    totpSecret: adminTotpSecret,
-    active: true,
-  }],
-});
-console.log(`[✓] Admin auth ready (user: ${adminUsername})`);
 
 // ---------------------------------------------------------------------------
 // Live status tracking for admin dashboard
@@ -182,6 +177,9 @@ const adminServer = new AdminServer({
   auth: adminAuth,
   routes: adminRoutes,
   auditLogger,
+  credentialsPath: ADMIN_CREDENTIALS_PATH,
+  sessionSecret: jwtSecret,
+  sessionTimeoutSec: parseInt(process.env.BASTION_ADMIN_SESSION_TIMEOUT || '1800', 10),
 });
 console.log('[✓] Admin server configured (127.0.0.1 only — use SSH tunnel for remote access)');
 

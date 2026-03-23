@@ -180,12 +180,9 @@ await group('API client: request formation and auth headers', async () => {
   check(requests[0].url === 'https://127.0.0.1:9444/api/health', 'correct URL');
   check(requests[0].opts.method === 'GET', 'GET method');
 
-  const authHeader = requests[0].opts.headers['Authorization'];
-  check(authHeader.startsWith('Basic '), 'Basic auth header');
-  const decoded = atob(authHeader.slice(6));
-  check(decoded === 'admin:secret', 'correct credentials encoded');
-
-  check(requests[0].opts.headers['X-TOTP'] === '123456', 'TOTP header');
+  // GET requests don't include auth headers (read-only monitoring)
+  check(!requests[0].opts.headers['Authorization'], 'GET has no auth header');
+  check(!requests[0].opts.headers['X-TOTP'], 'GET has no TOTP header');
 
   await client.listProviders(false);
   check(requests[1].url === 'https://127.0.0.1:9444/api/providers?includeInactive=false', 'list with filter');
@@ -195,6 +192,9 @@ await group('API client: request formation and auth headers', async () => {
   const approveBody = JSON.parse(requests[2].opts.body);
   check(approveBody.id === 'claude-4', 'approve body has id');
   check(approveBody.name === 'Claude 4', 'approve body has name');
+  // POST includes Basic auth (no session token set)
+  const postAuth = requests[2].opts.headers['Authorization'];
+  check(postAuth && postAuth.startsWith('Basic '), 'POST has Basic auth header');
 
   await client.revokeProvider('claude-4');
   check(requests[3].url.includes('/revoke'), 'revoke URL');

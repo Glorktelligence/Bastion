@@ -1,29 +1,107 @@
 <script>
 import '../app.css';
 import { page } from '$app/state';
+import { AdminApiClient } from '$lib/api/admin-client.js';
+import LoginPage from '$lib/components/LoginPage.svelte';
+import SetupWizard from '$lib/components/SetupWizard.svelte';
 
 const { children } = $props();
+
+// Auth state
+let authState = $state('loading'); // 'loading' | 'setup' | 'login' | 'authenticated'
+let authError = $state('');
+
+const client = new AdminApiClient({
+	baseUrl: '',
+	credentials: { username: '', password: '', totpCode: '' },
+});
+
+// Check admin status on mount
+$effect(() => {
+	checkAdminStatus();
+	return () => {};
+});
+
+async function checkAdminStatus() {
+	try {
+		const result = await client.getAdminStatus();
+		if (result.ok) {
+			const d = result.data;
+			if (d.requiresSetup) {
+				authState = 'setup';
+			} else {
+				// Configured but we need to check if we have a session
+				authState = client.hasSession ? 'authenticated' : 'login';
+			}
+		} else {
+			// API unreachable — show dashboard in read-only mode
+			authState = 'authenticated';
+		}
+	} catch {
+		authState = 'authenticated'; // Fallback to read-only
+	}
+}
+
+async function handleLogin(username, password, totpCode) {
+	const result = await client.login(username, password, totpCode);
+	if (result.ok) {
+		authState = 'authenticated';
+		return null;
+	}
+	const d = result.data;
+	if (d.reason === 'account_locked') {
+		return `Account locked until ${d.lockedUntil || 'unknown'}`;
+	}
+	return d.error || 'Authentication failed';
+}
+
+async function handleSetupComplete(username, password, totpSecret, totpCode) {
+	const result = await client.setup(username, password, totpSecret, totpCode);
+	if (result.ok) {
+		authState = 'login';
+		return null;
+	}
+	return result.data?.error || 'Setup failed';
+}
+
+async function handleLogout() {
+	await client.logout();
+	authState = 'login';
+}
 </script>
 
-<div class="admin-layout">
-	<nav class="sidebar">
-		<div class="sidebar-header">
-			<h1>Bastion</h1>
-			<span class="subtitle">Relay Admin</span>
-		</div>
-		<ul class="nav-items">
-			<li><a href="/" class:active={page.url.pathname === '/'}>Overview</a></li>
-			<li><a href="/providers" class:active={page.url.pathname === '/providers'}>Providers</a></li>
-			<li><a href="/blocklist" class:active={page.url.pathname === '/blocklist'}>Blocklist</a></li>
-			<li><a href="/quarantine" class:active={page.url.pathname === '/quarantine'}>Quarantine</a></li>
-			<li><a href="/connections" class:active={page.url.pathname === '/connections'}>Connections</a></li>
-			<li><a href="/config" class:active={page.url.pathname === '/config'}>Configuration</a></li>
-		</ul>
-	</nav>
-	<main class="content">
-		{@render children()}
-	</main>
-</div>
+{#if authState === 'loading'}
+	<div class="loading-screen">
+		<p>Connecting to admin API...</p>
+	</div>
+{:else if authState === 'setup'}
+	<SetupWizard onSetupComplete={handleSetupComplete} />
+{:else if authState === 'login'}
+	<LoginPage onLogin={handleLogin} />
+{:else}
+	<div class="admin-layout">
+		<nav class="sidebar">
+			<div class="sidebar-header">
+				<h1>Bastion</h1>
+				<span class="subtitle">Relay Admin</span>
+			</div>
+			<ul class="nav-items">
+				<li><a href="/" class:active={page.url.pathname === '/'}>Overview</a></li>
+				<li><a href="/providers" class:active={page.url.pathname === '/providers'}>Providers</a></li>
+				<li><a href="/blocklist" class:active={page.url.pathname === '/blocklist'}>Blocklist</a></li>
+				<li><a href="/quarantine" class:active={page.url.pathname === '/quarantine'}>Quarantine</a></li>
+				<li><a href="/connections" class:active={page.url.pathname === '/connections'}>Connections</a></li>
+				<li><a href="/config" class:active={page.url.pathname === '/config'}>Configuration</a></li>
+			</ul>
+			<div class="sidebar-footer">
+				<button class="logout-btn" onclick={handleLogout}>Logout</button>
+			</div>
+		</nav>
+		<main class="content">
+			{@render children()}
+		</main>
+	</div>
+{/if}
 
 <style>
 	.admin-layout {
@@ -87,5 +165,35 @@ const { children } = $props();
 		flex: 1;
 		padding: 2rem;
 		overflow-y: auto;
+	}
+
+	.sidebar-footer {
+		padding: 1rem 1.25rem;
+		margin-top: auto;
+		border-top: 1px solid var(--border-default);
+	}
+
+	.logout-btn {
+		width: 100%;
+		padding: 0.5rem;
+		background: transparent;
+		color: var(--text-muted);
+		border: 1px solid var(--border-default);
+		border-radius: 0.25rem;
+		font-size: 0.8rem;
+		cursor: pointer;
+	}
+	.logout-btn:hover {
+		color: var(--status-error);
+		border-color: var(--status-error);
+	}
+
+	.loading-screen {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 100vh;
+		color: var(--text-muted, #666);
+		font-size: 0.9rem;
 	}
 </style>
