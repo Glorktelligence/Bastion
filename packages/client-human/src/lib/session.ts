@@ -26,8 +26,15 @@ import { type TrackedTask, createTasksStore } from './stores/tasks.js';
 // Constants
 // ---------------------------------------------------------------------------
 
-export const RELAY_URL = 'wss://10.0.30.10:9443';
-export const IDENTITY = { type: 'human' as const, id: 'harry-001', displayName: 'Harry' };
+// Configurable via globalThis (set in Tauri's index.html or build config).
+// Defaults match the standard deployment. Override for other deployments.
+const g = globalThis as Record<string, unknown>;
+export const RELAY_URL = (g.__BASTION_RELAY_URL__ as string) || 'wss://10.0.30.10:9443';
+export const IDENTITY = {
+  type: 'human' as const,
+  id: (g.__BASTION_USER_ID__ as string) || 'harry-001',
+  displayName: (g.__BASTION_USER_NAME__ as string) || 'Harry',
+};
 
 // ---------------------------------------------------------------------------
 // Shared store instances (survive route changes)
@@ -218,6 +225,23 @@ function handleRelayMessage(data: string): void {
       tasks.setDenial(taskId, String(p.reason ?? ''), Number(p.layer ?? 0));
     }
     messages.addIncoming(type, payload, sender, id, timestamp);
+    return;
+  }
+
+  // Audit query response → populate audit log store
+  if (type === 'audit_response') {
+    const p = payload as Record<string, unknown>;
+    auditLog.handleAuditResponse({
+      entries:
+        (p.entries as Array<{
+          eventType: string;
+          sessionId: string;
+          detail: Record<string, unknown>;
+          chainHash: string;
+        }>) ?? [],
+      totalCount: Number(p.totalCount ?? 0),
+      integrity: (p.integrity as { chainValid: boolean; entriesChecked: number; lastVerifiedAt: string }) ?? null,
+    });
     return;
   }
 

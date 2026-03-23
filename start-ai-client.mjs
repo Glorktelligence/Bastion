@@ -17,6 +17,14 @@ import {
 
 const RELAY_URL = process.env.BASTION_RELAY_URL || 'wss://10.0.30.10:9443';
 const API_KEY = process.env.ANTHROPIC_API_KEY;
+const AI_CLIENT_ID = process.env.BASTION_AI_CLIENT_ID || 'ai-client-001';
+const AI_DISPLAY_NAME = process.env.BASTION_AI_DISPLAY_NAME || 'Claude (Bastion)';
+const PROVIDER_ID = process.env.BASTION_PROVIDER_ID || 'anthropic-bastion';
+const PROVIDER_NAME = process.env.BASTION_PROVIDER_NAME || 'Anthropic (Bastion Official)';
+const MODEL = process.env.BASTION_MODEL || 'claude-sonnet-4-20250514';
+const MAX_TOKENS = parseInt(process.env.BASTION_MAX_TOKENS || '4096', 10);
+const REJECT_UNAUTHORIZED = process.env.BASTION_TLS_REJECT_UNAUTHORIZED !== 'false' ? false : true;
+// Note: defaults to false (accept self-signed) — set BASTION_TLS_REJECT_UNAUTHORIZED=true for strict
 
 if (!API_KEY) {
   console.error('[!] ANTHROPIC_API_KEY not set. Run with: node --env-file=.env start-ai-client.mjs');
@@ -25,13 +33,15 @@ if (!API_KEY) {
 
 const IDENTITY = {
   type: 'ai',
-  id: 'ai-client-001',
-  displayName: 'Claude (Bastion)',
+  id: AI_CLIENT_ID,
+  displayName: AI_DISPLAY_NAME,
 };
 
 console.log('=== Project Bastion — AI Client ===');
 console.log(`Relay: ${RELAY_URL}`);
-console.log(`Model: claude-sonnet-4-20250514`);
+console.log(`Identity: ${AI_DISPLAY_NAME} (${AI_CLIENT_ID})`);
+console.log(`Provider: ${PROVIDER_NAME} (${PROVIDER_ID})`);
+console.log(`Model: ${MODEL}`);
 console.log('');
 
 // ---------------------------------------------------------------------------
@@ -42,12 +52,11 @@ const keyManager = createApiKeyManager(API_KEY);
 const toolRegistry = createToolRegistry();
 
 const adapter = createAnthropicAdapter(keyManager, toolRegistry, {
-  model: 'claude-sonnet-4-20250514',
-  maxTokens: 4096,
-  systemPrompt:
-    'You are Claude, a helpful AI assistant communicating through the Bastion secure messaging protocol. ' +
-    'You are chatting with Harry. Respond naturally, helpfully, and concisely. ' +
-    'The user message is conveyed in the Target field below — respond to its content directly.',
+  model: MODEL,
+  maxTokens: MAX_TOKENS,
+  // System prompt is assembled by ConversationManager (role context + user context).
+  // The adapter's systemPrompt is used as fallback for executeTask calls.
+  systemPrompt: ConversationManager.getRoleContext(),
 });
 
 console.log('[✓] Anthropic adapter initialised');
@@ -80,8 +89,8 @@ console.log('[✓] Safety engine armed (3-layer evaluation)');
 const client = new BastionAiClient({
   relayUrl: RELAY_URL,
   identity: IDENTITY,
-  providerId: 'anthropic-prod',
-  rejectUnauthorized: false, // self-signed cert on relay
+  providerId: PROVIDER_ID,
+  rejectUnauthorized: REJECT_UNAUTHORIZED,
 });
 
 // ---------------------------------------------------------------------------
@@ -95,7 +104,7 @@ client.on('connected', () => {
   const sessionInit = JSON.stringify({
     type: 'session_init',
     identity: IDENTITY,
-    providerId: 'anthropic-prod',
+    providerId: PROVIDER_ID,
     timestamp: new Date().toISOString(),
   });
 
@@ -153,8 +162,8 @@ client.on('message', async (data) => {
     const registerMsg = JSON.stringify({
       type: 'provider_register',
       payload: {
-        providerId: 'anthropic-bastion',
-        providerName: 'Anthropic (Bastion Official)',
+        providerId: PROVIDER_ID,
+        providerName: PROVIDER_NAME,
         capabilities: {
           conversation: true,
           taskExecution: true,
