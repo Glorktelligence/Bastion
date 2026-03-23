@@ -360,11 +360,25 @@ export function createAnthropicAdapter(
       }
 
       const tools = toolRegistry.toAnthropicTools();
+
+      // Use dynamic system prompt from conversation manager if provided
+      const effectiveSystemPrompt =
+        typeof task.parameters._systemPrompt === 'string' ? task.parameters._systemPrompt : systemPrompt;
+
+      // Use conversation history if provided, otherwise single-message from task
+      const history = Array.isArray(task.parameters._conversationHistory)
+        ? (task.parameters._conversationHistory as Array<{ role: string; content: string }>)
+        : null;
+
+      const messages = history
+        ? [...history.map((m) => ({ role: m.role, content: m.content }))]
+        : [{ role: 'user', content: formatTaskMessage(task) }];
+
       const requestBody: Record<string, unknown> = {
         model: config.model,
         max_tokens: config.maxTokens,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: formatTaskMessage(task) }],
+        system: effectiveSystemPrompt,
+        messages,
       };
 
       if (tools.length > 0) {
