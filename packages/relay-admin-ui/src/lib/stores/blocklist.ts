@@ -19,25 +19,37 @@ import type { BlocklistEntry } from '../types.js';
 
 /**
  * MaliClaw patterns — mirrors relay allowlist.ts.
- * Case-insensitive partial matching: any identifier containing one
- * of these patterns is blocked.
+ * Case-insensitive partial matching + /claw/i catch-all.
  *
- * Naming lineage: Clawdbot → Moltbot → OpenClaw (same project, renamed twice).
+ * Claw family tree:
+ *   Clawdbot → Moltbot → OpenClaw
+ *                           ├── Copaw, NanoClaw, ZeroClaw
+ *                           ├── ClawHub (marketplace)
+ *                           └── HiClaw → Tuwunel (IM server)
  */
 const MALICLAW_PATTERNS: readonly string[] = Object.freeze([
   'openclaw',
   'clawdbot',
   'moltbot',
+  'copaw',
+  'nanoclaw',
+  'zeroclaw',
   'clawhub',
+  'hiclaw',
+  'tuwunel',
+  'lobster',
   'ai.openclaw.client',
   'openclaw.ai',
   'docs.openclaw.ai',
 ]);
 
-/** Check if an identifier matches any MaliClaw pattern (case-insensitive, partial). */
+const CLAW_CATCHALL = /claw/i;
+
+/** Check if an identifier matches any MaliClaw pattern or the catch-all. */
 function isMaliClawMatch(identifier: string): boolean {
   const lower = identifier.toLowerCase();
-  return MALICLAW_PATTERNS.some((pattern) => lower.includes(pattern));
+  if (MALICLAW_PATTERNS.some((pattern) => lower.includes(pattern))) return true;
+  return CLAW_CATCHALL.test(identifier);
 }
 
 // ---------------------------------------------------------------------------

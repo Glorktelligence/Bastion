@@ -107,6 +107,7 @@ export type {
   AllowlistEntry,
   AllowlistCheckResult,
   AllowlistRejectionReason,
+  MaliClawMatchResult,
 } from './auth/allowlist.js';
 
 // ---------------------------------------------------------------------------

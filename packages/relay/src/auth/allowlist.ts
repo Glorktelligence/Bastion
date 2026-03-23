@@ -54,7 +54,16 @@ export type AllowlistRejectionReason = 'not_listed' | 'inactive' | 'blocked';
  * They cannot be removed, disabled, or made configurable.
  * Any connection attempt matching these patterns is immediately rejected.
  *
- * Naming lineage: Clawdbot → Moltbot → OpenClaw (same project, renamed twice).
+ * Claw family tree:
+ *   Clawdbot → Moltbot → OpenClaw
+ *                           ├── Copaw (derivative agent)
+ *                           ├── NanoClaw (derivative agent)
+ *                           ├── ZeroClaw (derivative agent)
+ *                           ├── ClawHub (marketplace)
+ *                           └── HiClaw (orchestrator)
+ *                               └── Tuwunel (IM server)
+ *   Catch-all: /claw/i pattern for unknown future derivatives
+ *
  * Matching is case-insensitive and partial — any identifier containing
  * one of these patterns is blocked (e.g. 'openclaw-agent-v2' or
  * 'my-clawdbot-fork' are both caught).
@@ -64,18 +73,48 @@ const MALICLAW_PATTERNS: readonly string[] = Object.freeze([
   'openclaw', // Current project name
   'clawdbot', // Original project name
   'moltbot', // Intermediate project name
-  // Secondary identifiers
+  // Derivative agents
+  'copaw', // OpenClaw derivative agent
+  'nanoclaw', // OpenClaw derivative agent
+  'zeroclaw', // OpenClaw derivative agent
+  // Ecosystem components
   'clawhub', // Plugin marketplace
+  'hiclaw', // Orchestration layer
+  'tuwunel', // HiClaw's IM server component
+  'lobster', // OpenClaw's internal framework name
+  // Infrastructure
   'ai.openclaw.client', // iOS bundle ID
-  // Domain patterns
   'openclaw.ai', // Main site
   'docs.openclaw.ai', // Documentation site
 ]);
 
+/** Catch-all regex: blocks ANY identifier containing 'claw' (case-insensitive). */
+const CLAW_CATCHALL = /claw/i;
+
+/** Result of a MaliClaw check — which pattern matched. */
+export interface MaliClawMatchResult {
+  readonly matched: boolean;
+  readonly pattern: string | null;
+  readonly catchAll: boolean;
+}
+
 /** Check if an identifier matches any MaliClaw pattern (case-insensitive, partial). */
 function isMaliClawMatch(identifier: string): boolean {
+  return getMaliClawMatchDetail(identifier).matched;
+}
+
+/** Detailed match — returns which specific pattern or catch-all matched. */
+function getMaliClawMatchDetail(identifier: string): MaliClawMatchResult {
   const lower = identifier.toLowerCase();
-  return MALICLAW_PATTERNS.some((pattern) => lower.includes(pattern));
+  for (const pattern of MALICLAW_PATTERNS) {
+    if (lower.includes(pattern)) {
+      return { matched: true, pattern, catchAll: false };
+    }
+  }
+  if (CLAW_CATCHALL.test(identifier)) {
+    return { matched: true, pattern: 'claw (catch-all)', catchAll: true };
+  }
+  return { matched: false, pattern: null, catchAll: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -195,5 +234,10 @@ export class Allowlist {
   /** Check if an identifier matches any MaliClaw pattern. */
   static isMaliClawMatch(identifier: string): boolean {
     return isMaliClawMatch(identifier);
+  }
+
+  /** Detailed match — returns which pattern matched and whether it was the catch-all. */
+  static getMaliClawMatchDetail(identifier: string): MaliClawMatchResult {
+    return getMaliClawMatchDetail(identifier);
   }
 }
