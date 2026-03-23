@@ -1376,7 +1376,9 @@ async function run() {
 
     // System prompt without user context
     const prompt = cm.getSystemPrompt();
-    check('system prompt has role context', prompt.includes('Bastion secure messaging protocol'));
+    check('system prompt has role context', prompt.includes('Project Bastion'));
+    check('system prompt identifies Anthropic', prompt.includes('made by Anthropic'));
+    check('system prompt confirms API deployment', prompt.includes('official Anthropic API'));
     check('system prompt has no user context section', !prompt.includes('User Context'));
 
     // User context
@@ -1384,7 +1386,7 @@ async function run() {
     check('user context set', cm.getUserContext() === 'Harry works on infrastructure security.');
     const promptWithCtx = cm.getSystemPrompt();
     check('prompt has user context', promptWithCtx.includes('Harry works on infrastructure'));
-    check('prompt has role context before user context', promptWithCtx.indexOf('Bastion secure messaging') < promptWithCtx.indexOf('Harry works'));
+    check('prompt has role context before user context', promptWithCtx.indexOf('Project Bastion') < promptWithCtx.indexOf('Harry works'));
 
     // Token estimation
     const tokens = cm.estimateTokenCount();
@@ -1409,8 +1411,10 @@ async function run() {
 
     // Static role context
     const roleCtx = ConversationManager.getRoleContext();
-    check('static role context exists', roleCtx.includes('Bastion secure messaging protocol'));
+    check('static role context exists', roleCtx.includes('Project Bastion'));
+    check('role context identifies Anthropic', roleCtx.includes('made by Anthropic'));
     check('role context mentions safety', roleCtx.includes('dangerous'));
+    check('role context has repo link', roleCtx.includes('github.com/Glorktelligence/Bastion'));
   }
   console.log();
 
