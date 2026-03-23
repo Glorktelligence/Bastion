@@ -1,7 +1,12 @@
 <script lang="ts">
 import type { DisplayMessage } from '../stores/messages.js';
+import * as session from '../session.js';
 
 const { message }: { message: DisplayMessage } = $props();
+
+let showRememberForm = $state(false);
+let rememberContent = $state('');
+let rememberCategory = $state<'preference' | 'fact' | 'workflow' | 'project'>('fact');
 
 function formatTime(ts: string): string {
   try {
@@ -9,6 +14,30 @@ function formatTime(ts: string): string {
   } catch {
     return ts;
   }
+}
+
+function openRememberForm(): void {
+  rememberContent = message.content;
+  showRememberForm = true;
+}
+
+function sendMemoryProposal(): void {
+  const client = session.getClient();
+  if (!client || !rememberContent.trim()) return;
+  client.send(JSON.stringify({
+    type: 'memory_proposal',
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: session.IDENTITY,
+    payload: {
+      proposalId: crypto.randomUUID(),
+      content: rememberContent.trim(),
+      category: rememberCategory,
+      sourceMessageId: message.id,
+    },
+  }));
+  showRememberForm = false;
+  rememberContent = '';
 }
 
 function isResult(msg: DisplayMessage): boolean {
@@ -56,6 +85,24 @@ function getTransparency(msg: DisplayMessage): { confidence: string; permissions
 				<span class="tag">Cost: {t.cost}</span>
 			</div>
 		{/if}
+	{/if}
+
+	<button class="remember-btn" onclick={openRememberForm} title="Remember this">R</button>
+
+	{#if showRememberForm}
+		<div class="remember-form">
+			<textarea bind:value={rememberContent} rows="2" class="remember-input"></textarea>
+			<div class="remember-controls">
+				<select bind:value={rememberCategory} class="remember-select">
+					<option value="fact">Fact</option>
+					<option value="preference">Preference</option>
+					<option value="workflow">Workflow</option>
+					<option value="project">Project</option>
+				</select>
+				<button class="remember-save" onclick={sendMemoryProposal} disabled={!rememberContent.trim()}>Save</button>
+				<button class="remember-cancel" onclick={() => { showRememberForm = false; }}>Cancel</button>
+			</div>
+		</div>
 	{/if}
 </div>
 
@@ -126,5 +173,86 @@ function getTransparency(msg: DisplayMessage): { confidence: string; permissions
 		border-radius: 4px;
 		background: rgba(0, 0, 0, 0.2);
 		opacity: 0.8;
+	}
+
+	.bubble { position: relative; }
+
+	.remember-btn {
+		position: absolute;
+		top: 0.375rem;
+		right: 0.375rem;
+		width: 1.25rem;
+		height: 1.25rem;
+		border-radius: 50%;
+		border: 1px solid var(--color-border, #333);
+		background: var(--color-bg, #111);
+		color: var(--color-text-muted, #888);
+		font-size: 0.6rem;
+		font-weight: 700;
+		cursor: pointer;
+		opacity: 0;
+		transition: opacity 0.15s;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.bubble:hover .remember-btn { opacity: 0.7; }
+	.remember-btn:hover { opacity: 1 !important; color: var(--color-accent, #4a9eff); border-color: var(--color-accent, #4a9eff); }
+
+	.remember-form {
+		margin-top: 0.5rem;
+		padding-top: 0.5rem;
+		border-top: 1px solid var(--color-border, #333);
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+	}
+
+	.remember-input {
+		width: 100%;
+		resize: vertical;
+		padding: 0.375rem;
+		border: 1px solid var(--color-border, #333);
+		border-radius: 0.25rem;
+		background: var(--color-bg, #111);
+		color: var(--color-text, #eee);
+		font-size: 0.8rem;
+		font-family: inherit;
+	}
+
+	.remember-controls {
+		display: flex;
+		gap: 0.375rem;
+		align-items: center;
+	}
+
+	.remember-select {
+		padding: 0.2rem 0.375rem;
+		border: 1px solid var(--color-border, #333);
+		border-radius: 0.25rem;
+		background: var(--color-bg, #111);
+		color: var(--color-text, #eee);
+		font-size: 0.75rem;
+	}
+
+	.remember-save {
+		padding: 0.2rem 0.5rem;
+		background: var(--color-accent, #4a9eff);
+		color: white;
+		border: none;
+		border-radius: 0.25rem;
+		font-size: 0.75rem;
+		cursor: pointer;
+	}
+	.remember-save:disabled { opacity: 0.5; }
+
+	.remember-cancel {
+		padding: 0.2rem 0.5rem;
+		background: transparent;
+		color: var(--color-text-muted, #888);
+		border: 1px solid var(--color-border, #333);
+		border-radius: 0.25rem;
+		font-size: 0.75rem;
+		cursor: pointer;
 	}
 </style>
