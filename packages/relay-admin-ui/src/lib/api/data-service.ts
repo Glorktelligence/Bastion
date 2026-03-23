@@ -50,7 +50,9 @@ export class DataService {
 
   /** Fetch status once and populate the overview store. Returns false on auth failure. */
   async fetchStatus(store: OverviewStore): Promise<boolean> {
-    store.setLoading(true);
+    // Only show loading spinner on first fetch, not on poll refreshes
+    const isFirstFetch = store.store.get().lastUpdated === null;
+    if (isFirstFetch) store.setLoading(true);
     const result = await this.client.getStatus();
     if (result.ok) {
       const d = result.data as Record<string, unknown>;
@@ -107,7 +109,8 @@ export class DataService {
 
   /** Fetch connections once and populate the connections store. */
   async fetchConnections(store: ConnectionsStore): Promise<void> {
-    store.setLoading(true);
+    const isFirstFetch = store.store.get().connections.length === 0 && !store.store.get().error;
+    if (isFirstFetch) store.setLoading(true);
     const result = await this.client.getConnections();
     if (result.ok) {
       const d = result.data as { connections: ConnectionEntry[]; total: number };

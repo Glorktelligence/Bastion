@@ -2,10 +2,11 @@
 /**
  * @type {{
  *   maliClawEntries: readonly string[],
- *   customEntries: readonly import('../types.js').BlocklistEntry[]
+ *   customEntries: readonly import('../types.js').BlocklistEntry[],
+ *   onRemove?: (id: string) => void
  * }}
  */
-const { maliClawEntries, customEntries } = $props();
+const { maliClawEntries, customEntries, onRemove } = $props();
 </script>
 
 <div class="blocklist-table">
@@ -32,7 +33,7 @@ const { maliClawEntries, customEntries } = $props();
 					<td class="mono">{entry.id}</td>
 					<td><span class="badge badge-custom">Custom</span></td>
 					<td><span class="badge badge-warning">Blocked</span></td>
-					<td><button class="btn-remove">Remove</button></td>
+					<td><button class="btn-remove" onclick={() => onRemove?.(entry.id)}>Remove</button></td>
 				</tr>
 			{/each}
 		</tbody>
