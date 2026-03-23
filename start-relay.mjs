@@ -336,6 +336,43 @@ relay.on('message', async (data, info) => {
     return;
   }
 
+  // ----- audit_query: query audit trail and respond to human client -----
+  if (msg.type === 'audit_query') {
+    const q = msg.payload || msg;
+    const result = adminRoutes.queryAudit({
+      startTime: q.startTime,
+      endTime: q.endTime,
+      eventType: q.eventType,
+      sessionId: q.sessionId,
+      limit: q.limit,
+      offset: q.offset,
+    });
+
+    let integrity = null;
+    if (q.includeIntegrity) {
+      const intResult = adminRoutes.getChainIntegrity();
+      integrity = {
+        chainValid: intResult.body.chainValid,
+        entriesChecked: intResult.body.totalEntries,
+        lastVerifiedAt: intResult.body.lastVerifiedAt,
+      };
+    }
+
+    relay.send(connId, JSON.stringify({
+      type: 'audit_response',
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: { id: 'relay', type: 'relay', displayName: 'Bastion Relay' },
+      payload: {
+        entries: result.body.entries,
+        totalCount: result.body.totalCount,
+        integrity,
+      },
+    }));
+    console.log(`[→] audit_response sent to ${connId.slice(0, 8)} (${result.body.entries?.length || 0} entries)`);
+    return;
+  }
+
   // ----- context_update: forward to AI client -----
   if (msg.type === 'context_update') {
     const peerId = router.getPeer(connId);

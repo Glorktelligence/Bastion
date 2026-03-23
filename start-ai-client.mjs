@@ -4,6 +4,11 @@ import {
   createApiKeyManager,
   createToolRegistry,
   createAnthropicAdapter,
+  ConversationManager,
+  evaluateSafety,
+  defaultSafetyConfig,
+  createPatternHistory,
+  generateSafetyResponse,
 } from './packages/client-ai/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -46,6 +51,27 @@ const adapter = createAnthropicAdapter(keyManager, toolRegistry, {
 });
 
 console.log('[✓] Anthropic adapter initialised');
+
+// ---------------------------------------------------------------------------
+// Conversation manager — session context + user context
+// ---------------------------------------------------------------------------
+
+const conversationManager = new ConversationManager({
+  tokenBudget: parseInt(process.env.BASTION_TOKEN_BUDGET || '100000', 10),
+  userContextPath: process.env.BASTION_USER_CONTEXT_PATH || '/var/lib/bastion-ai/user-context.md',
+});
+console.log(`[✓] Conversation manager initialised (budget: ${conversationManager.estimateTokenCount() || 0} base tokens)`);
+if (conversationManager.getUserContext()) {
+  console.log(`[✓] User context loaded (${conversationManager.getUserContext().length} chars)`);
+}
+
+// ---------------------------------------------------------------------------
+// Safety engine
+// ---------------------------------------------------------------------------
+
+const safetyConfig = defaultSafetyConfig();
+const patternHistory = createPatternHistory();
+console.log('[✓] Safety engine armed (3-layer evaluation)');
 
 // ---------------------------------------------------------------------------
 // Client setup
@@ -122,6 +148,33 @@ client.on('message', async (data) => {
   if (msg.type === 'session_established') {
     console.log(`[←] Session established (session: ${(msg.sessionId || '').slice(0, 8)})`);
     client.setToken(msg.jwt, msg.expiresAt);
+
+    // Register as a governed provider
+    const registerMsg = JSON.stringify({
+      type: 'provider_register',
+      payload: {
+        providerId: 'anthropic-bastion',
+        providerName: 'Anthropic (Bastion Official)',
+        capabilities: {
+          conversation: true,
+          taskExecution: true,
+          fileTransfer: false,
+        },
+      },
+      timestamp: new Date().toISOString(),
+    });
+    client.send(registerMsg);
+    console.log('[→] Sent provider_register');
+    return;
+  }
+
+  // Handle config_ack/config_nack (provider registration response)
+  if (msg.type === 'config_ack') {
+    console.log(`[✓] Config acknowledged: ${msg.configType}`);
+    return;
+  }
+  if (msg.type === 'config_nack') {
+    console.log(`[!] Config rejected: ${msg.configType} — ${msg.reason}`);
     return;
   }
 
@@ -137,12 +190,84 @@ client.on('message', async (data) => {
     return;
   }
 
+  // Handle confirmation — human approved/modified/cancelled a challenged task
+  if (msg.type === 'confirmation') {
+    const decision = msg.payload?.decision || msg.decision;
+    console.log(`[←] Challenge response: ${decision}`);
+    if (decision === 'cancel') {
+      console.log('[~] Task cancelled by human');
+    } else if (decision === 'approve' || decision === 'modify') {
+      console.log(`[✓] Task ${decision}d by human — would proceed with execution`);
+    }
+    return;
+  }
+
+  // Handle context_update — update user context file
+  if (msg.type === 'context_update') {
+    const content = msg.payload?.content ?? msg.content ?? '';
+    conversationManager.updateUserContext(content);
+    console.log(`[✓] User context updated (${content.length} chars)`);
+    return;
+  }
+
+  // Handle file transfer messages — acknowledge but not yet implemented in runtime
+  if (msg.type === 'file_manifest' || msg.type === 'file_offer' || msg.type === 'file_request') {
+    console.log(`[←] File transfer message: ${msg.type} — file handling not yet wired in runtime`);
+    // TODO: Wire to IntakeDirectory/OutboundStaging when file transfer is enabled
+    return;
+  }
+
+  // Handle task messages — run through safety engine first
+  if (msg.type === 'task') {
+    const payload = msg.payload || msg;
+    console.log(`[←] Task: ${payload.action} → ${payload.target} (priority: ${payload.priority})`);
+
+    // Safety evaluation
+    const safetyResult = evaluateSafety(payload, safetyConfig, patternHistory);
+    const safetyResponse = generateSafetyResponse(payload, safetyResult);
+
+    if (safetyResponse.type === 'denial') {
+      console.log(`[✗] DENIED by Layer ${safetyResult.decidingLayer}: ${safetyResponse.payload.reason}`);
+      const denialMsg = JSON.stringify({
+        type: 'denial',
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        sender: IDENTITY,
+        payload: safetyResponse.payload,
+      });
+      client.send(denialMsg);
+      return;
+    }
+
+    if (safetyResponse.type === 'challenge') {
+      console.log(`[?] CHALLENGE by Layer ${safetyResult.decidingLayer}: ${safetyResponse.payload.reason}`);
+      const challengeMsg = JSON.stringify({
+        type: 'challenge',
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        sender: IDENTITY,
+        payload: safetyResponse.payload,
+      });
+      client.send(challengeMsg);
+      // Wait for confirmation — don't execute yet
+      return;
+    }
+
+    console.log(`[✓] Safety: ALLOW (score: ${safetyResult.layer2?.score?.toFixed(2) ?? 'n/a'})`);
+    // For task messages, fall through to API call below
+  }
+
   // Handle conversation messages — call Anthropic API
-  if (msg.type === 'conversation') {
-    const content = msg.payload?.content || msg.content || '';
+  if (msg.type === 'conversation' || msg.type === 'task') {
+    const content = msg.type === 'task'
+      ? `Task: ${(msg.payload || msg).action} on ${(msg.payload || msg).target}`
+      : (msg.payload?.content || msg.content || '');
     const senderName = msg.sender?.displayName || 'Unknown';
 
     console.log(`[←] ${senderName}: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`);
+
+    // Add to conversation buffer
+    conversationManager.addUserMessage(content);
 
     if (processing) {
       console.log('[~] Already processing a message — queueing not implemented, sending busy notice');
@@ -161,19 +286,25 @@ client.on('message', async (data) => {
     console.log('[~] Calling Anthropic API...');
 
     try {
-      // Use the adapter's executeTask with the message content as the target
+      // Use the adapter's executeTask with conversation context
       const result = await adapter.executeTask({
         taskId: msg.id || randomUUID(),
         action: 'respond',
         target: content,
-        priority: 'normal',
-        parameters: {},
+        priority: msg.type === 'task' ? ((msg.payload || msg).priority || 'normal') : 'normal',
+        parameters: {
+          _systemPrompt: conversationManager.getSystemPrompt(),
+          _conversationHistory: conversationManager.getMessages(),
+        },
         constraints: [],
       });
 
       if (result.ok) {
         const responseText = result.response.textContent;
         const cost = result.response.cost;
+
+        // Add to conversation buffer
+        conversationManager.addAssistantMessage(responseText);
 
         console.log(`[✓] API response (${result.response.usage.inputTokens}in/${result.response.usage.outputTokens}out, $${cost.estimatedCostUsd.toFixed(4)})`);
         console.log(`[→] Claude: ${responseText.substring(0, 100)}${responseText.length > 100 ? '...' : ''}`);
