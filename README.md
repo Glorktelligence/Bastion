@@ -133,16 +133,17 @@ pnpm build
 pnpm test
 
 # Individual packages
-node packages/tests/trace-test.mjs              # Protocol schema tests (190 checks)
+node packages/tests/trace-test.mjs              # Protocol schema tests (221 checks)
 node packages/tests/integration-test.mjs         # Integration round-trip tests (82 checks)
 node packages/tests/file-transfer-integration-test.mjs  # File transfer E2E (105 checks)
-node packages/relay/trace-test.mjs               # Relay tests (288 checks)
-node packages/relay/admin-trace-test.mjs          # Admin auth & routes (185 checks)
-node packages/crypto/trace-test.mjs              # Crypto tests
-node packages/client-ai/trace-test.mjs           # AI client tests (239 + 155 checks)
-node packages/client-human/trace-test.mjs        # Desktop client tests (272 checks)
+node packages/relay/trace-test.mjs               # Relay tests (353 checks)
+node packages/relay/admin-trace-test.mjs          # Admin auth, routes, extensions (312 checks)
+node packages/crypto/trace-test.mjs              # Crypto tests (134 checks)
+node packages/client-ai/trace-test.mjs           # AI client: safety, provider, memory, project, tools, challenge (374 checks)
+node packages/client-ai/file-handling-trace-test.mjs  # AI client file handling (155 checks)
+node packages/client-human/trace-test.mjs        # Desktop client tests (293 checks)
 node packages/client-human-mobile/trace-test.mjs # Mobile client tests (123 checks)
-node packages/relay-admin-ui/trace-test.mjs      # Admin UI tests (192 checks)
+node packages/relay-admin-ui/trace-test.mjs      # Admin UI: stores, API, data service (239 checks)
 ```
 
 ### Typecheck
@@ -209,11 +210,38 @@ Bastion includes deployment templates for self-hosted environments:
 - [Contributing Guide](CONTRIBUTING.md) — How to contribute
 - [Code of Conduct](CODE_OF_CONDUCT.md) — Community standards
 
+## Current Capabilities
+
+| Layer | Feature | Status |
+|-------|---------|--------|
+| 1 | E2E encrypted messaging with conversation continuity | Deployed |
+| 2 | Persistent memory with "Remember" button + category system | Deployed |
+| 3 | Project context file sharing with nested directory support | Deployed |
+| 4 | MCP tool integration with governed approval flow (JSON-RPC 2.0) | Deployed |
+| — | Protocol extension system with namespaced message types | Deployed |
+| — | Challenge Me More temporal governance (server-clock enforced) | Deployed |
+| — | First-launch setup wizard with connection testing | Deployed |
+| — | Tamper-evident audit trail with chain integrity verification | Deployed |
+| — | Admin panel with TOTP auth, live monitoring, setup wizard | Deployed |
+| — | MaliClaw Clause: 13 patterns + `/claw/i` catch-all | Hardcoded |
+
+### 5 Immutable Boundaries
+
+These cannot be disabled, bypassed, or configured away:
+
+1. **MaliClaw Clause** — permanent blocklist of dangerous AI providers (13 patterns + catch-all regex)
+2. **Safety Floors** — minimum thresholds that can be tightened but never lowered
+3. **Tool Blindness** — dangerous tools stripped entirely from conversation mode
+4. **Budget Guard** — cost caps with cooldowns on changes (future: enforced at protocol level)
+5. **Challenge Hours** — temporal governance that the client cannot override (server clock is truth)
+
 ## Status
 
-**Pre-Release.** The protocol, crypto layer, relay, AI client, desktop client, mobile client, admin UI, community documentation, CI/CD, and infrastructure templates are all implemented and tested across 2,255 passing tests.
+**Pre-Release.** The protocol, crypto layer, relay, AI client, desktop client, admin UI, and infrastructure templates are all implemented and tested across 2,255 passing tests.
 
-The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. The protocol is stable. The reference implementation works.
+The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. The protocol is stable at 54 message types. The reference implementation works.
+
+> **Mobile client note:** The React Native mobile client (`packages/client-human-mobile`) was built during the initial development phases and builds successfully, but has not been updated with Layer 2-4 features, the setup wizard, or Challenge Me More. Mobile client modernisation is on the roadmap.
 
 This is a framework and protocol — not a consumer product. The hard parts are done. Fork it, adapt it, build on it.
 

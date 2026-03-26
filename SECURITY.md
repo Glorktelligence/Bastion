@@ -100,6 +100,34 @@ AI clients self-register via the `provider_register` message type. The relay val
 - Capability matrices can be restricted per-provider after registration.
 - A compromised AI client could register with misleading metadata, but the relay's capability enforcement limits what any provider can actually do regardless of what they claim.
 
+### 5 Immutable Boundaries
+
+These are hardcoded and cannot be disabled by any configuration:
+
+1. **MaliClaw Clause**: 13 specific patterns + `/claw/i` catch-all regex. Checked before all other authentication.
+2. **Safety Floors**: Minimum thresholds that can be tightened, never lowered.
+3. **Tool Blindness**: Dangerous tools stripped from conversation mode. Write tools always require per-call approval.
+4. **Budget Guard**: Cost caps with 7-day cooldowns on changes, blocked during challenge hours.
+5. **Challenge Hours**: Server-clock-enforced temporal governance. Client cannot override.
+
+### Tool Governance Model
+
+- Read-only tools with trust 4+ and session scope auto-approve. Write/destructive tools ALWAYS require per-call approval.
+- Parameter validation rejects path traversal, command injection, and oversized payloads before MCP execution.
+- API credentials read from env vars on the AI VM — never logged, never in protocol messages.
+
+### Protocol Extension Security
+
+- Every extension message type requires safety + audit declarations. Missing sections are rejected.
+- 12 reserved namespaces blocked. Registry locks after startup. Tighten-only enforcement.
+
+### Challenge Me More (Temporal Governance)
+
+- Blocks budget changes, MCP registration, and schedule changes during vulnerable hours.
+- Mandatory wait timers: dangerous tools 30s, deletions 10s, trust elevation >7 15s.
+- Server clock enforcement via `Intl.DateTimeFormat().resolvedOptions().timeZone`.
+- Tighten-only: enabling is immediate, disabling requires 7-day cooldown.
+
 ### Known Limitations
 
 - **Single-device sessions**: Only one human client device connected at a time. Session swap requires explicit confirmation but relies on the legitimacy of the JWT presented.

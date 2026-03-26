@@ -292,6 +292,25 @@ BASTION_OUTBOUND_DIR=/var/lib/bastion-ai/outbound
 # TLS (trust the relay's certificate)
 BASTION_TLS_CA=/opt/bastion-ai/certs/ca-cert.pem
 # Or for Let's Encrypt: NODE_EXTRA_CA_CERTS is not needed (trusted by default)
+
+# Layer 2: Persistent memory
+BASTION_MEMORIES_DB=/var/lib/bastion-ai/memories.db
+
+# Layer 3: Project context
+BASTION_PROJECT_DIR=/var/lib/bastion-ai/project
+
+# Layer 4: MCP tool endpoints (one per provider — env vars are on AI VM only)
+# BASTION_MCP_OBSIDIAN_URL=ws://192.168.1.108:3002
+# BASTION_MCP_OBSIDIAN_API_KEY=<api-key-here>
+# BASTION_MCP_PROXMOX_URL=wss://mcp.yourdomain.com/ws
+# BASTION_MCP_PROXMOX_API_KEY=<api-key-here>
+
+# Challenge Me More configuration
+BASTION_CHALLENGE_CONFIG=/var/lib/bastion-ai/challenge-config.json
+
+# Conversation manager
+BASTION_TOKEN_BUDGET=100000
+BASTION_USER_CONTEXT_PATH=/var/lib/bastion-ai/user-context.md
 ```
 
 ```bash

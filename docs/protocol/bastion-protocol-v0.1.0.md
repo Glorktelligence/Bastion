@@ -340,7 +340,7 @@ Tokens expire every 15 minutes. Clients should refresh at 13 minutes (2 minutes 
 
 ## 7. Message Types
 
-The Bastion protocol defines 27 message types across four categories: core (13), supplementary (10), audit (2), and provider/context (2).
+The Bastion protocol defines 54 message types across ten categories: core (13), supplementary (10), audit (2), provider/context (2), memory (6), extensions (2), project context (7), tool integration (9), and challenge governance (3).
 
 ### 7.1 Core Message Types
 
@@ -998,7 +998,7 @@ These properties are enforced by the protocol and cannot be disabled, configured
 | Admin lockout threshold | 5 failed attempts in 15 minutes |
 | Admin lockout duration | 1 hour |
 | Reconnection backoff | 5s, 15s, 30s, 60s, 120s (repeating) |
-| Message types | 27 total (13 core + 10 supplementary + 2 audit + 2 provider/context) |
+| Message types | 54 total (13 core + 10 supplementary + 2 audit + 2 provider/context + 6 memory + 2 extensions + 7 project + 9 tools + 3 challenge) |
 | Error code categories | 7 (1XXX–7XXX) |
 | Error codes | 43 total |
 
