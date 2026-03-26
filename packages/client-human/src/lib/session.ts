@@ -22,6 +22,7 @@ import { type MemoryEntry, createMemoriesStore } from './stores/memories.js';
 import { type DisplayMessage, createMessagesStore } from './stores/messages.js';
 import { SAFETY_FLOOR_VALUES, createSettingsStore } from './stores/settings.js';
 import { type TrackedTask, createTasksStore } from './stores/tasks.js';
+import { type ApprovedTool, type PendingToolRequest, type ToolResult, createToolsStore } from './stores/tools.js';
 
 import { getConfigStore } from './config/config-store.js';
 
@@ -60,6 +61,7 @@ export const auditLog = createAuditLogStore();
 export const settings = createSettingsStore();
 export const challengeStats = createChallengeStatsStore(challenges.store);
 export const memories = createMemoriesStore();
+export const tools = createToolsStore();
 
 /** Connection state — plain writable, populated by createConnectionStore when connected. */
 export const connection: Writable<ConnectionStoreState> = writable<ConnectionStoreState>({
@@ -264,6 +266,39 @@ function handleRelayMessage(data: string): void {
     return;
   }
 
+  // Tool request — AI wants to use a tool, show approval dialog
+  if (type === 'tool_request') {
+    const p = payload as Record<string, unknown>;
+    tools.setPendingRequest({
+      requestId: String(p.requestId ?? ''),
+      toolId: String(p.toolId ?? ''),
+      action: String(p.action ?? ''),
+      parameters: (p.parameters as Record<string, unknown>) ?? {},
+      mode: (p.mode as 'conversation' | 'task') ?? 'conversation',
+      dangerous: Boolean(p.dangerous),
+      category: (p.category as 'read' | 'write' | 'destructive') ?? 'read',
+      receivedAt: timestamp,
+    });
+    return;
+  }
+
+  // Tool result — display in message stream
+  if (type === 'tool_result') {
+    const p = payload as Record<string, unknown>;
+    tools.addResult({
+      requestId: String(p.requestId ?? ''),
+      toolId: String(p.toolId ?? ''),
+      result: p.result,
+      durationMs: Number(p.durationMs ?? 0),
+      success: Boolean(p.success),
+      error: p.error ? String(p.error) : undefined,
+      receivedAt: timestamp,
+    });
+    // Also add to message stream
+    messages.addIncoming(type, payload, sender, id, timestamp);
+    return;
+  }
+
   // Memory decision — AI confirmed a memory save
   if (type === 'memory_decision') {
     const p = payload as Record<string, unknown>;
@@ -320,7 +355,17 @@ function handleRelayMessage(data: string): void {
 }
 
 // Re-export types that routes commonly need
-export type { DisplayMessage, ActiveChallenge, TrackedTask, AuditLogEntry, ChallengeStats, MemoryEntry };
+export type {
+  DisplayMessage,
+  ActiveChallenge,
+  TrackedTask,
+  AuditLogEntry,
+  ChallengeStats,
+  MemoryEntry,
+  PendingToolRequest,
+  ApprovedTool,
+  ToolResult,
+};
 export { SAFETY_FLOOR_VALUES };
 export { getConfigStore, generateUserId } from './config/config-store.js';
 export type { BastionConfig, ConfigStore } from './config/config-store.js';

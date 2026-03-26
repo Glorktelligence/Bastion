@@ -7,6 +7,9 @@ import {
   ConversationManager,
   MemoryStore,
   ProjectStore,
+  ToolRegistryManager,
+  McpClientAdapter,
+  validateParameters,
   evaluateSafety,
   defaultSafetyConfig,
   createPatternHistory,
@@ -106,6 +109,53 @@ const patternHistory = createPatternHistory();
 console.log('[✓] Safety engine armed (3-layer evaluation)');
 
 // ---------------------------------------------------------------------------
+// Tool registry + MCP adapters
+// ---------------------------------------------------------------------------
+
+const toolRegistry = new ToolRegistryManager();
+const mcpAdapters = new Map(); // providerId → McpClientAdapter
+const pendingToolRequests = new Map(); // requestId → { toolId, params, resolve, reject }
+
+/** Connect to configured MCP providers from env vars. */
+async function connectMcpProviders() {
+  // Scan env vars for MCP provider configs: BASTION_MCP_<NAME>_URL + BASTION_MCP_<NAME>_API_KEY
+  const providerEnvs = new Map();
+  for (const [key, value] of Object.entries(process.env)) {
+    const match = key.match(/^BASTION_MCP_([A-Z_]+)_URL$/);
+    if (match && value) {
+      const name = match[1].toLowerCase().replace(/_/g, '-');
+      providerEnvs.set(name, { url: value, keyEnv: `BASTION_MCP_${match[1]}_API_KEY` });
+    }
+  }
+
+  for (const [name, config] of providerEnvs) {
+    try {
+      const adapter = new McpClientAdapter({
+        providerId: name,
+        endpoint: config.url,
+        apiKeyEnvVar: config.keyEnv,
+        WebSocketImpl: (await import('ws')).default,
+      });
+      await adapter.connect();
+      mcpAdapters.set(name, adapter);
+
+      // Discover tools
+      const tools = await adapter.listTools();
+      console.log(`[✓] MCP ${name}: ${tools.length} tools discovered`);
+      for (const t of tools) {
+        console.log(`    - ${name}:${t.name}: ${t.description}`);
+      }
+    } catch (err) {
+      console.error(`[!] MCP ${name}: connection failed — ${err.message}`);
+    }
+  }
+
+  if (mcpAdapters.size > 0) {
+    console.log(`[✓] ${mcpAdapters.size} MCP providers connected`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Client setup
 // ---------------------------------------------------------------------------
 
@@ -135,8 +185,12 @@ client.on('connected', () => {
   client.send(sessionInit);
 });
 
-client.on('authenticated', (jwt, expiresAt) => {
+client.on('authenticated', async (jwt, expiresAt) => {
   console.log(`[✓] Authenticated — JWT expires at ${expiresAt}`);
+
+  // Connect to MCP providers
+  await connectMcpProviders();
+
   console.log('[★] Safety engine active — 3-layer evaluation armed');
   console.log('[★] Awaiting messages...');
 });
@@ -231,6 +285,67 @@ client.on('message', async (data) => {
     } else if (decision === 'approve' || decision === 'modify') {
       console.log(`[✓] Task ${decision}d by human — would proceed with execution`);
     }
+    return;
+  }
+
+  // Handle tool_approved — human approved a tool call
+  if (msg.type === 'tool_approved') {
+    const p = msg.payload || msg;
+    const pending = pendingToolRequests.get(p.requestId);
+    if (!pending) {
+      console.log(`[!] Tool approval for unknown request: ${p.requestId}`);
+      return;
+    }
+    pendingToolRequests.delete(p.requestId);
+
+    // Grant session trust
+    toolRegistry.grantTrust(p.toolId, p.trustLevel, p.scope);
+    console.log(`[✓] Tool approved: ${p.toolId} (trust: ${p.trustLevel}, scope: ${p.scope}, reason: ${p.reason})`);
+
+    // Validate parameters
+    const paramCheck = validateParameters(pending.params);
+    if (!paramCheck.valid) {
+      console.log(`[!] Parameter validation failed: ${paramCheck.reason}`);
+      client.send(JSON.stringify({ type: 'tool_result', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY, payload: { requestId: p.requestId, toolId: p.toolId, result: null, durationMs: 0, success: false, error: `Parameter validation: ${paramCheck.reason}` } }));
+      return;
+    }
+
+    // Execute MCP call
+    const [providerId, toolName] = p.toolId.split(':');
+    const adapter = mcpAdapters.get(providerId);
+    if (!adapter || !adapter.connected) {
+      console.log(`[!] MCP provider not connected: ${providerId}`);
+      client.send(JSON.stringify({ type: 'tool_result', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY, payload: { requestId: p.requestId, toolId: p.toolId, result: null, durationMs: 0, success: false, error: `MCP provider ${providerId} not connected` } }));
+      return;
+    }
+
+    const startTime = Date.now();
+    try {
+      const result = await adapter.callTool(toolName, pending.params);
+      const duration = Date.now() - startTime;
+      console.log(`[✓] Tool executed: ${p.toolId} (${duration}ms)`);
+      client.send(JSON.stringify({ type: 'tool_result', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY, payload: { requestId: p.requestId, toolId: p.toolId, result, durationMs: duration, success: true } }));
+    } catch (err) {
+      const duration = Date.now() - startTime;
+      console.error(`[!] Tool execution failed: ${p.toolId} — ${err.message}`);
+      client.send(JSON.stringify({ type: 'tool_result', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY, payload: { requestId: p.requestId, toolId: p.toolId, result: null, durationMs: duration, success: false, error: err.message } }));
+    }
+    return;
+  }
+
+  // Handle tool_denied — human denied a tool call
+  if (msg.type === 'tool_denied') {
+    const p = msg.payload || msg;
+    pendingToolRequests.delete(p.requestId);
+    console.log(`[✗] Tool denied: ${p.toolId} — ${p.reason}`);
+    return;
+  }
+
+  // Handle tool_revoke — human revoked session trust
+  if (msg.type === 'tool_revoke') {
+    const p = msg.payload || msg;
+    toolRegistry.revokeTrust(p.toolId);
+    console.log(`[✗] Tool trust revoked: ${p.toolId} — ${p.reason}`);
     return;
   }
 

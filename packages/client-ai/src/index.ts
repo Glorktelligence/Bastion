@@ -52,6 +52,8 @@ export {
   ProjectStore,
   validatePath,
   ToolRegistryManager,
+  McpClientAdapter,
+  validateParameters,
 } from './provider/index.js';
 export type {
   ToolRegistry,
@@ -79,6 +81,9 @@ export type {
   RegisteredTool,
   ToolProvider,
   SessionTrust,
+  McpTool,
+  McpCallResult,
+  McpClientConfig,
 } from './provider/index.js';
 
 // ---------------------------------------------------------------------------

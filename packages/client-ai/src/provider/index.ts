@@ -53,4 +53,8 @@ export { ProjectStore, validatePath } from './project-store.js';
 // Tool Registry Manager
 export { ToolRegistryManager } from './tool-registry-manager.js';
 export type { RegisteredTool, ToolProvider, SessionTrust } from './tool-registry-manager.js';
+
+// MCP Client Adapter
+export { McpClientAdapter, validateParameters } from './mcp-client-adapter.js';
+export type { McpTool, McpCallResult, McpClientConfig } from './mcp-client-adapter.js';
 export type { ProjectFile, ProjectConfig, ProjectStoreConfig, ProjectSaveResult } from './project-store.js';
