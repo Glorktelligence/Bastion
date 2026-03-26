@@ -3,10 +3,12 @@ import * as session from '$lib/session.js';
 import type { ConnectionStoreState } from '$lib/stores/connection.js';
 import type { DisplayMessage } from '$lib/stores/messages.js';
 import type { ActiveChallenge } from '$lib/stores/challenges.js';
+import type { PendingToolRequest } from '$lib/stores/tools.js';
 import StatusIndicator from '$lib/components/StatusIndicator.svelte';
 import MessageList from '$lib/components/MessageList.svelte';
 import ChallengeBanner from '$lib/components/ChallengeBanner.svelte';
 import InputBar from '$lib/components/InputBar.svelte';
+import ToolApprovalDialog from '$lib/components/ToolApprovalDialog.svelte';
 
 // ---------------------------------------------------------------------------
 // Reactive UI state — subscribed from shared session stores
@@ -22,6 +24,7 @@ let conn: ConnectionStoreState = $state({
 });
 let messages: DisplayMessage[] = $state([]);
 let activeChallenge: ActiveChallenge | null = $state(null);
+let pendingToolRequest: PendingToolRequest | null = $state(null);
 let connecting = $state(false);
 
 const isConnected = $derived(
@@ -34,6 +37,7 @@ $effect(() => {
 	unsubs.push(session.connection.subscribe((v) => (conn = v)));
 	unsubs.push(session.messages.store.subscribe((v) => (messages = [...v.messages])));
 	unsubs.push(session.challenges.store.subscribe((v) => (activeChallenge = v.active)));
+	unsubs.push(session.tools.store.subscribe((v) => (pendingToolRequest = v.pendingRequest)));
 
 	return () => {
 		for (const u of unsubs) u();
@@ -202,6 +206,10 @@ function handleChallengeCancel(): void {
 				onModify={handleChallengeModify}
 				onCancel={handleChallengeCancel}
 			/>
+		{/if}
+
+		{#if pendingToolRequest}
+			<ToolApprovalDialog request={pendingToolRequest} />
 		{/if}
 
 		<MessageList {messages} />

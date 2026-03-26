@@ -2,6 +2,7 @@
 import * as session from '$lib/session.js';
 import type { SafetySettings, SettingUpdateResult } from '$lib/stores/settings.js';
 import type { MemoryEntry } from '$lib/stores/memories.js';
+import type { ApprovedTool } from '$lib/stores/tools.js';
 import SettingsPanel from '$lib/components/SettingsPanel.svelte';
 
 // ---------------------------------------------------------------------------
@@ -24,6 +25,22 @@ let cfgDisplayName = $state(cfgStore.get('displayName'));
 let cfgUserId = $state(cfgStore.get('userId'));
 let showResetConfirm = $state(false);
 
+// Tool state
+let approvedTools: readonly ApprovedTool[] = $state([]);
+
+function handleToolRevoke(toolId: string): void {
+  const client = session.getClient();
+  if (!client) return;
+  client.send(JSON.stringify({
+    type: 'tool_revoke',
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: session.getIdentity(),
+    payload: { toolId, reason: 'Revoked from settings' },
+  }));
+  session.tools.removeApproved(toolId);
+}
+
 function handleResetSetup(): void {
   cfgStore.clear();
   // Force page reload to show setup wizard
@@ -45,6 +62,7 @@ $effect(() => {
 			memoryNotification = v.lastNotification;
 		}),
 		session.memories.totalCount.subscribe((v) => (memoryCount = v)),
+		session.tools.store.subscribe((v) => (approvedTools = v.sessionApproved)),
 	];
 
 	// Request memory list on mount
@@ -233,6 +251,28 @@ function handleContextSave(): void {
 			</div>
 		{:else}
 			<p class="empty-mem">No memories saved yet. Use the "R" button on any message to remember it.</p>
+		{/if}
+	</section>
+
+	<section class="section">
+		<h3>Active Tools <span class="mem-count">{approvedTools.length} approved this session</span></h3>
+		{#if approvedTools.length > 0}
+			<div class="memory-list">
+				{#each approvedTools as tool}
+					<div class="memory-entry">
+						<div class="mem-content">
+							<span class="mem-badge" style="background: #4a9eff20; color: #4a9eff">trust {tool.trustLevel}</span>
+							<code class="mem-text">{tool.toolId}</code>
+						</div>
+						<div class="mem-meta">
+							<span class="mem-date">{tool.scope} — {new Date(tool.approvedAt).toLocaleTimeString()}</span>
+							<button class="btn-sm btn-delete" onclick={() => handleToolRevoke(tool.toolId)}>Revoke</button>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{:else}
+			<p class="empty-mem">No tools approved this session</p>
 		{/if}
 	</section>
 
