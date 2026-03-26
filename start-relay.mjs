@@ -424,6 +424,23 @@ relay.on('message', async (data, info) => {
   }
 
   // ----- memory_proposal / memory_decision: forward between paired clients -----
+  // ----- project_* messages: forward between paired clients -----
+  if (msg.type === 'project_sync' || msg.type === 'project_sync_ack' || msg.type === 'project_list' || msg.type === 'project_list_response' || msg.type === 'project_delete' || msg.type === 'project_config' || msg.type === 'project_config_ack') {
+    const peerId = router.getPeer(connId);
+    if (peerId) {
+      relay.send(peerId, data);
+      console.log(`[→] ${msg.type} forwarded to peer ${peerId.slice(0, 8)}`);
+      const sid = sessionIds.get(connId);
+      if (sid) {
+        auditLogger.logEvent(msg.type.replace('project_', 'project_'), sid, {
+          path: msg.payload?.path,
+          messageType: msg.type,
+        });
+      }
+    }
+    return;
+  }
+
   if (msg.type === 'memory_proposal' || msg.type === 'memory_decision' || msg.type === 'memory_list' || msg.type === 'memory_list_response' || msg.type === 'memory_update' || msg.type === 'memory_delete') {
     const peerId = router.getPeer(connId);
     if (peerId) {

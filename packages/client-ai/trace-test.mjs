@@ -17,6 +17,8 @@ import {
   createAnthropicAdapter,
   ConversationManager,
   MemoryStore,
+  ProjectStore,
+  validatePath,
 } from './dist/index.js';
 import {
   BastionRelay,
@@ -1501,6 +1503,99 @@ async function run() {
     check('memories after role context', sysPrompt.indexOf('Project Bastion') < sysPrompt.indexOf('Remembered Context'));
 
     store.close();
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: Path validation
+  // -------------------------------------------------------------------
+  console.log('--- Test: Path validation ---');
+  {
+    check('valid .md path', validatePath('world-rules.md').valid);
+    check('valid nested path', validatePath('factions/iron-league.md').valid);
+    check('valid .json', validatePath('config/settings.json').valid);
+    check('valid .yaml', validatePath('data/schema.yaml').valid);
+    check('valid .yml', validatePath('data/schema.yml').valid);
+    check('valid .txt', validatePath('notes/readme.txt').valid);
+
+    check('reject absolute path', !validatePath('/etc/passwd').valid);
+    check('reject path traversal', !validatePath('../escape.md').valid);
+    check('reject double slash', !validatePath('foo//bar.md').valid);
+    check('reject hidden file', !validatePath('.secret.md').valid);
+    check('reject hidden dir', !validatePath('.git/config.txt').valid);
+    check('reject long path', !validatePath('a'.repeat(256) + '.md').valid);
+    check('reject .js extension', !validatePath('code.js').valid);
+    check('reject .ts extension', !validatePath('code.ts').valid);
+    check('reject empty path', !validatePath('').valid);
+    check('reject backslash', !validatePath('..\\escape.md').valid);
+
+    check('sanitises whitespace', validatePath('  hello.md  ').sanitised === 'hello.md');
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: ProjectStore — CRUD and prompt context
+  // -------------------------------------------------------------------
+  console.log('--- Test: ProjectStore ---');
+  {
+    const tmpDir = '/tmp/bastion-project-test-' + Date.now();
+    const store = new ProjectStore({ rootDir: tmpDir, maxFileSize: 1024, maxTotalSize: 4096 });
+
+    check('initial count 0', store.fileCount === 0);
+
+    // Save file
+    const r1 = store.saveFile('world-rules.md', '# World Rules\nNo PvP.', 'text/markdown');
+    check('save ok', r1.ok);
+    check('count after save', store.fileCount === 1);
+
+    // Save nested file
+    const r2 = store.saveFile('factions/iron-league.md', '# Iron League', 'text/markdown');
+    check('nested save ok', r2.ok);
+    check('count 2', store.fileCount === 2);
+
+    // Read file
+    const content = store.readFile('world-rules.md');
+    check('read content', content === '# World Rules\nNo PvP.');
+
+    // List files
+    const files = store.listFiles();
+    check('list returns 2', files.length === 2);
+    check('list has paths', files.some(f => f.path === 'world-rules.md'));
+    check('list has nested', files.some(f => f.path === 'factions/iron-league.md'));
+
+    // Reject bad extension
+    const r3 = store.saveFile('code.js', 'console.log("hi")', 'text/javascript');
+    check('reject .js', !r3.ok);
+
+    // Reject oversized file
+    const bigContent = 'x'.repeat(2000);
+    const r4 = store.saveFile('big.md', bigContent, 'text/markdown');
+    check('reject oversized', !r4.ok);
+
+    // Config
+    store.setConfig(['world-rules.md'], ['factions/iron-league.md']);
+    const cfg = store.getConfig();
+    check('config alwaysLoaded', cfg.alwaysLoaded.length === 1);
+    check('config available', cfg.available.length === 1);
+
+    // Prompt context
+    const prompt = store.getPromptContext();
+    check('prompt has content', prompt.includes('Project Context'));
+    check('prompt has file', prompt.includes('=== world-rules.md ==='));
+    check('prompt has text', prompt.includes('No PvP'));
+
+    // Delete
+    const deleted = store.deleteFile('world-rules.md');
+    check('delete ok', deleted);
+    check('count after delete', store.fileCount === 1);
+    check('removed from config', store.getConfig().alwaysLoaded.length === 0);
+
+    // Total size
+    check('total size > 0', store.getTotalSize() > 0);
+
+    // Cleanup
+    const { rmSync: rm } = await import('node:fs');
+    rm(tmpDir, { recursive: true, force: true });
   }
   console.log();
 

@@ -261,6 +261,13 @@ function validPayloads() {
       }],
       totalCount: 1,
     },
+    project_sync: { path: 'world-rules.md', content: '# World Rules', mimeType: 'text/markdown' },
+    project_sync_ack: { path: 'world-rules.md', size: 13, timestamp: '2026-03-26T10:00:00.000Z' },
+    project_list: {},
+    project_list_response: { files: [{ path: 'world-rules.md', size: 13, mimeType: 'text/markdown', lastModified: '2026-03-26T10:00:00.000Z' }], totalSize: 13, totalCount: 1 },
+    project_delete: { path: 'world-rules.md' },
+    project_config: { alwaysLoaded: ['world-rules.md'], available: ['economy/market.md'] },
+    project_config_ack: { alwaysLoaded: ['world-rules.md'], available: ['economy/market.md'], timestamp: '2026-03-26T10:00:00.000Z' },
   };
 }
 
@@ -350,8 +357,8 @@ async function run() {
         break;
       }
     }
-    check('all 35 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 35 entries', ALL_MESSAGE_TYPES.length === 35);
+    check('all 42 message types accepted in envelope', allTypesValid);
+    check('ALL_MESSAGE_TYPES has 42 entries', ALL_MESSAGE_TYPES.length === 42);
   }
   console.log();
 
@@ -387,8 +394,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 35 entries', typeKeys.length === 35);
-    check('PAYLOAD_SCHEMAS has 35 entries', Object.keys(PAYLOAD_SCHEMAS).length === 35);
+    check('MESSAGE_TYPES has 42 entries', typeKeys.length === 42);
+    check('PAYLOAD_SCHEMAS has 42 entries', Object.keys(PAYLOAD_SCHEMAS).length === 42);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -787,7 +794,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 35 message types survive serialisation round-trip', allPassed);
+    check('all 42 message types survive serialisation round-trip', allPassed);
   }
   console.log();
 

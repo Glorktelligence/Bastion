@@ -217,6 +217,50 @@ export const ExtensionListResponsePayloadSchema = z.object({
   totalCount: z.number().int().nonnegative(),
 });
 
+export const ProjectSyncPayloadSchema = z.object({
+  path: z.string().min(1),
+  content: z.string(),
+  mimeType: z.string().min(1),
+});
+
+export const ProjectSyncAckPayloadSchema = z.object({
+  path: z.string().min(1),
+  size: z.number().int().nonnegative(),
+  timestamp: z.string(),
+});
+
+export const ProjectListPayloadSchema = z.object({
+  directory: z.string().optional(),
+});
+
+export const ProjectListResponsePayloadSchema = z.object({
+  files: z.array(
+    z.object({
+      path: z.string(),
+      size: z.number().int().nonnegative(),
+      mimeType: z.string(),
+      lastModified: z.string(),
+    }),
+  ),
+  totalSize: z.number().int().nonnegative(),
+  totalCount: z.number().int().nonnegative(),
+});
+
+export const ProjectDeletePayloadSchema = z.object({
+  path: z.string().min(1),
+});
+
+export const ProjectConfigPayloadSchema = z.object({
+  alwaysLoaded: z.array(z.string()),
+  available: z.array(z.string()),
+});
+
+export const ProjectConfigAckPayloadSchema = z.object({
+  alwaysLoaded: z.array(z.string()),
+  available: z.array(z.string()),
+  timestamp: z.string(),
+});
+
 export const HeartbeatMetricsSchema = z.object({
   uptimeMs: z.number().nonnegative(),
   memoryUsageMb: z.number().nonnegative(),
@@ -369,4 +413,11 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.MEMORY_DELETE]: MemoryDeletePayloadSchema,
   [MESSAGE_TYPES.EXTENSION_QUERY]: ExtensionQueryPayloadSchema,
   [MESSAGE_TYPES.EXTENSION_LIST_RESPONSE]: ExtensionListResponsePayloadSchema,
+  [MESSAGE_TYPES.PROJECT_SYNC]: ProjectSyncPayloadSchema,
+  [MESSAGE_TYPES.PROJECT_SYNC_ACK]: ProjectSyncAckPayloadSchema,
+  [MESSAGE_TYPES.PROJECT_LIST]: ProjectListPayloadSchema,
+  [MESSAGE_TYPES.PROJECT_LIST_RESPONSE]: ProjectListResponsePayloadSchema,
+  [MESSAGE_TYPES.PROJECT_DELETE]: ProjectDeletePayloadSchema,
+  [MESSAGE_TYPES.PROJECT_CONFIG]: ProjectConfigPayloadSchema,
+  [MESSAGE_TYPES.PROJECT_CONFIG_ACK]: ProjectConfigAckPayloadSchema,
 } as const;

@@ -71,6 +71,13 @@ export type {
   MemoryDeletePayload,
   ExtensionQueryPayload,
   ExtensionListResponsePayload,
+  ProjectSyncPayload,
+  ProjectSyncAckPayload,
+  ProjectListPayload,
+  ProjectListResponsePayload,
+  ProjectDeletePayload,
+  ProjectConfigPayload,
+  ProjectConfigAckPayload,
   MessagePayload,
 } from './types/messages.js';
 
@@ -192,6 +199,13 @@ export {
   MemoryDeletePayloadSchema,
   ExtensionQueryPayloadSchema,
   ExtensionListResponsePayloadSchema,
+  ProjectSyncPayloadSchema,
+  ProjectSyncAckPayloadSchema,
+  ProjectListPayloadSchema,
+  ProjectListResponsePayloadSchema,
+  ProjectDeletePayloadSchema,
+  ProjectConfigPayloadSchema,
+  ProjectConfigAckPayloadSchema,
   PAYLOAD_SCHEMAS,
 } from './schemas/message.schema.js';
 

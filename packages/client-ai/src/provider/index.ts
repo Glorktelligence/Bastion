@@ -46,3 +46,7 @@ export type { ConversationMessage, ConversationManagerConfig } from './conversat
 // Memory Store
 export { MemoryStore } from './memory-store.js';
 export type { Memory, MemoryStoreConfig } from './memory-store.js';
+
+// Project Store
+export { ProjectStore, validatePath } from './project-store.js';
+export type { ProjectFile, ProjectConfig, ProjectStoreConfig, ProjectSaveResult } from './project-store.js';

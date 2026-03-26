@@ -49,6 +49,8 @@ export {
   createAnthropicAdapter,
   ConversationManager,
   MemoryStore,
+  ProjectStore,
+  validatePath,
 } from './provider/index.js';
 export type {
   ToolRegistry,
@@ -69,6 +71,10 @@ export type {
   ConversationManagerConfig,
   Memory,
   MemoryStoreConfig,
+  ProjectFile,
+  ProjectConfig,
+  ProjectStoreConfig,
+  ProjectSaveResult,
 } from './provider/index.js';
 
 // ---------------------------------------------------------------------------

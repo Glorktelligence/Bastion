@@ -12,6 +12,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import type { MemoryStore } from './memory-store.js';
+import type { ProjectStore } from './project-store.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -29,6 +30,8 @@ export interface ConversationManagerConfig {
   readonly userContextPath?: string;
   /** Optional memory store for persistent Layer 2 memory. */
   readonly memoryStore?: MemoryStore;
+  /** Optional project store for Layer 3 project context. */
+  readonly projectStore?: ProjectStore;
 }
 
 // ---------------------------------------------------------------------------
@@ -74,6 +77,7 @@ export class ConversationManager {
   private readonly tokenBudget: number;
   private readonly userContextPath: string;
   private readonly memoryStore: MemoryStore | null;
+  private readonly projectStore: ProjectStore | null;
   private messages: ConversationMessage[];
   private userContext: string;
 
@@ -81,6 +85,7 @@ export class ConversationManager {
     this.tokenBudget = config?.tokenBudget ?? DEFAULT_TOKEN_BUDGET;
     this.userContextPath = config?.userContextPath ?? DEFAULT_USER_CONTEXT_PATH;
     this.memoryStore = config?.memoryStore ?? null;
+    this.projectStore = config?.projectStore ?? null;
     this.messages = [];
     this.userContext = '';
     this.loadUserContext();
@@ -115,6 +120,12 @@ export class ConversationManager {
     // User context (informative, below memories)
     if (this.userContext.trim().length > 0) {
       parts.push(`--- User Context ---\n${this.userContext}`);
+    }
+
+    // Layer 3: project context (alwaysLoaded files)
+    if (this.projectStore) {
+      const projBlock = this.projectStore.getPromptContext();
+      if (projBlock) parts.push(projBlock);
     }
 
     return parts.join('\n\n');

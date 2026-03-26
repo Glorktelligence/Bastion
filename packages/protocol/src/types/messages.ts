@@ -237,6 +237,55 @@ export interface MemoryDeletePayload {
   readonly memoryId: string;
 }
 
+/** Human → AI: Upload a project file. */
+export interface ProjectSyncPayload {
+  readonly path: string;
+  readonly content: string;
+  readonly mimeType: string;
+}
+
+/** AI → Human: Confirm project file received. */
+export interface ProjectSyncAckPayload {
+  readonly path: string;
+  readonly size: number;
+  readonly timestamp: string;
+}
+
+/** Human → AI: Request list of all project files. */
+export interface ProjectListPayload {
+  readonly directory?: string;
+}
+
+/** AI → Human: Project file list. */
+export interface ProjectListResponsePayload {
+  readonly files: readonly {
+    readonly path: string;
+    readonly size: number;
+    readonly mimeType: string;
+    readonly lastModified: string;
+  }[];
+  readonly totalSize: number;
+  readonly totalCount: number;
+}
+
+/** Human → AI: Delete a project file. */
+export interface ProjectDeletePayload {
+  readonly path: string;
+}
+
+/** Human → AI: Set project loading rules. */
+export interface ProjectConfigPayload {
+  readonly alwaysLoaded: readonly string[];
+  readonly available: readonly string[];
+}
+
+/** AI → Human: Confirm project config saved. */
+export interface ProjectConfigAckPayload {
+  readonly alwaysLoaded: readonly string[];
+  readonly available: readonly string[];
+  readonly timestamp: string;
+}
+
 /** Client → Relay: Request list of loaded protocol extensions. */
 export interface ExtensionQueryPayload {
   readonly includeSchemas?: boolean;
@@ -413,4 +462,11 @@ export type MessagePayload =
   | { type: 'memory_update'; payload: MemoryUpdatePayload }
   | { type: 'memory_delete'; payload: MemoryDeletePayload }
   | { type: 'extension_query'; payload: ExtensionQueryPayload }
-  | { type: 'extension_list_response'; payload: ExtensionListResponsePayload };
+  | { type: 'extension_list_response'; payload: ExtensionListResponsePayload }
+  | { type: 'project_sync'; payload: ProjectSyncPayload }
+  | { type: 'project_sync_ack'; payload: ProjectSyncAckPayload }
+  | { type: 'project_list'; payload: ProjectListPayload }
+  | { type: 'project_list_response'; payload: ProjectListResponsePayload }
+  | { type: 'project_delete'; payload: ProjectDeletePayload }
+  | { type: 'project_config'; payload: ProjectConfigPayload }
+  | { type: 'project_config_ack'; payload: ProjectConfigAckPayload };

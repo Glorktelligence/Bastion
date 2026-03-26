@@ -6,6 +6,7 @@ import {
   createAnthropicAdapter,
   ConversationManager,
   MemoryStore,
+  ProjectStore,
   evaluateSafety,
   defaultSafetyConfig,
   createPatternHistory,
@@ -74,13 +75,22 @@ console.log(`[✓] Memory store initialised (${memoryStore.count} memories, db: 
 const pendingProposals = new Map();
 
 // ---------------------------------------------------------------------------
-// Conversation manager — session context + user context + memories
+// Project store — Layer 3 project context
+// ---------------------------------------------------------------------------
+
+const PROJECT_DIR = process.env.BASTION_PROJECT_DIR || '/var/lib/bastion-ai/project';
+const projectStore = new ProjectStore({ rootDir: PROJECT_DIR });
+console.log(`[✓] Project store initialised (${projectStore.fileCount} files, dir: ${PROJECT_DIR})`);
+
+// ---------------------------------------------------------------------------
+// Conversation manager — session context + user context + memories + project
 // ---------------------------------------------------------------------------
 
 const conversationManager = new ConversationManager({
   tokenBudget: parseInt(process.env.BASTION_TOKEN_BUDGET || '100000', 10),
   userContextPath: process.env.BASTION_USER_CONTEXT_PATH || '/var/lib/bastion-ai/user-context.md',
   memoryStore,
+  projectStore,
 });
 console.log(`[✓] Conversation manager initialised (budget: ${conversationManager.estimateTokenCount() || 0} base tokens)`);
 if (conversationManager.getUserContext()) {
@@ -285,6 +295,44 @@ client.on('message', async (data) => {
       const ok = memoryStore.deleteMemory(memoryId);
       console.log(`[${ok ? '✓' : '!'}] Memory ${ok ? 'deleted' : 'not found'}: ${memoryId.slice(0, 8)}`);
     }
+    return;
+  }
+
+  // Handle project_sync — save a project file
+  if (msg.type === 'project_sync') {
+    const p = msg.payload || msg;
+    const result = projectStore.saveFile(p.path, p.content, p.mimeType);
+    if (result.ok) {
+      console.log(`[✓] Project file saved: ${p.path} (${result.size} bytes)`);
+      client.send(JSON.stringify({ type: 'project_sync_ack', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY, payload: { path: p.path, size: result.size, timestamp: new Date().toISOString() } }));
+    } else {
+      console.log(`[!] Project file rejected: ${p.path} — ${result.error}`);
+      client.send(JSON.stringify({ type: 'error', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY, payload: { code: 'PROJECT_SAVE_FAILED', message: result.error } }));
+    }
+    return;
+  }
+
+  // Handle project_list — return all project files
+  if (msg.type === 'project_list') {
+    const files = projectStore.listFiles(msg.payload?.directory);
+    client.send(JSON.stringify({ type: 'project_list_response', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY, payload: { files, totalSize: projectStore.getTotalSize(), totalCount: files.length } }));
+    console.log(`[→] Project list: ${files.length} files`);
+    return;
+  }
+
+  // Handle project_delete — remove a project file
+  if (msg.type === 'project_delete') {
+    const ok = projectStore.deleteFile(msg.payload?.path || msg.path);
+    console.log(`[${ok ? '✓' : '!'}] Project file ${ok ? 'deleted' : 'not found'}: ${msg.payload?.path}`);
+    return;
+  }
+
+  // Handle project_config — set loading rules
+  if (msg.type === 'project_config') {
+    const p = msg.payload || msg;
+    projectStore.setConfig(p.alwaysLoaded || [], p.available || []);
+    console.log(`[✓] Project config: ${(p.alwaysLoaded || []).length} always loaded, ${(p.available || []).length} available`);
+    client.send(JSON.stringify({ type: 'project_config_ack', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY, payload: { ...projectStore.getConfig(), timestamp: new Date().toISOString() } }));
     return;
   }
 
