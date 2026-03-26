@@ -1,0 +1,97 @@
+{
+  "_example": true,
+  "_comment": "Example tool registry. Copy to tools.json and configure with real values. Auth credentials are env var NAMES — the AI VM reads the VALUE from process.env. Credentials NEVER appear in protocol messages or audit trail.",
+
+  "providers": [
+    {
+      "id": "obsidian",
+      "name": "Obsidian Notes (via MCP)",
+      "endpoint": "PLACEHOLDER_URL",
+      "authType": "api_key",
+      "authConfig": {
+        "envVar": "OBSIDIAN_API_KEY",
+        "headerName": "Authorization",
+        "headerPrefix": "Bearer "
+      },
+      "tools": [
+        {
+          "name": "read_note",
+          "description": "Read content of an Obsidian note by path",
+          "category": "read",
+          "readOnly": true,
+          "dangerous": false,
+          "modes": ["conversation", "task"]
+        },
+        {
+          "name": "create_note",
+          "description": "Create a new note in the vault",
+          "category": "write",
+          "readOnly": false,
+          "dangerous": false,
+          "modes": ["task"]
+        },
+        {
+          "name": "append_to_daily_note",
+          "description": "Append content to today's daily note",
+          "category": "write",
+          "readOnly": false,
+          "dangerous": false,
+          "modes": ["conversation", "task"]
+        },
+        {
+          "name": "delete_note",
+          "description": "Permanently delete a note from the vault",
+          "category": "destructive",
+          "readOnly": false,
+          "dangerous": true,
+          "modes": ["task"]
+        }
+      ]
+    },
+    {
+      "id": "proxmox",
+      "name": "Proxmox VE (via MCP)",
+      "endpoint": "PLACEHOLDER_URL",
+      "authType": "api_key",
+      "authConfig": {
+        "envVar": "PROXMOX_API_TOKEN",
+        "headerName": "Authorization",
+        "headerPrefix": "PVEAPIToken="
+      },
+      "tools": [
+        {
+          "name": "list_vms",
+          "description": "List all VMs and containers on the cluster",
+          "category": "read",
+          "readOnly": true,
+          "dangerous": false,
+          "modes": ["conversation", "task"]
+        },
+        {
+          "name": "vm_status",
+          "description": "Get status of a specific VM (CPU, memory, uptime)",
+          "category": "read",
+          "readOnly": true,
+          "dangerous": false,
+          "modes": ["conversation", "task"]
+        },
+        {
+          "name": "start_vm",
+          "description": "Start a stopped VM or container",
+          "category": "write",
+          "readOnly": false,
+          "dangerous": false,
+          "modes": ["task"]
+        },
+        {
+          "name": "stop_vm",
+          "description": "Stop a running VM or container",
+          "category": "destructive",
+          "readOnly": false,
+          "dangerous": true,
+          "modes": ["task"]
+        }
+      ]
+    }
+  ]
+}

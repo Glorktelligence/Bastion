@@ -3,7 +3,7 @@
 // See LICENSE file for full terms
 
 /**
- * All 42 message types in the Bastion protocol.
+ * All 51 message types in the Bastion protocol.
  *
  * Core spec (13): task, conversation, challenge, confirmation, denial,
  *   status, result, error, audit, file_manifest, file_offer, file_request, heartbeat
@@ -71,6 +71,17 @@ export const MESSAGE_TYPES = {
   PROJECT_DELETE: 'project_delete',
   PROJECT_CONFIG: 'project_config',
   PROJECT_CONFIG_ACK: 'project_config_ack',
+
+  // --- Tool Integration (Layer 4) ---
+  TOOL_REGISTRY_SYNC: 'tool_registry_sync',
+  TOOL_REGISTRY_ACK: 'tool_registry_ack',
+  TOOL_REQUEST: 'tool_request',
+  TOOL_APPROVED: 'tool_approved',
+  TOOL_DENIED: 'tool_denied',
+  TOOL_RESULT: 'tool_result',
+  TOOL_REVOKE: 'tool_revoke',
+  TOOL_ALERT: 'tool_alert',
+  TOOL_ALERT_RESPONSE: 'tool_alert_response',
 } as const;
 
 /** Union type of all valid message type strings. */

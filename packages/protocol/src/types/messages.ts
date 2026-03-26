@@ -286,6 +286,97 @@ export interface ProjectConfigAckPayload {
   readonly timestamp: string;
 }
 
+// ---------------------------------------------------------------------------
+// Tool Integration Payloads (Layer 4)
+// ---------------------------------------------------------------------------
+
+/** Relay → AI: Send authorised tool registry on connect. */
+export interface ToolRegistrySyncPayload {
+  readonly providers: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly endpoint: string;
+    readonly authType: 'api_key' | 'custom_header' | 'no_auth';
+    readonly tools: readonly {
+      readonly name: string;
+      readonly description: string;
+      readonly category: 'read' | 'write' | 'destructive';
+      readonly readOnly: boolean;
+      readonly dangerous: boolean;
+      readonly modes: readonly ('conversation' | 'task')[];
+    }[];
+  }[];
+  readonly registryHash: string;
+}
+
+/** AI → Relay: Confirm registry received with hash. */
+export interface ToolRegistryAckPayload {
+  readonly registryHash: string;
+  readonly toolCount: number;
+}
+
+/** AI → Human (via Relay): AI wants to use a tool, requests approval. */
+export interface ToolRequestPayload {
+  readonly requestId: string;
+  readonly toolId: string;
+  readonly action: string;
+  readonly parameters: Record<string, unknown>;
+  readonly mode: 'conversation' | 'task';
+  readonly dangerous: boolean;
+  readonly category: 'read' | 'write' | 'destructive';
+}
+
+/**
+ * Human → AI (via Relay): Approve tool use.
+ *
+ * Trust level affects review depth, not visibility.
+ * Write/destructive tools ALWAYS require per-call approval regardless of trust.
+ * Read-only tools with trustLevel >= 4 and scope=session auto-approve subsequent calls.
+ */
+export interface ToolApprovedPayload {
+  readonly requestId: string;
+  readonly toolId: string;
+  readonly trustLevel: number;
+  readonly reason: string;
+  readonly scope: 'this_call' | 'session';
+}
+
+/** Human → AI (via Relay): Deny tool use. */
+export interface ToolDeniedPayload {
+  readonly requestId: string;
+  readonly toolId: string;
+  readonly reason: string;
+}
+
+/** AI → Human (via Relay): Result of tool execution. */
+export interface ToolResultPayload {
+  readonly requestId: string;
+  readonly toolId: string;
+  readonly result: unknown;
+  readonly durationMs: number;
+  readonly success: boolean;
+  readonly error?: string;
+}
+
+/** Human → AI (via Relay): Revoke session trust for a tool. */
+export interface ToolRevokePayload {
+  readonly toolId: string;
+  readonly reason: string;
+}
+
+/** AI → Human (via Relay): Tool change alert. */
+export interface ToolAlertPayload {
+  readonly toolId: string;
+  readonly alertType: 'new_tool' | 'lost_tool' | 'changed_tool';
+  readonly details: string;
+}
+
+/** Human → AI (via Relay): Accept or decline tool alert. */
+export interface ToolAlertResponsePayload {
+  readonly toolId: string;
+  readonly decision: 'accept' | 'decline';
+}
+
 /** Client → Relay: Request list of loaded protocol extensions. */
 export interface ExtensionQueryPayload {
   readonly includeSchemas?: boolean;
@@ -469,4 +560,13 @@ export type MessagePayload =
   | { type: 'project_list_response'; payload: ProjectListResponsePayload }
   | { type: 'project_delete'; payload: ProjectDeletePayload }
   | { type: 'project_config'; payload: ProjectConfigPayload }
-  | { type: 'project_config_ack'; payload: ProjectConfigAckPayload };
+  | { type: 'project_config_ack'; payload: ProjectConfigAckPayload }
+  | { type: 'tool_registry_sync'; payload: ToolRegistrySyncPayload }
+  | { type: 'tool_registry_ack'; payload: ToolRegistryAckPayload }
+  | { type: 'tool_request'; payload: ToolRequestPayload }
+  | { type: 'tool_approved'; payload: ToolApprovedPayload }
+  | { type: 'tool_denied'; payload: ToolDeniedPayload }
+  | { type: 'tool_result'; payload: ToolResultPayload }
+  | { type: 'tool_revoke'; payload: ToolRevokePayload }
+  | { type: 'tool_alert'; payload: ToolAlertPayload }
+  | { type: 'tool_alert_response'; payload: ToolAlertResponsePayload };

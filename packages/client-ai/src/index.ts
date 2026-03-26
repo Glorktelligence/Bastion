@@ -51,6 +51,7 @@ export {
   MemoryStore,
   ProjectStore,
   validatePath,
+  ToolRegistryManager,
 } from './provider/index.js';
 export type {
   ToolRegistry,
@@ -75,6 +76,9 @@ export type {
   ProjectConfig,
   ProjectStoreConfig,
   ProjectSaveResult,
+  RegisteredTool,
+  ToolProvider,
+  SessionTrust,
 } from './provider/index.js';
 
 // ---------------------------------------------------------------------------

@@ -49,4 +49,8 @@ export type { Memory, MemoryStoreConfig } from './memory-store.js';
 
 // Project Store
 export { ProjectStore, validatePath } from './project-store.js';
+
+// Tool Registry Manager
+export { ToolRegistryManager } from './tool-registry-manager.js';
+export type { RegisteredTool, ToolProvider, SessionTrust } from './tool-registry-manager.js';
 export type { ProjectFile, ProjectConfig, ProjectStoreConfig, ProjectSaveResult } from './project-store.js';

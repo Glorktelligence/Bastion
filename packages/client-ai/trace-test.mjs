@@ -19,6 +19,7 @@ import {
   MemoryStore,
   ProjectStore,
   validatePath,
+  ToolRegistryManager,
 } from './dist/index.js';
 import {
   BastionRelay,
@@ -1362,7 +1363,8 @@ async function run() {
   console.log('--- Test: ConversationManager ---');
   {
     // Basic message management
-    const cm = new ConversationManager({ userContextPath: '/tmp/bastion-test-nonexistent-ctx.md' });
+    const cmPath = `/tmp/bastion-cm-test-${Date.now()}.md`;
+    const cm = new ConversationManager({ userContextPath: cmPath });
     check('initial messages empty', cm.messageCount === 0);
     check('initial user context empty', cm.getUserContext() === '');
 
@@ -1402,7 +1404,7 @@ async function run() {
     check('user context preserved after clear', cm.getUserContext() === 'Harry works on infrastructure security.');
 
     // Token budget enforcement
-    const cm2 = new ConversationManager({ tokenBudget: 200, userContextPath: '/tmp/bastion-test-nonexistent-ctx.md' });
+    const cm2 = new ConversationManager({ tokenBudget: 200, userContextPath: '/tmp/bastion-test-nonexistent-ctx-99999.md' });
     // Each message ~25 chars → ~6 tokens. System prompt ~200 chars → ~50 tokens. Budget 200.
     for (let i = 0; i < 40; i++) {
       cm2.addUserMessage(`Message number ${i} with some padding text here.`);
@@ -1494,7 +1496,7 @@ async function run() {
 
     // ConversationManager integration
     const cm = new ConversationManager({
-      userContextPath: '/tmp/bastion-test-nonexistent-ctx.md',
+      userContextPath: `/tmp/bastion-cm-memtest-${Date.now()}.md`,
       memoryStore: store,
     });
     const sysPrompt = cm.getSystemPrompt();
@@ -1596,6 +1598,105 @@ async function run() {
     // Cleanup
     const { rmSync: rm } = await import('node:fs');
     rm(tmpDir, { recursive: true, force: true });
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: ToolRegistryManager
+  // -------------------------------------------------------------------
+  console.log('--- Test: ToolRegistryManager ---');
+  {
+    const trm = new ToolRegistryManager();
+    check('initial empty', trm.toolCount === 0);
+    check('initial no providers', trm.providerCount === 0);
+
+    // Load from sync payload
+    trm.loadFromSync({
+      providers: [
+        {
+          id: 'obsidian', name: 'Obsidian', endpoint: 'http://localhost:3000', authType: 'api_key',
+          tools: [
+            { name: 'read_note', description: 'Read a note', category: 'read', readOnly: true, dangerous: false, modes: ['conversation', 'task'] },
+            { name: 'create_note', description: 'Create a note', category: 'write', readOnly: false, dangerous: false, modes: ['task'] },
+            { name: 'delete_note', description: 'Delete a note', category: 'destructive', readOnly: false, dangerous: true, modes: ['task'] },
+          ],
+        },
+      ],
+      registryHash: 'testhash123',
+    });
+
+    check('loaded 3 tools', trm.toolCount === 3);
+    check('loaded 1 provider', trm.providerCount === 1);
+    check('registry hash', trm.registryHash === 'testhash123');
+
+    // Get tool
+    const readNote = trm.getTool('obsidian:read_note');
+    check('getTool finds read_note', readNote !== undefined);
+    check('tool fullId', readNote?.fullId === 'obsidian:read_note');
+    check('tool readOnly', readNote?.readOnly === true);
+    check('tool not dangerous', readNote?.dangerous === false);
+
+    const deleteNote = trm.getTool('obsidian:delete_note');
+    check('delete_note is dangerous', deleteNote?.dangerous === true);
+
+    // Mode filtering — conversation mode strips dangerous tools
+    const convTools = trm.getToolsForMode('conversation');
+    check('conversation: 1 tool (read_note only)', convTools.length === 1);
+    check('conversation: no dangerous', convTools.every(t => !t.dangerous));
+
+    // Mode filtering — task mode includes all
+    const taskTools = trm.getToolsForMode('task');
+    check('task: 3 tools', taskTools.length === 3);
+    check('task: includes dangerous', taskTools.some(t => t.dangerous));
+
+    // Prompt section
+    const convPrompt = trm.getToolPromptSection('conversation');
+    check('conv prompt has tools', convPrompt.includes('Available Tools'));
+    check('conv prompt has read_note', convPrompt.includes('obsidian:read_note'));
+    check('conv prompt no delete_note', !convPrompt.includes('delete_note'));
+
+    const taskPrompt = trm.getToolPromptSection('task');
+    check('task prompt has delete_note', taskPrompt.includes('delete_note'));
+    check('task prompt marks dangerous', taskPrompt.includes('DANGEROUS'));
+
+    // Session trust — read-only auto-approve
+    check('no auto-approve without trust', !trm.shouldAutoApprove('obsidian:read_note'));
+
+    trm.grantTrust('obsidian:read_note', 5, 'session');
+    check('auto-approve read-only trust 5 session', trm.shouldAutoApprove('obsidian:read_note'));
+
+    trm.grantTrust('obsidian:read_note', 3, 'session');
+    check('no auto-approve trust 3', !trm.shouldAutoApprove('obsidian:read_note'));
+
+    trm.grantTrust('obsidian:read_note', 5, 'this_call');
+    check('no auto-approve this_call scope', !trm.shouldAutoApprove('obsidian:read_note'));
+
+    // Write tools never auto-approve
+    trm.grantTrust('obsidian:create_note', 10, 'session');
+    check('write tool never auto-approve', !trm.shouldAutoApprove('obsidian:create_note'));
+
+    // Dangerous tools never auto-approve
+    trm.grantTrust('obsidian:delete_note', 10, 'session');
+    check('dangerous tool never auto-approve', !trm.shouldAutoApprove('obsidian:delete_note'));
+
+    // Revoke
+    check('revoke existing', trm.revokeTrust('obsidian:read_note'));
+    check('after revoke no auto-approve', !trm.shouldAutoApprove('obsidian:read_note'));
+
+    // Session trusts
+    check('session trusts count', trm.getSessionTrusts().length === 2); // create_note + delete_note still granted
+    trm.clearSessionTrusts();
+    check('cleared all trusts', trm.getSessionTrusts().length === 0);
+
+    // Provider access
+    const provider = trm.getProvider('obsidian');
+    check('getProvider', provider !== undefined);
+    check('provider name', provider?.name === 'Obsidian');
+    check('getAllProviders', trm.getAllProviders().length === 1);
+
+    // Compute hash
+    const hash = trm.computeHash();
+    check('computeHash non-empty', hash.length > 0);
   }
   console.log();
 

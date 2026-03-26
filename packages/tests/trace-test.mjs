@@ -268,6 +268,15 @@ function validPayloads() {
     project_delete: { path: 'world-rules.md' },
     project_config: { alwaysLoaded: ['world-rules.md'], available: ['economy/market.md'] },
     project_config_ack: { alwaysLoaded: ['world-rules.md'], available: ['economy/market.md'], timestamp: '2026-03-26T10:00:00.000Z' },
+    tool_registry_sync: { providers: [{ id: 'obsidian', name: 'Obsidian', endpoint: 'http://localhost:3000', authType: 'api_key', tools: [{ name: 'read_note', description: 'Read a note', category: 'read', readOnly: true, dangerous: false, modes: ['conversation'] }] }], registryHash: 'abc123' },
+    tool_registry_ack: { registryHash: 'abc123', toolCount: 1 },
+    tool_request: { requestId: crypto.randomUUID(), toolId: 'obsidian:read_note', action: 'Read note', parameters: { path: 'test.md' }, mode: 'conversation', dangerous: false, category: 'read' },
+    tool_approved: { requestId: crypto.randomUUID(), toolId: 'obsidian:read_note', trustLevel: 5, reason: 'Read-only, safe', scope: 'session' },
+    tool_denied: { requestId: crypto.randomUUID(), toolId: 'obsidian:read_note', reason: 'Not needed' },
+    tool_result: { requestId: crypto.randomUUID(), toolId: 'obsidian:read_note', result: { content: '# Note' }, durationMs: 150, success: true },
+    tool_revoke: { toolId: 'obsidian:read_note', reason: 'Session cleanup' },
+    tool_alert: { toolId: 'obsidian:new_tool', alertType: 'new_tool', details: 'New tool discovered' },
+    tool_alert_response: { toolId: 'obsidian:new_tool', decision: 'accept' },
   };
 }
 
@@ -357,8 +366,8 @@ async function run() {
         break;
       }
     }
-    check('all 42 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 42 entries', ALL_MESSAGE_TYPES.length === 42);
+    check('all 51 message types accepted in envelope', allTypesValid);
+    check('ALL_MESSAGE_TYPES has 51 entries', ALL_MESSAGE_TYPES.length === 51);
   }
   console.log();
 
@@ -394,8 +403,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 42 entries', typeKeys.length === 42);
-    check('PAYLOAD_SCHEMAS has 42 entries', Object.keys(PAYLOAD_SCHEMAS).length === 42);
+    check('MESSAGE_TYPES has 51 entries', typeKeys.length === 51);
+    check('PAYLOAD_SCHEMAS has 51 entries', Object.keys(PAYLOAD_SCHEMAS).length === 51);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -794,7 +803,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 42 message types survive serialisation round-trip', allPassed);
+    check('all 51 message types survive serialisation round-trip', allPassed);
   }
   console.log();
 

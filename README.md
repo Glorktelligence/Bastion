@@ -1,9 +1,9 @@
 # Project Bastion
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-2%2C197_passing-brightgreen.svg)](#run-tests)
+[![Tests](https://img.shields.io/badge/Tests-2%2C239_passing-brightgreen.svg)](#run-tests)
 [![Packages](https://img.shields.io/badge/Packages-7-purple.svg)](#packages)
-[![Protocol](https://img.shields.io/badge/Protocol-42_message_types-orange.svg)](#protocol)
+[![Protocol](https://img.shields.io/badge/Protocol-51_message_types-orange.svg)](#protocol)
 [![Node](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-339933.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-3178C6.svg)](https://www.typescriptlang.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -168,7 +168,7 @@ pnpm --filter @bastion/relay-admin-ui dev
 
 ## Protocol
 
-Bastion defines 42 message types across structured categories:
+Bastion defines 51 message types across structured categories:
 
 - **Core**: `task`, `conversation`, `challenge`, `confirmation`, `denial`, `status`, `result`, `error`, `audit`, `heartbeat`
 - **File Transfer**: `file_manifest`, `file_offer`, `file_request`
@@ -179,6 +179,7 @@ Bastion defines 42 message types across structured categories:
 - **Memory**: `memory_proposal`, `memory_decision`, `memory_list`, `memory_list_response`, `memory_update`, `memory_delete`
 - **Extensions**: `extension_query`, `extension_list_response`
 - **Project Context**: `project_sync`, `project_sync_ack`, `project_list`, `project_list_response`, `project_delete`, `project_config`, `project_config_ack`
+- **Tool Integration**: `tool_registry_sync`, `tool_registry_ack`, `tool_request`, `tool_approved`, `tool_denied`, `tool_result`, `tool_revoke`, `tool_alert`, `tool_alert_response`
 
 All messages are validated against Zod schemas at every boundary. Unknown message types are rejected. The protocol version is checked on session establishment.
 
@@ -199,7 +200,7 @@ Bastion includes deployment templates for self-hosted environments:
 
 - [Getting Started Guide](docs/guides/getting-started.md) — Clone to running local instance walkthrough
 - [Deployment Guide](docs/guides/deployment.md) — Self-hosting with TLS, VLANs, and AI VM isolation
-- [Protocol Specification](docs/protocol/bastion-protocol-v0.1.0.md) — All 42 message types, envelope structure, safety evaluation
+- [Protocol Specification](docs/protocol/bastion-protocol-v0.1.0.md) — All 51 message types, envelope structure, safety evaluation
 - [Core Specification](docs/spec/Project-Bastion-Spec-v0.1.0.docx) — The full product specification
 - [Supplementary Specification](docs/spec/bastion-supplementary-spec.md) — Architectural decisions, session lifecycle, error codes, GDPR considerations
 - [Project Structure](docs/spec/bastion-project-structure.md) — Package layout and task breakdown
@@ -209,7 +210,7 @@ Bastion includes deployment templates for self-hosted environments:
 
 ## Status
 
-**Pre-Release.** The protocol, crypto layer, relay, AI client, desktop client, mobile client, admin UI, community documentation, CI/CD, and infrastructure templates are all implemented and tested across 2,197 passing tests.
+**Pre-Release.** The protocol, crypto layer, relay, AI client, desktop client, mobile client, admin UI, community documentation, CI/CD, and infrastructure templates are all implemented and tested across 2,239 passing tests.
 
 The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. The protocol is stable. The reference implementation works.
 

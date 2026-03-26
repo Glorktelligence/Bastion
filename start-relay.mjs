@@ -424,6 +424,24 @@ relay.on('message', async (data, info) => {
   }
 
   // ----- memory_proposal / memory_decision: forward between paired clients -----
+  // ----- tool_* messages: forward between paired clients -----
+  if (msg.type === 'tool_registry_sync' || msg.type === 'tool_registry_ack' || msg.type === 'tool_request' || msg.type === 'tool_approved' || msg.type === 'tool_denied' || msg.type === 'tool_result' || msg.type === 'tool_revoke' || msg.type === 'tool_alert' || msg.type === 'tool_alert_response') {
+    const peerId = router.getPeer(connId);
+    if (peerId) {
+      relay.send(peerId, data);
+      console.log(`[→] ${msg.type} forwarded to peer ${peerId.slice(0, 8)}`);
+      const sid = sessionIds.get(connId);
+      if (sid) {
+        auditLogger.logEvent(msg.type, sid, {
+          toolId: msg.payload?.toolId || msg.payload?.requestId,
+          messageType: msg.type,
+          // NOT parameters or results — metadata only
+        });
+      }
+    }
+    return;
+  }
+
   // ----- project_* messages: forward between paired clients -----
   if (msg.type === 'project_sync' || msg.type === 'project_sync_ack' || msg.type === 'project_list' || msg.type === 'project_list_response' || msg.type === 'project_delete' || msg.type === 'project_config' || msg.type === 'project_config_ack') {
     const peerId = router.getPeer(connId);

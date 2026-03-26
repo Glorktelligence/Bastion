@@ -201,6 +201,83 @@ export const MemoryDeletePayloadSchema = z.object({
   memoryId: z.string().min(1),
 });
 
+// Tool Integration schemas
+const ToolDefSchema = z.object({
+  name: z.string().min(1),
+  description: z.string(),
+  category: z.enum(['read', 'write', 'destructive']),
+  readOnly: z.boolean(),
+  dangerous: z.boolean(),
+  modes: z.array(z.enum(['conversation', 'task'])),
+});
+
+const ToolProviderSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  endpoint: z.string(),
+  authType: z.enum(['api_key', 'custom_header', 'no_auth']),
+  tools: z.array(ToolDefSchema),
+});
+
+export const ToolRegistrySyncPayloadSchema = z.object({
+  providers: z.array(ToolProviderSchema),
+  registryHash: z.string().min(1),
+});
+
+export const ToolRegistryAckPayloadSchema = z.object({
+  registryHash: z.string().min(1),
+  toolCount: z.number().int().nonnegative(),
+});
+
+export const ToolRequestPayloadSchema = z.object({
+  requestId: z.string().min(1),
+  toolId: z.string().min(1),
+  action: z.string().min(1),
+  parameters: z.record(z.unknown()),
+  mode: z.enum(['conversation', 'task']),
+  dangerous: z.boolean(),
+  category: z.enum(['read', 'write', 'destructive']),
+});
+
+export const ToolApprovedPayloadSchema = z.object({
+  requestId: z.string().min(1),
+  toolId: z.string().min(1),
+  trustLevel: z.number().int().min(1).max(10),
+  reason: z.string().min(1),
+  scope: z.enum(['this_call', 'session']),
+});
+
+export const ToolDeniedPayloadSchema = z.object({
+  requestId: z.string().min(1),
+  toolId: z.string().min(1),
+  reason: z.string().min(1),
+});
+
+export const ToolResultPayloadSchema = z.object({
+  requestId: z.string().min(1),
+  toolId: z.string().min(1),
+  result: z.unknown(),
+  durationMs: z.number().nonnegative(),
+  success: z.boolean(),
+  error: z.string().optional(),
+});
+
+export const ToolRevokePayloadSchema = z.object({
+  toolId: z.string().min(1),
+  reason: z.string().min(1),
+});
+
+export const ToolAlertPayloadSchema = z.object({
+  toolId: z.string().min(1),
+  alertType: z.enum(['new_tool', 'lost_tool', 'changed_tool']),
+  details: z.string(),
+});
+
+export const ToolAlertResponsePayloadSchema = z.object({
+  toolId: z.string().min(1),
+  decision: z.enum(['accept', 'decline']),
+});
+
 export const ExtensionQueryPayloadSchema = z.object({
   includeSchemas: z.boolean().optional(),
 });
@@ -420,4 +497,13 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.PROJECT_DELETE]: ProjectDeletePayloadSchema,
   [MESSAGE_TYPES.PROJECT_CONFIG]: ProjectConfigPayloadSchema,
   [MESSAGE_TYPES.PROJECT_CONFIG_ACK]: ProjectConfigAckPayloadSchema,
+  [MESSAGE_TYPES.TOOL_REGISTRY_SYNC]: ToolRegistrySyncPayloadSchema,
+  [MESSAGE_TYPES.TOOL_REGISTRY_ACK]: ToolRegistryAckPayloadSchema,
+  [MESSAGE_TYPES.TOOL_REQUEST]: ToolRequestPayloadSchema,
+  [MESSAGE_TYPES.TOOL_APPROVED]: ToolApprovedPayloadSchema,
+  [MESSAGE_TYPES.TOOL_DENIED]: ToolDeniedPayloadSchema,
+  [MESSAGE_TYPES.TOOL_RESULT]: ToolResultPayloadSchema,
+  [MESSAGE_TYPES.TOOL_REVOKE]: ToolRevokePayloadSchema,
+  [MESSAGE_TYPES.TOOL_ALERT]: ToolAlertPayloadSchema,
+  [MESSAGE_TYPES.TOOL_ALERT_RESPONSE]: ToolAlertResponsePayloadSchema,
 } as const;

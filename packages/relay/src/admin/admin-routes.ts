@@ -657,6 +657,12 @@ export class AdminRoutes {
         });
       } else if (method === 'GET' && path === '/api/audit/integrity') {
         result = this.getChainIntegrity();
+      } else if (method === 'GET' && path === '/api/tools') {
+        // Tool registry — read from config file if it exists
+        result = {
+          status: 200,
+          body: { providers: [], totalTools: 0, message: 'Tool registry configured via tools.json' },
+        };
       } else if (method === 'GET' && path === '/api/extensions') {
         const exts = this.extensionRegistry?.getAllExtensions() ?? [];
         result = {
