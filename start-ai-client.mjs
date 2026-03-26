@@ -55,9 +55,9 @@ console.log('');
 // ---------------------------------------------------------------------------
 
 const keyManager = createApiKeyManager(API_KEY);
-const toolRegistry = createToolRegistry();
+const adapterToolRegistry = createToolRegistry();
 
-const adapter = createAnthropicAdapter(keyManager, toolRegistry, {
+const adapter = createAnthropicAdapter(keyManager, adapterToolRegistry, {
   model: MODEL,
   maxTokens: MAX_TOKENS,
   // System prompt is assembled by ConversationManager (role context + user context).
