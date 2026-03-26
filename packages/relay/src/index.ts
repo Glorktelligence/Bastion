@@ -212,3 +212,14 @@ export type {
 // ---------------------------------------------------------------------------
 export { AdminServer, AdminServerError } from './admin/admin-server.js';
 export type { AdminServerConfig } from './admin/admin-server.js';
+
+// ---------------------------------------------------------------------------
+// Extensions
+// ---------------------------------------------------------------------------
+export { ExtensionRegistry } from './extensions/extension-registry.js';
+export type {
+  ExtensionDefinition,
+  ExtensionMessageType,
+  ExtensionSafetyLevel,
+  ExtensionLoadResult,
+} from './extensions/extension-registry.js';

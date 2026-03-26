@@ -201,6 +201,22 @@ export const MemoryDeletePayloadSchema = z.object({
   memoryId: z.string().min(1),
 });
 
+export const ExtensionQueryPayloadSchema = z.object({
+  includeSchemas: z.boolean().optional(),
+});
+
+export const ExtensionListResponsePayloadSchema = z.object({
+  extensions: z.array(
+    z.object({
+      namespace: z.string().min(1),
+      name: z.string().min(1),
+      version: z.string().min(1),
+      messageTypes: z.array(z.string()),
+    }),
+  ),
+  totalCount: z.number().int().nonnegative(),
+});
+
 export const HeartbeatMetricsSchema = z.object({
   uptimeMs: z.number().nonnegative(),
   memoryUsageMb: z.number().nonnegative(),
@@ -351,4 +367,6 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.MEMORY_LIST_RESPONSE]: MemoryListResponsePayloadSchema,
   [MESSAGE_TYPES.MEMORY_UPDATE]: MemoryUpdatePayloadSchema,
   [MESSAGE_TYPES.MEMORY_DELETE]: MemoryDeletePayloadSchema,
+  [MESSAGE_TYPES.EXTENSION_QUERY]: ExtensionQueryPayloadSchema,
+  [MESSAGE_TYPES.EXTENSION_LIST_RESPONSE]: ExtensionListResponsePayloadSchema,
 } as const;

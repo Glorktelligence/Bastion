@@ -69,6 +69,8 @@ export type {
   MemoryListResponsePayload,
   MemoryUpdatePayload,
   MemoryDeletePayload,
+  ExtensionQueryPayload,
+  ExtensionListResponsePayload,
   MessagePayload,
 } from './types/messages.js';
 
@@ -188,6 +190,8 @@ export {
   MemoryListResponsePayloadSchema,
   MemoryUpdatePayloadSchema,
   MemoryDeletePayloadSchema,
+  ExtensionQueryPayloadSchema,
+  ExtensionListResponsePayloadSchema,
   PAYLOAD_SCHEMAS,
 } from './schemas/message.schema.js';
 

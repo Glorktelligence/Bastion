@@ -249,6 +249,18 @@ function validPayloads() {
     memory_delete: {
       memoryId: crypto.randomUUID(),
     },
+    extension_query: {
+      includeSchemas: false,
+    },
+    extension_list_response: {
+      extensions: [{
+        namespace: 'example-game',
+        name: 'Example Chess',
+        version: '0.1.0',
+        messageTypes: ['chess-move', 'chess-start'],
+      }],
+      totalCount: 1,
+    },
   };
 }
 
@@ -338,8 +350,8 @@ async function run() {
         break;
       }
     }
-    check('all 33 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 33 entries', ALL_MESSAGE_TYPES.length === 33);
+    check('all 35 message types accepted in envelope', allTypesValid);
+    check('ALL_MESSAGE_TYPES has 35 entries', ALL_MESSAGE_TYPES.length === 35);
   }
   console.log();
 
@@ -375,8 +387,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 33 entries', typeKeys.length === 33);
-    check('PAYLOAD_SCHEMAS has 33 entries', Object.keys(PAYLOAD_SCHEMAS).length === 33);
+    check('MESSAGE_TYPES has 35 entries', typeKeys.length === 35);
+    check('PAYLOAD_SCHEMAS has 35 entries', Object.keys(PAYLOAD_SCHEMAS).length === 35);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -775,7 +787,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 33 message types survive serialisation round-trip', allPassed);
+    check('all 35 message types survive serialisation round-trip', allPassed);
   }
   console.log();
 

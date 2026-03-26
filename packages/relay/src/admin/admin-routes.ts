@@ -138,6 +138,8 @@ export interface AdminRoutesConfig {
   readonly auditLogger: AuditLogger;
   /** Optional live relay state provider for status/connections endpoints. */
   readonly statusProvider?: RelayStatusProvider;
+  /** Optional extension registry for listing loaded extensions. */
+  readonly extensionRegistry?: import('../extensions/extension-registry.js').ExtensionRegistry;
 }
 
 // ---------------------------------------------------------------------------
@@ -164,6 +166,7 @@ export class AdminRoutes {
   /** Connection ID → Provider ID mapping for capability enforcement. */
   private readonly connectionProviders: Map<string, string>;
   private readonly statusProvider: RelayStatusProvider | null;
+  private readonly extensionRegistry: import('../extensions/extension-registry.js').ExtensionRegistry | null;
 
   constructor(config: AdminRoutesConfig) {
     this.registry = config.providerRegistry;
@@ -171,6 +174,7 @@ export class AdminRoutes {
     this.capabilities = new Map();
     this.connectionProviders = new Map();
     this.statusProvider = config.statusProvider ?? null;
+    this.extensionRegistry = config.extensionRegistry ?? null;
   }
 
   /** Number of providers with custom capability matrices. */
@@ -653,6 +657,28 @@ export class AdminRoutes {
         });
       } else if (method === 'GET' && path === '/api/audit/integrity') {
         result = this.getChainIntegrity();
+      } else if (method === 'GET' && path === '/api/extensions') {
+        const exts = this.extensionRegistry?.getAllExtensions() ?? [];
+        result = {
+          status: 200,
+          body: {
+            extensions: exts.map((e) => ({
+              namespace: e.namespace,
+              name: e.name,
+              version: e.version,
+              description: e.description,
+              author: e.author,
+              messageTypeCount: e.messageTypes.length,
+            })),
+            totalCount: exts.length,
+          },
+        };
+      } else if (method === 'GET' && /^\/api\/extensions\/[^/]+$/.test(path)) {
+        const ns = decodeURIComponent(path.split('/')[3]!);
+        const ext = this.extensionRegistry?.getExtension(ns);
+        result = ext
+          ? { status: 200, body: { ...ext } as Record<string, unknown> }
+          : { status: 404, body: { error: 'Extension not found', namespace: ns } };
       } else {
         result = { status: 404, body: { error: 'Not found', path, method } };
       }

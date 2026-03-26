@@ -9,6 +9,7 @@ import {
   AdminAuth,
   AdminRoutes,
   ProviderRegistry,
+  ExtensionRegistry,
 } from './packages/relay/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -55,6 +56,22 @@ const key = readFileSync(TLS_KEY, 'utf-8');
 // Provider registry — manages approved AI providers
 const providerRegistry = new ProviderRegistry();
 console.log('[✓] Provider registry initialised');
+
+// Extension registry — loads protocol extensions from extensions/ directory
+const EXTENSIONS_DIR = process.env.BASTION_EXTENSIONS_DIR || './extensions';
+const extensionRegistry = new ExtensionRegistry();
+const extResult = extensionRegistry.loadFromDirectory(EXTENSIONS_DIR);
+if (extResult.loaded.length > 0) {
+  console.log(`[✓] Extensions loaded: ${extResult.loaded.join(', ')}`);
+}
+if (extResult.errors.length > 0) {
+  for (const err of extResult.errors) console.error(`[!] Extension error: ${err}`);
+}
+const lockResult = extensionRegistry.lock();
+if (lockResult.errors.length > 0) {
+  for (const err of lockResult.errors) console.error(`[!] Extension dependency error: ${err}`);
+}
+console.log(`[✓] Extension registry locked (${extensionRegistry.extensionCount} extensions, ${extensionRegistry.messageTypeCount} types)`);
 
 // Relay server
 const relay = new BastionRelay({
@@ -167,6 +184,7 @@ const adminRoutes = new AdminRoutes({
   providerRegistry,
   auditLogger,
   statusProvider,
+  extensionRegistry,
 });
 console.log('[✓] Admin routes initialised (live status provider wired)');
 
@@ -341,6 +359,28 @@ relay.on('message', async (data, info) => {
         console.error(`[!] Provider registration error: ${err.message}`);
       }
     }
+    return;
+  }
+
+  // ----- extension_query: return loaded extensions -----
+  if (msg.type === 'extension_query') {
+    const exts = extensionRegistry.getAllExtensions();
+    relay.send(connId, JSON.stringify({
+      type: 'extension_list_response',
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: { id: 'relay', type: 'relay', displayName: 'Bastion Relay' },
+      payload: {
+        extensions: exts.map(e => ({
+          namespace: e.namespace,
+          name: e.name,
+          version: e.version,
+          messageTypes: e.messageTypes.map(mt => mt.name),
+        })),
+        totalCount: exts.length,
+      },
+    }));
+    console.log(`[→] extension_list_response sent to ${connId.slice(0, 8)} (${exts.length} extensions)`);
     return;
   }
 

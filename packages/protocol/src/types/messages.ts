@@ -237,6 +237,22 @@ export interface MemoryDeletePayload {
   readonly memoryId: string;
 }
 
+/** Client → Relay: Request list of loaded protocol extensions. */
+export interface ExtensionQueryPayload {
+  readonly includeSchemas?: boolean;
+}
+
+/** Relay → Client: Loaded extensions with namespaces and message types. */
+export interface ExtensionListResponsePayload {
+  readonly extensions: readonly {
+    readonly namespace: string;
+    readonly name: string;
+    readonly version: string;
+    readonly messageTypes: readonly string[];
+  }[];
+  readonly totalCount: number;
+}
+
 /** Periodic keepalive with system health metrics. */
 export interface HeartbeatPayload {
   readonly sessionId: SessionId;
@@ -395,4 +411,6 @@ export type MessagePayload =
   | { type: 'memory_list'; payload: MemoryListPayload }
   | { type: 'memory_list_response'; payload: MemoryListResponsePayload }
   | { type: 'memory_update'; payload: MemoryUpdatePayload }
-  | { type: 'memory_delete'; payload: MemoryDeletePayload };
+  | { type: 'memory_delete'; payload: MemoryDeletePayload }
+  | { type: 'extension_query'; payload: ExtensionQueryPayload }
+  | { type: 'extension_list_response'; payload: ExtensionListResponsePayload };

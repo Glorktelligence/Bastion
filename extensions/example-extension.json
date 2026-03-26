@@ -1,0 +1,61 @@
+{
+  "_example": true,
+  "_comment": "This is an example extension file. It is NOT loaded by the relay (_example: true). Copy and modify for your own extensions.",
+
+  "namespace": "example-game",
+  "name": "Example Chess Extension",
+  "version": "0.1.0",
+  "description": "Demonstrates the Bastion protocol extension format with a chess game example.",
+  "author": "Glorktelligence",
+
+  "dependencies": [],
+
+  "messageTypes": [
+    {
+      "name": "chess-move",
+      "description": "A chess move in algebraic notation.",
+      "fields": {
+        "move": { "type": "string", "required": true, "description": "Algebraic notation (e.g. 'e4', 'Nf3', 'O-O')" },
+        "gameId": { "type": "string", "required": true, "description": "UUID of the chess game session" },
+        "moveNumber": { "type": "number", "required": true, "description": "Move number (1-based)" },
+        "fen": { "type": "string", "required": false, "description": "FEN position after the move (optional)" }
+      },
+      "safety": "passthrough",
+      "audit": {
+        "logEvent": "chess_move",
+        "logContent": false
+      }
+    },
+    {
+      "name": "chess-start",
+      "description": "Request to start a new chess game.",
+      "fields": {
+        "gameId": { "type": "string", "required": true, "description": "UUID for the new game" },
+        "colour": { "type": "string", "required": false, "description": "Preferred colour ('white' or 'black')" },
+        "timeControl": {
+          "type": "string",
+          "required": false,
+          "description": "Time control (e.g. '5+3' for 5 min + 3 sec increment)"
+        }
+      },
+      "safety": "passthrough",
+      "audit": {
+        "logEvent": "chess_game_started",
+        "logContent": false
+      }
+    },
+    {
+      "name": "chess-resign",
+      "description": "Resign the current game.",
+      "fields": {
+        "gameId": { "type": "string", "required": true, "description": "UUID of the game to resign" },
+        "reason": { "type": "string", "required": false, "description": "Optional reason for resignation" }
+      },
+      "safety": "passthrough",
+      "audit": {
+        "logEvent": "chess_game_resigned",
+        "logContent": false
+      }
+    }
+  ]
+}

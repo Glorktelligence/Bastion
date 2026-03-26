@@ -15,6 +15,7 @@ import {
   AuditLogger,
   AUDIT_EVENT_TYPES,
   MessageRouter,
+  ExtensionRegistry,
   generateSelfSigned,
 } from './dist/index.js';
 import { PROTOCOL_VERSION, MESSAGE_TYPES } from '@bastion/protocol';
@@ -1522,9 +1523,109 @@ async function run() {
   console.log();
 
   // -------------------------------------------------------------------
-  // Test 22: Real E2E — relay + clients + admin status (not mocked)
   // -------------------------------------------------------------------
-  console.log('--- Test 22: Real E2E — relay, clients, admin status ---');
+  // Test 22: ExtensionRegistry
+  // -------------------------------------------------------------------
+  console.log('--- Test 22: ExtensionRegistry ---');
+  {
+    const reg = new ExtensionRegistry();
+    check('starts empty', reg.extensionCount === 0);
+    check('not locked', !reg.isLocked);
+
+    // Valid extension
+    const r1 = reg.register({
+      namespace: 'games', name: 'Games', version: '1.0.0',
+      messageTypes: [
+        { name: 'chess-move', description: 'A move', safety: 'passthrough', audit: { logEvent: 'chess_move', logContent: false }, fields: {} },
+        { name: 'chess-start', description: 'Start', safety: 'passthrough', audit: { logEvent: 'chess_start', logContent: false }, fields: {} },
+      ],
+    });
+    check('valid extension registered', r1.ok);
+    check('extension count 1', reg.extensionCount === 1);
+    check('type count 2', reg.messageTypeCount === 2);
+
+    // Duplicate namespace
+    const r2 = reg.register({ namespace: 'games', name: 'Dup', version: '1.0.0', messageTypes: [{ name: 'x', safety: 'passthrough', audit: { logEvent: 'x' } }] });
+    check('duplicate namespace rejected', !r2.ok);
+
+    // Reserved namespace
+    const r3 = reg.register({ namespace: 'bastion', name: 'Core', version: '1.0.0', messageTypes: [{ name: 'x', safety: 'passthrough', audit: { logEvent: 'x' } }] });
+    check('reserved namespace rejected', !r3.ok);
+
+    const r4 = reg.register({ namespace: 'admin', name: 'Admin', version: '1.0.0', messageTypes: [{ name: 'x', safety: 'passthrough', audit: { logEvent: 'x' } }] });
+    check('reserved admin rejected', !r4.ok);
+
+    // Invalid namespace format
+    const r5 = reg.register({ namespace: 'UPPER', name: 'Bad', version: '1.0.0', messageTypes: [] });
+    check('uppercase namespace rejected', !r5.ok);
+
+    const r6 = reg.register({ namespace: 'has space', name: 'Bad', version: '1.0.0', messageTypes: [] });
+    check('space in namespace rejected', !r6.ok);
+
+    // Missing required sections
+    const r7 = reg.register({ name: 'NoNS', version: '1.0.0', messageTypes: [] });
+    check('missing namespace rejected', !r7.ok);
+    check('missing namespace error msg', !r7.ok && r7.error.includes('Missing [namespace]'));
+
+    const r8 = reg.register({ namespace: 'good', version: '1.0.0', messageTypes: [] });
+    check('missing name rejected', !r8.ok);
+
+    const r9 = reg.register({ namespace: 'nomt', name: 'NoMT', version: '1.0.0' });
+    check('missing messageTypes rejected', !r9.ok);
+
+    // Missing safety on message type
+    const r10 = reg.register({ namespace: 'nosafety', name: 'NoSafety', version: '1.0.0', messageTypes: [{ name: 'x', audit: { logEvent: 'x' } }] });
+    check('missing safety on type rejected', !r10.ok);
+    check('safety error mentions type', !r10.ok && r10.error.includes('Missing [safety]'));
+
+    // Missing audit on message type
+    const r11 = reg.register({ namespace: 'noaudit', name: 'NoAudit', version: '1.0.0', messageTypes: [{ name: 'x', safety: 'passthrough' }] });
+    check('missing audit on type rejected', !r11.ok);
+
+    // Resolve message types
+    const resolved = reg.resolveMessageType('games:chess-move');
+    check('resolve finds extension', resolved !== null);
+    check('resolve namespace', resolved?.extension.namespace === 'games');
+    check('resolve type name', resolved?.messageType.name === 'chess-move');
+
+    const missing = reg.resolveMessageType('games:nonexistent');
+    check('resolve unknown type null', missing === null);
+
+    const unknownNs = reg.resolveMessageType('unknown:type');
+    check('resolve unknown namespace null', unknownNs === null);
+
+    // isExtensionType
+    check('colon is extension type', reg.isExtensionType('games:chess-move'));
+    check('no colon is not extension type', !reg.isExtensionType('conversation'));
+
+    // Lock
+    const lockRes = reg.lock();
+    check('lock ok', lockRes.ok);
+    check('is locked', reg.isLocked);
+
+    // Cannot register after lock
+    const rLocked = reg.register({ namespace: 'afterlock', name: 'Late', version: '1.0.0', messageTypes: [] });
+    check('post-lock registration rejected', !rLocked.ok);
+    check('post-lock error mentions locked', !rLocked.ok && rLocked.error.includes('locked'));
+
+    // Dependencies
+    const reg2 = new ExtensionRegistry();
+    reg2.register({ namespace: 'base', name: 'Base', version: '1.0.0', messageTypes: [{ name: 'x', safety: 'passthrough', audit: { logEvent: 'x' } }] });
+    reg2.register({ namespace: 'dependent', name: 'Dependent', version: '1.0.0', dependencies: ['base', 'missing'], messageTypes: [{ name: 'y', safety: 'passthrough', audit: { logEvent: 'y' } }] });
+    const lockRes2 = reg2.lock();
+    check('dependency check fails', !lockRes2.ok);
+    check('missing dep error', lockRes2.errors.some(e => e.includes('missing')));
+
+    // getAllExtensions
+    const all = reg.getAllExtensions();
+    check('getAllExtensions returns 1', all.length === 1);
+    check('getAllExtensions first is games', all[0].namespace === 'games');
+  }
+  console.log();
+
+  // Test 23: Real E2E — relay + clients + admin status (not mocked)
+  // -------------------------------------------------------------------
+  console.log('--- Test 23: Real E2E — relay, clients, admin status ---');
   {
     const { cert, key } = await generateSelfSigned();
     const auditLogger = new AuditLogger({ store: { path: ':memory:' } });
