@@ -278,6 +278,33 @@ export const ToolAlertResponsePayloadSchema = z.object({
   decision: z.enum(['accept', 'decline']),
 });
 
+// Challenge Me More schemas
+export const ChallengeStatusPayloadSchema = z.object({
+  active: z.boolean(),
+  timezone: z.string().min(1),
+  currentTime: z.string(),
+  periodEnd: z.string().nullable(),
+  restrictions: z.array(z.string()),
+});
+
+export const ChallengeConfigPayloadSchema = z.object({
+  schedule: z.object({
+    weekdays: z.object({ start: z.string(), end: z.string() }),
+    weekends: z.object({ start: z.string(), end: z.string() }),
+  }),
+  cooldowns: z.object({
+    budgetChangeDays: z.number().int().nonnegative(),
+    scheduleChangeDays: z.number().int().nonnegative(),
+    toolRegistrationDays: z.number().int().nonnegative(),
+  }),
+});
+
+export const ChallengeConfigAckPayloadSchema = z.object({
+  accepted: z.boolean(),
+  reason: z.string(),
+  cooldownExpires: z.string().nullable(),
+});
+
 export const ExtensionQueryPayloadSchema = z.object({
   includeSchemas: z.boolean().optional(),
 });
@@ -506,4 +533,7 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.TOOL_REVOKE]: ToolRevokePayloadSchema,
   [MESSAGE_TYPES.TOOL_ALERT]: ToolAlertPayloadSchema,
   [MESSAGE_TYPES.TOOL_ALERT_RESPONSE]: ToolAlertResponsePayloadSchema,
+  [MESSAGE_TYPES.CHALLENGE_STATUS]: ChallengeStatusPayloadSchema,
+  [MESSAGE_TYPES.CHALLENGE_CONFIG]: ChallengeConfigPayloadSchema,
+  [MESSAGE_TYPES.CHALLENGE_CONFIG_ACK]: ChallengeConfigAckPayloadSchema,
 } as const;

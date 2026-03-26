@@ -53,6 +53,7 @@ export {
   validatePath,
   ToolRegistryManager,
   McpClientAdapter,
+  ChallengeManager,
   validateParameters,
 } from './provider/index.js';
 export type {
@@ -84,6 +85,10 @@ export type {
   McpTool,
   McpCallResult,
   McpClientConfig,
+  ChallengeConfig,
+  ChallengeSchedule,
+  ChallengeCooldowns,
+  ChallengeResult,
 } from './provider/index.js';
 
 // ---------------------------------------------------------------------------

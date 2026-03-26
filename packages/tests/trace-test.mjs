@@ -277,6 +277,9 @@ function validPayloads() {
     tool_revoke: { toolId: 'obsidian:read_note', reason: 'Session cleanup' },
     tool_alert: { toolId: 'obsidian:new_tool', alertType: 'new_tool', details: 'New tool discovered' },
     tool_alert_response: { toolId: 'obsidian:new_tool', decision: 'accept' },
+    challenge_status: { active: true, timezone: 'Europe/London', currentTime: '2026-03-26T23:00:00Z', periodEnd: '2026-03-27T06:00:00', restrictions: ['budget_change'] },
+    challenge_config: { schedule: { weekdays: { start: '22:00', end: '06:00' }, weekends: { start: '23:00', end: '08:00' } }, cooldowns: { budgetChangeDays: 7, scheduleChangeDays: 7, toolRegistrationDays: 1 } },
+    challenge_config_ack: { accepted: true, reason: 'Schedule updated', cooldownExpires: null },
   };
 }
 
@@ -366,8 +369,8 @@ async function run() {
         break;
       }
     }
-    check('all 51 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 51 entries', ALL_MESSAGE_TYPES.length === 51);
+    check('all 54 message types accepted in envelope', allTypesValid);
+    check('ALL_MESSAGE_TYPES has 54 entries', ALL_MESSAGE_TYPES.length === 54);
   }
   console.log();
 
@@ -403,8 +406,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 51 entries', typeKeys.length === 51);
-    check('PAYLOAD_SCHEMAS has 51 entries', Object.keys(PAYLOAD_SCHEMAS).length === 51);
+    check('MESSAGE_TYPES has 54 entries', typeKeys.length === 54);
+    check('PAYLOAD_SCHEMAS has 54 entries', Object.keys(PAYLOAD_SCHEMAS).length === 54);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -803,7 +806,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 51 message types survive serialisation round-trip', allPassed);
+    check('all 54 message types survive serialisation round-trip', allPassed);
   }
   console.log();
 

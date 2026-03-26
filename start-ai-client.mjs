@@ -10,6 +10,7 @@ import {
   ToolRegistryManager,
   McpClientAdapter,
   validateParameters,
+  ChallengeManager,
   evaluateSafety,
   defaultSafetyConfig,
   createPatternHistory,
@@ -109,6 +110,14 @@ const patternHistory = createPatternHistory();
 console.log('[✓] Safety engine armed (3-layer evaluation)');
 
 // ---------------------------------------------------------------------------
+// Challenge Me More — temporal governance
+// ---------------------------------------------------------------------------
+
+const CHALLENGE_CONFIG_PATH = process.env.BASTION_CHALLENGE_CONFIG || '/var/lib/bastion-ai/challenge-config.json';
+const challengeManager = new ChallengeManager(CHALLENGE_CONFIG_PATH);
+console.log(`[✓] Challenge manager: ${challengeManager.enabled ? 'ENABLED' : 'disabled'} (tz: ${challengeManager.timezone}, active: ${challengeManager.isActive()})`);
+
+// ---------------------------------------------------------------------------
 // Tool registry + MCP adapters
 // ---------------------------------------------------------------------------
 
@@ -190,6 +199,17 @@ client.on('authenticated', async (jwt, expiresAt) => {
 
   // Connect to MCP providers
   await connectMcpProviders();
+
+  // Send challenge status to human
+  const challengeStatus = challengeManager.getStatus();
+  client.send(JSON.stringify({
+    type: 'challenge_status',
+    id: randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: IDENTITY,
+    payload: challengeStatus,
+  }));
+  if (challengeStatus.active) console.log(`[🛡️] Challenge hours ACTIVE until ${challengeStatus.periodEnd}`);
 
   console.log('[★] Safety engine active — 3-layer evaluation armed');
   console.log('[★] Awaiting messages...');
@@ -285,6 +305,29 @@ client.on('message', async (data) => {
     } else if (decision === 'approve' || decision === 'modify') {
       console.log(`[✓] Task ${decision}d by human — would proceed with execution`);
     }
+    return;
+  }
+
+  // Handle challenge_config — update challenge schedule
+  if (msg.type === 'challenge_config') {
+    const p = msg.payload || msg;
+    const result = challengeManager.updateConfig(p.schedule, p.cooldowns);
+    client.send(JSON.stringify({
+      type: 'challenge_config_ack',
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: IDENTITY,
+      payload: { accepted: result.accepted, reason: result.reason, cooldownExpires: result.cooldownExpires },
+    }));
+    console.log(`[${result.accepted ? '✓' : '!'}] Challenge config ${result.accepted ? 'updated' : 'rejected'}: ${result.reason}`);
+    // Send updated status
+    client.send(JSON.stringify({
+      type: 'challenge_status',
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: IDENTITY,
+      payload: challengeManager.getStatus(),
+    }));
     return;
   }
 

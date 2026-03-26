@@ -63,6 +63,14 @@ export const challengeStats = createChallengeStatsStore(challenges.store);
 export const memories = createMemoriesStore();
 export const tools = createToolsStore();
 
+/** Challenge Me More status — driven by AI VM server clock. */
+export const challengeStatus: Writable<{
+  active: boolean;
+  timezone: string;
+  periodEnd: string | null;
+  restrictions: string[];
+}> = writable({ active: false, timezone: '', periodEnd: null, restrictions: [] });
+
 /** Connection state — plain writable, populated by createConnectionStore when connected. */
 export const connection: Writable<ConnectionStoreState> = writable<ConnectionStoreState>({
   status: 'disconnected',
@@ -264,6 +272,23 @@ function handleRelayMessage(data: string): void {
       integrity: (p.integrity as { chainValid: boolean; entriesChecked: number; lastVerifiedAt: string }) ?? null,
     });
     return;
+  }
+
+  // Challenge status — update temporal governance indicator
+  if (type === 'challenge_status') {
+    const p = payload as Record<string, unknown>;
+    challengeStatus.set({
+      active: Boolean(p.active),
+      timezone: String(p.timezone ?? ''),
+      periodEnd: p.periodEnd ? String(p.periodEnd) : null,
+      restrictions: Array.isArray(p.restrictions) ? (p.restrictions as string[]) : [],
+    });
+    return;
+  }
+
+  // Challenge config ack
+  if (type === 'challenge_config_ack') {
+    return; // Handled by settings page
   }
 
   // Tool request — AI wants to use a tool, show approval dialog

@@ -377,6 +377,39 @@ export interface ToolAlertResponsePayload {
   readonly decision: 'accept' | 'decline';
 }
 
+// ---------------------------------------------------------------------------
+// Challenge Me More (Temporal Governance)
+// ---------------------------------------------------------------------------
+
+/** AI → Human: Challenge hours status update. */
+export interface ChallengeStatusPayload {
+  readonly active: boolean;
+  readonly timezone: string;
+  readonly currentTime: string;
+  readonly periodEnd: string | null;
+  readonly restrictions: readonly string[];
+}
+
+/** Human → AI: Update challenge schedule/cooldowns. */
+export interface ChallengeConfigPayload {
+  readonly schedule: {
+    readonly weekdays: { readonly start: string; readonly end: string };
+    readonly weekends: { readonly start: string; readonly end: string };
+  };
+  readonly cooldowns: {
+    readonly budgetChangeDays: number;
+    readonly scheduleChangeDays: number;
+    readonly toolRegistrationDays: number;
+  };
+}
+
+/** AI → Human: Confirm or reject challenge config update. */
+export interface ChallengeConfigAckPayload {
+  readonly accepted: boolean;
+  readonly reason: string;
+  readonly cooldownExpires: string | null;
+}
+
 /** Client → Relay: Request list of loaded protocol extensions. */
 export interface ExtensionQueryPayload {
   readonly includeSchemas?: boolean;
@@ -569,4 +602,7 @@ export type MessagePayload =
   | { type: 'tool_result'; payload: ToolResultPayload }
   | { type: 'tool_revoke'; payload: ToolRevokePayload }
   | { type: 'tool_alert'; payload: ToolAlertPayload }
-  | { type: 'tool_alert_response'; payload: ToolAlertResponsePayload };
+  | { type: 'tool_alert_response'; payload: ToolAlertResponsePayload }
+  | { type: 'challenge_status'; payload: ChallengeStatusPayload }
+  | { type: 'challenge_config'; payload: ChallengeConfigPayload }
+  | { type: 'challenge_config_ack'; payload: ChallengeConfigAckPayload };

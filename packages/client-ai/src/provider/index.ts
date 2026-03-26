@@ -54,6 +54,10 @@ export { ProjectStore, validatePath } from './project-store.js';
 export { ToolRegistryManager } from './tool-registry-manager.js';
 export type { RegisteredTool, ToolProvider, SessionTrust } from './tool-registry-manager.js';
 
+// Challenge Manager
+export { ChallengeManager } from './challenge-manager.js';
+export type { ChallengeConfig, ChallengeSchedule, ChallengeCooldowns, ChallengeResult } from './challenge-manager.js';
+
 // MCP Client Adapter
 export { McpClientAdapter, validateParameters } from './mcp-client-adapter.js';
 export type { McpTool, McpCallResult, McpClientConfig } from './mcp-client-adapter.js';

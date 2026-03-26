@@ -424,6 +424,18 @@ relay.on('message', async (data, info) => {
   }
 
   // ----- memory_proposal / memory_decision: forward between paired clients -----
+  // ----- challenge_* messages: forward between paired clients -----
+  if (msg.type === 'challenge_status' || msg.type === 'challenge_config' || msg.type === 'challenge_config_ack') {
+    const peerId = router.getPeer(connId);
+    if (peerId) {
+      relay.send(peerId, data);
+      console.log(`[→] ${msg.type} forwarded to peer ${peerId.slice(0, 8)}`);
+      const sid = sessionIds.get(connId);
+      if (sid) auditLogger.logEvent(msg.type, sid, { active: msg.payload?.active, accepted: msg.payload?.accepted });
+    }
+    return;
+  }
+
   // ----- tool_* messages: forward between paired clients -----
   if (msg.type === 'tool_registry_sync' || msg.type === 'tool_registry_ack' || msg.type === 'tool_request' || msg.type === 'tool_approved' || msg.type === 'tool_denied' || msg.type === 'tool_result' || msg.type === 'tool_revoke' || msg.type === 'tool_alert' || msg.type === 'tool_alert_response') {
     const peerId = router.getPeer(connId);

@@ -20,6 +20,7 @@ import {
   ProjectStore,
   validatePath,
   ToolRegistryManager,
+  ChallengeManager,
 } from './dist/index.js';
 import {
   BastionRelay,
@@ -1697,6 +1698,59 @@ async function run() {
     // Compute hash
     const hash = trm.computeHash();
     check('computeHash non-empty', hash.length > 0);
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: ChallengeManager
+  // -------------------------------------------------------------------
+  console.log('--- Test: ChallengeManager ---');
+  {
+    const cfgPath = `/tmp/bastion-challenge-test-${Date.now()}.json`;
+    const cm = new ChallengeManager(cfgPath);
+
+    // Basic properties
+    check('has timezone', cm.timezone.length > 0);
+    check('enabled by default', cm.enabled);
+
+    // getStatus
+    const status = cm.getStatus();
+    check('status has active', typeof status.active === 'boolean');
+    check('status has timezone', status.timezone.length > 0);
+    check('status has currentTime', status.currentTime.length > 0);
+    check('status has restrictions array', Array.isArray(status.restrictions));
+
+    // checkAction — when not in challenge hours (depends on current time)
+    // We test the structure regardless
+    const result = cm.checkAction('budget_change');
+    check('checkAction returns object', typeof result === 'object');
+    check('checkAction has allowed or blocked or confirm', 'allowed' in result || 'blocked' in result || 'confirm' in result);
+
+    // Confirm actions always have waitSeconds
+    // Simulate by testing a confirm action type when active
+    const confirmResult = cm.checkAction('dangerous_tool_approval');
+    if ('confirm' in confirmResult) {
+      check('confirm has waitSeconds', confirmResult.waitSeconds === 30);
+      check('confirm has message', confirmResult.message.length > 0);
+    } else {
+      check('not in challenge hours — action allowed', 'allowed' in confirmResult);
+    }
+
+    // Config update — should work when not in challenge hours
+    const updateResult = cm.updateConfig(
+      { weekdays: { start: '23:00', end: '05:00' }, weekends: { start: '00:00', end: '07:00' } },
+      { budgetChangeDays: 7, scheduleChangeDays: 7, toolRegistrationDays: 1 },
+    );
+    check('config update has accepted field', typeof updateResult.accepted === 'boolean');
+    check('config update has reason', typeof updateResult.reason === 'string');
+
+    // Record action for cooldown
+    cm.recordAction('test_action');
+    const config = cm.getConfig();
+    check('lastChanges recorded', config.lastChanges.test_action !== undefined);
+
+    // Cleanup
+    try { const { unlinkSync } = await import('node:fs'); unlinkSync(cfgPath); } catch {}
   }
   console.log();
 
