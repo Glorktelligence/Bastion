@@ -17,6 +17,19 @@ let userContext: string = $state(session.settings.store.get().userContext);
 let contextSaving = $state(false);
 let contextSaved = $state(false);
 
+// Config store
+const cfgStore = session.getConfigStore();
+let cfgRelayUrl = $state(cfgStore.get('relayUrl'));
+let cfgDisplayName = $state(cfgStore.get('displayName'));
+let cfgUserId = $state(cfgStore.get('userId'));
+let showResetConfirm = $state(false);
+
+function handleResetSetup(): void {
+  cfgStore.clear();
+  // Force page reload to show setup wizard
+  globalThis.location?.reload();
+}
+
 $effect(() => {
 	const unsubs = [
 		session.settings.store.subscribe((v) => {
@@ -148,15 +161,21 @@ function handleContextSave(): void {
 
 	<section class="section">
 		<h3>Connection</h3>
-		<div class="info-grid">
-			<span class="label">Relay URL</span>
-			<code class="value">{session.RELAY_URL}</code>
-			<span class="label">User ID</span>
-			<code class="value">{session.IDENTITY.id}</code>
-			<span class="label">Display Name</span>
-			<code class="value">{session.IDENTITY.displayName}</code>
+		<div class="config-fields">
+			<label>
+				<span class="label">Relay URL</span>
+				<input type="text" value={cfgRelayUrl} onchange={(e) => { cfgRelayUrl = e.currentTarget.value; cfgStore.set('relayUrl', cfgRelayUrl); }} class="config-input mono" />
+			</label>
+			<label>
+				<span class="label">Display Name</span>
+				<input type="text" value={cfgDisplayName} onchange={(e) => { cfgDisplayName = e.currentTarget.value; cfgStore.set('displayName', cfgDisplayName); }} class="config-input" />
+			</label>
+			<label>
+				<span class="label">User ID</span>
+				<input type="text" value={cfgUserId} onchange={(e) => { cfgUserId = e.currentTarget.value; cfgStore.set('userId', cfgUserId); }} class="config-input mono" />
+			</label>
 		</div>
-		<p class="hint">Override via globalThis.__BASTION_RELAY_URL__, __BASTION_USER_ID__, __BASTION_USER_NAME__</p>
+		<p class="hint">Changes saved automatically. Relay URL change takes effect on next connect.</p>
 	</section>
 
 	<section class="section">
@@ -230,6 +249,19 @@ function handleContextSave(): void {
 			onSave={handleSave}
 			onReset={handleReset}
 		/>
+	</section>
+
+	<section class="section danger-zone">
+		<h3>Danger Zone</h3>
+		{#if showResetConfirm}
+			<p class="hint">This will clear all settings and show the setup wizard again. Are you sure?</p>
+			<div class="danger-actions">
+				<button class="btn-danger" onclick={handleResetSetup}>Yes, Reset Everything</button>
+				<button class="btn-sm btn-cancel" onclick={() => { showResetConfirm = false; }}>Cancel</button>
+			</div>
+		{:else}
+			<button class="btn-danger-outline" onclick={() => { showResetConfirm = true; }}>Reset Setup</button>
+		{/if}
 	</section>
 </div>
 
@@ -373,4 +405,15 @@ function handleContextSave(): void {
 		text-align: center;
 		padding: 1.5rem;
 	}
+
+	.config-fields { display: flex; flex-direction: column; gap: 0.5rem; }
+	.config-fields label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem; color: var(--color-text-muted); }
+	.config-input { padding: 0.375rem 0.5rem; border: 1px solid var(--color-border, #2a2a4a); border-radius: 0.25rem; background: var(--color-bg, #0f0f23); color: var(--color-text); font-size: 0.85rem; }
+	.config-input.mono { font-family: monospace; font-size: 0.8rem; }
+
+	.danger-zone { border-color: #ef4444 !important; }
+	.danger-zone h3 { color: #ef4444; }
+	.danger-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+	.btn-danger { padding: 0.375rem 0.75rem; background: #ef4444; color: white; border: none; border-radius: 0.25rem; font-size: 0.8rem; cursor: pointer; }
+	.btn-danger-outline { padding: 0.375rem 0.75rem; background: transparent; color: #ef4444; border: 1px solid #ef4444; border-radius: 0.25rem; font-size: 0.8rem; cursor: pointer; }
 </style>

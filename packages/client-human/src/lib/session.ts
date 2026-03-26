@@ -23,19 +23,31 @@ import { type DisplayMessage, createMessagesStore } from './stores/messages.js';
 import { SAFETY_FLOOR_VALUES, createSettingsStore } from './stores/settings.js';
 import { type TrackedTask, createTasksStore } from './stores/tasks.js';
 
+import { getConfigStore } from './config/config-store.js';
+
 // ---------------------------------------------------------------------------
-// Constants
+// Constants — read from ConfigStore (persisted across sessions)
 // ---------------------------------------------------------------------------
 
-// Configurable via globalThis (set in Tauri's index.html or build config).
-// Defaults match the standard deployment. Override for other deployments.
-const g = globalThis as Record<string, unknown>;
-export const RELAY_URL = (g.__BASTION_RELAY_URL__ as string) || 'wss://10.0.30.10:9443';
-export const IDENTITY = {
-  type: 'human' as const,
-  id: (g.__BASTION_USER_ID__ as string) || 'harry-001',
-  displayName: (g.__BASTION_USER_NAME__ as string) || 'Harry',
-};
+const cfg = getConfigStore();
+
+/** Relay URL from ConfigStore. Call getRelayUrl() for latest value after config changes. */
+export function getRelayUrl(): string {
+  return cfg.get('relayUrl') || 'wss://10.0.30.10:9443';
+}
+
+/** User identity from ConfigStore. Call getIdentity() for latest value after config changes. */
+export function getIdentity(): { type: 'human'; id: string; displayName: string } {
+  return {
+    type: 'human',
+    id: cfg.get('userId') || 'user-default',
+    displayName: cfg.get('displayName') || 'User',
+  };
+}
+
+// Stable references for components that read once at import time
+export const RELAY_URL = getRelayUrl();
+export const IDENTITY = getIdentity();
 
 // ---------------------------------------------------------------------------
 // Shared store instances (survive route changes)
@@ -73,9 +85,12 @@ export function getClient(): BastionHumanClient | null {
 export async function connect(): Promise<void> {
   if (client) return;
 
+  const currentRelayUrl = getRelayUrl();
+  const currentIdentity = getIdentity();
+
   client = new BastionHumanClient({
-    relayUrl: RELAY_URL,
-    identity: IDENTITY,
+    relayUrl: currentRelayUrl,
+    identity: currentIdentity,
     WebSocketImpl: WebSocket,
   });
 
@@ -108,7 +123,7 @@ export async function connect(): Promise<void> {
     client.send(
       JSON.stringify({
         type: 'session_init',
-        identity: IDENTITY,
+        identity: currentIdentity,
         timestamp: new Date().toISOString(),
       }),
     );
@@ -307,3 +322,5 @@ function handleRelayMessage(data: string): void {
 // Re-export types that routes commonly need
 export type { DisplayMessage, ActiveChallenge, TrackedTask, AuditLogEntry, ChallengeStats, MemoryEntry };
 export { SAFETY_FLOOR_VALUES };
+export { getConfigStore, generateUserId } from './config/config-store.js';
+export type { BastionConfig, ConfigStore } from './config/config-store.js';

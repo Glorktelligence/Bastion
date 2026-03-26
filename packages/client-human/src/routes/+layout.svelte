@@ -1,10 +1,22 @@
 <script>
 import '../app.css';
 import { page } from '$app/state';
+import * as session from '$lib/session.js';
+import SetupWizard from '$lib/components/SetupWizard.svelte';
 
 const { children } = $props();
+
+const configStore = session.getConfigStore();
+let setupComplete = $state(configStore.get('setupComplete'));
+
+function handleSetupComplete() {
+	setupComplete = true;
+}
 </script>
 
+{#if !setupComplete}
+	<SetupWizard onComplete={handleSetupComplete} />
+{:else}
 <div class="app-layout">
 	<aside class="sidebar">
 		<div class="sidebar-header">
@@ -22,6 +34,7 @@ const { children } = $props();
 		{@render children()}
 	</main>
 </div>
+{/if}
 
 <style>
 	.app-layout {
