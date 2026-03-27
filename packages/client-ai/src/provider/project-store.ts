@@ -61,7 +61,10 @@ const DANGEROUS_CONTENT_PATTERNS: ReadonlyArray<{ pattern: RegExp; reason: strin
   // HTML script injection (markdown files rendered as HTML)
   { pattern: /<script[\s>]/i, reason: 'Embedded <script> tag' },
   { pattern: /javascript\s*:/i, reason: 'JavaScript URI scheme' },
-  { pattern: /on(?:load|error|click|mouseover|focus|blur|submit|change|input|keydown|keyup)\s*=/i, reason: 'HTML event handler attribute' },
+  {
+    pattern: /on(?:load|error|click|mouseover|focus|blur|submit|change|input|keydown|keyup)\s*=/i,
+    reason: 'HTML event handler attribute',
+  },
   { pattern: /<iframe[\s>]/i, reason: 'Embedded <iframe> tag' },
   { pattern: /<object[\s>]/i, reason: 'Embedded <object> tag' },
   { pattern: /<embed[\s>]/i, reason: 'Embedded <embed> tag' },
