@@ -1,7 +1,7 @@
 # Project Bastion
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-2%2C674_passing-brightgreen.svg)](#run-tests)
+[![Tests](https://img.shields.io/badge/Tests-2%2C675_passing-brightgreen.svg)](#run-tests)
 [![Packages](https://img.shields.io/badge/Packages-7-purple.svg)](#packages)
 [![Protocol](https://img.shields.io/badge/Protocol-57_message_types-orange.svg)](#protocol)
 [![Node](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-339933.svg)](https://nodejs.org)
@@ -171,7 +171,7 @@ pnpm --filter @bastion/relay-admin-ui dev
 
 ## Protocol
 
-Bastion defines 54 message types across structured categories:
+Bastion defines 57 message types across structured categories:
 
 - **Core**: `task`, `conversation`, `challenge`, `confirmation`, `denial`, `status`, `result`, `error`, `audit`, `heartbeat`
 - **File Transfer**: `file_manifest`, `file_offer`, `file_request`
@@ -184,10 +184,16 @@ Bastion defines 54 message types across structured categories:
 - **Project Context**: `project_sync`, `project_sync_ack`, `project_list`, `project_list_response`, `project_delete`, `project_config`, `project_config_ack`
 - **Tool Integration**: `tool_registry_sync`, `tool_registry_ack`, `tool_request`, `tool_approved`, `tool_denied`, `tool_result`, `tool_revoke`, `tool_alert`, `tool_alert_response`
 - **Challenge Me More**: `challenge_status`, `challenge_config`, `challenge_config_ack`
+- **Budget Guard**: `budget_status`, `budget_config`
+- **E2E Encryption**: `key_exchange`
 
 All messages are validated against Zod schemas at every boundary. Unknown message types are rejected. The protocol version is checked on session establishment.
 
-Error codes follow the format `BASTION-CXXX` across 7 categories: Connection (1XXX), Auth (2XXX), Protocol (3XXX), Safety (4XXX), File Transfer (5XXX), Provider (6XXX), Configuration (7XXX).
+Error codes follow the format `BASTION-CXXX` across 8 categories: Connection (1XXX), Auth (2XXX), Protocol (3XXX), Safety (4XXX), File Transfer (5XXX), Provider (6XXX), Configuration (7XXX), Budget (8XXX).
+
+### E2E Encryption
+
+Messages are encrypted with XSalsa20-Poly1305 via a KDF ratchet chain. Each message gets a unique, irreversibly-derived key — compromising a current key does not reveal past messages (forward secrecy). The human client uses tweetnacl (pure JavaScript, zero native dependencies) and the AI client uses libsodium (WASM/native) — byte-identical NaCl implementations. The relay forwards encrypted payloads without the ability to read message content.
 
 ## Infrastructure
 
@@ -204,7 +210,7 @@ Bastion includes deployment templates for self-hosted environments:
 
 - [Getting Started Guide](docs/guides/getting-started.md) — Clone to running local instance walkthrough
 - [Deployment Guide](docs/guides/deployment.md) — Self-hosting with TLS, VLANs, and AI VM isolation
-- [Protocol Specification](docs/protocol/bastion-protocol-v0.1.0.md) — All 54 message types, envelope structure, safety evaluation
+- [Protocol Specification](docs/protocol/bastion-protocol-v0.1.0.md) — All 57 message types, envelope structure, E2E encryption, safety evaluation
 - [Core Specification](docs/spec/Project-Bastion-Spec-v0.1.0.docx) — The full product specification
 - [Supplementary Specification](docs/spec/bastion-supplementary-spec.md) — Architectural decisions, session lifecycle, error codes, GDPR considerations
 - [Project Structure](docs/spec/bastion-project-structure.md) — Package layout and task breakdown
@@ -216,7 +222,7 @@ Bastion includes deployment templates for self-hosted environments:
 
 | Layer | Feature | Status |
 |-------|---------|--------|
-| 1 | E2E encrypted messaging with conversation continuity | Deployed |
+| 1 | E2E encrypted messaging (X25519 + XSalsa20-Poly1305 Double Ratchet) | Deployed |
 | 2 | Persistent memory with "Remember" button + category system | Deployed |
 | 3 | Project context file sharing with nested directory support | Deployed |
 | 4 | MCP tool integration with governed approval flow (JSON-RPC 2.0) | Deployed |
@@ -234,14 +240,14 @@ These cannot be disabled, bypassed, or configured away:
 1. **MaliClaw Clause** — permanent blocklist of dangerous AI providers (13 patterns + catch-all regex)
 2. **Safety Floors** — minimum thresholds that can be tightened but never lowered
 3. **Tool Blindness** — dangerous tools stripped entirely from conversation mode
-4. **Budget Guard** — cost caps with cooldowns on changes (future: enforced at protocol level)
+4. **Budget Guard** — web search cost caps with SQLite persistence, tighten-only mid-month, 7-day cooldowns, enforced at protocol level
 5. **Challenge Hours** — temporal governance that the client cannot override (server clock is truth)
 
 ## Status
 
-**Pre-Release.** The protocol, crypto layer, relay, AI client, desktop client, admin UI, and infrastructure templates are all implemented and tested across 2,255 passing tests.
+**Pre-Release.** The protocol, crypto layer, relay, AI client, desktop client, admin UI, and infrastructure templates are all implemented and tested across 2,675 passing tests.
 
-The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. The protocol is stable at 54 message types. The reference implementation works.
+The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. E2E encryption is active with interoperable tweetnacl (browser) and libsodium (Node.js) implementations. The protocol is stable at 57 message types with 48 error codes. The reference implementation works.
 
 > **Mobile client note:** The React Native mobile client (`packages/client-human-mobile`) was built during the initial development phases and builds successfully, but has not been updated with Layer 2-4 features, the setup wizard, or Challenge Me More. Mobile client modernisation is on the roadmap.
 

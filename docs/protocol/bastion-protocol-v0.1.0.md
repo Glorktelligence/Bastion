@@ -156,9 +156,10 @@ interface SenderIdentity {
 
 | Component | Algorithm |
 |-----------|-----------|
-| Session key exchange | X25519 (Curve25519 Diffie-Hellman) |
-| Message encryption | XChaCha20-Poly1305 (AEAD) |
-| Key derivation | HKDF-SHA-256 |
+| Session key exchange | X25519 (Curve25519 Diffie-Hellman via `key_exchange` message) |
+| Shared secret | HSalsa20(X25519(sk, pk)) — `crypto_box_beforenm` / `nacl.box.before` |
+| Message encryption | XSalsa20-Poly1305 (AEAD) — `crypto_secretbox` / `nacl.secretbox` |
+| Key derivation | SHA-512 truncated to 32 bytes (KDF ratchet chain) |
 | Audit hash chain | SHA-256 |
 | File hashing | SHA-256 |
 | Password hashing (admin) | scrypt (N=16384, r=8, p=1) |
@@ -176,26 +177,28 @@ At session establishment, the human and AI clients perform an X25519 key exchang
 
 The relay never sees the shared secret or the session keys.
 
-### 4.3 KDF Chain
+### 4.3 KDF Ratchet Chain
 
-Session keys are derived using a KDF chain:
+Session keys are derived using a KDF ratchet chain with SHA-512:
 
 ```
-initial_secret = X25519(my_private, their_public)
-chain_key_0 = HKDF-SHA-256(initial_secret, salt="bastion-chain-v1", info="chain-0")
-message_key_n = HKDF-SHA-256(chain_key_n, salt="bastion-msg", info="msg-{n}")
-chain_key_{n+1} = HKDF-SHA-256(chain_key_n, salt="bastion-chain-v1", info="chain-{n+1}")
+shared_secret = HSalsa20(X25519(my_secret, their_public))   # crypto_box_beforenm / nacl.box.before
+send_chain_key_0 = SHA512(DIRECTIONAL_SEND || shared_secret || my_public || their_public)[0:32]
+recv_chain_key_0 = SHA512(DIRECTIONAL_RECV || shared_secret || my_public || their_public)[0:32]
+
+message_key_n = SHA512(chain_key_n || 0x02)[0:32]
+chain_key_{n+1} = SHA512(chain_key_n || 0x01)[0:32]
 ```
 
-Each message uses a unique derived key. Old keys are discarded (forward secrecy within a session). The chain is symmetric — both sides derive the same sequence.
+Each message uses a unique, irreversibly-derived key. Old chain keys are zeroized after each ratchet step (forward secrecy within a session). Send and receive chains advance independently.
 
-**Note:** This is a symmetric KDF chain, not a Double Ratchet. Per-message DH ratcheting is a future consideration.
+The human client uses tweetnacl (pure JavaScript) and the AI client uses libsodium — both are byte-identical NaCl implementations. `nacl.box.before()` = `crypto_box_beforenm()`, `nacl.secretbox()` = `crypto_secretbox_easy()`.
 
 ### 4.4 Payload Encryption
 
 ```
-nonce = random 24 bytes (XChaCha20 uses 192-bit nonces)
-ciphertext = XChaCha20-Poly1305(message_key_n, nonce, plaintext_payload)
+nonce = random 24 bytes (XSalsa20 uses 192-bit nonces)
+ciphertext = XSalsa20-Poly1305(message_key_n, nonce, plaintext_payload)
 encryptedPayload = base64(ciphertext)
 nonce_field = base64(nonce)
 ```
@@ -310,11 +313,12 @@ The human client uses exponential backoff for reconnection attempts:
 
 | Attempt | Delay |
 |---------|-------|
-| 1 | 5 seconds |
-| 2 | 15 seconds |
-| 3 | 30 seconds |
-| 4 | 60 seconds |
-| 5+ | 120 seconds (repeating) |
+| 1 | 1 second |
+| 2 | 2 seconds |
+| 3 | 4 seconds |
+| 4 | 8 seconds |
+| 5 | 16 seconds |
+| 6+ | 30 seconds (repeating) |
 
 ### 6.5 Clean Shutdown
 
@@ -340,7 +344,7 @@ Tokens expire every 15 minutes. Clients should refresh at 13 minutes (2 minutes 
 
 ## 7. Message Types
 
-The Bastion protocol defines 54 message types across ten categories: core (13), supplementary (10), audit (2), provider/context (2), memory (6), extensions (2), project context (7), tool integration (9), and challenge governance (3).
+The Bastion protocol defines 57 message types across twelve categories: core (13), supplementary (10), audit (2), provider/context (2), memory (6), extensions (2), project context (7), tool integration (9), challenge governance (3), budget guard (2), and E2E encryption (1).
 
 ### 7.1 Core Message Types
 
@@ -937,6 +941,16 @@ Error codes follow the format `BASTION-CXXX` where C is the category digit.
 | `BASTION-7004` | CONFIG_ADMIN_KEY_INVALID | Admin authentication key invalid |
 | `BASTION-7005` | CONFIG_REGISTRY_MODIFICATION_DENIED | Tool registry modification rejected |
 
+### 10.8 Budget Errors (8XXX)
+
+| Code | Name | Description |
+|------|------|-------------|
+| `BASTION-8001` | BUDGET_MONTHLY_EXHAUSTED | Monthly budget cap or search limit reached |
+| `BASTION-8002` | BUDGET_DAILY_EXHAUSTED | Daily search limit reached |
+| `BASTION-8003` | BUDGET_SESSION_EXHAUSTED | Session or per-call search limit reached |
+| `BASTION-8004` | BUDGET_CONFIG_COOLDOWN | Budget config change within 7-day cooldown |
+| `BASTION-8005` | BUDGET_CONFIG_CHALLENGE_HOURS | Budget config change blocked during challenge hours |
+
 ---
 
 ## 11. Security Properties
@@ -969,12 +983,12 @@ These properties are enforced by the protocol and cannot be disabled, configured
 
 ### 11.3 Known Limitations
 
-| Limitation | Description |
-|------------|-------------|
-| Single-device sessions | Only one human device connected at a time |
-| Symmetric KDF chain | No per-message DH ratchet (future consideration) |
-| Trust-on-first-Use | No certificate pinning or key verification ceremony |
-| Advisory cost budget | Budget alerts are informational, not enforced at protocol level |
+| Limitation | Description | Status |
+|------------|-------------|--------|
+| Single-device sessions | Only one human device connected at a time | Open |
+| ~~Symmetric KDF chain~~ | ~~No per-message DH ratchet~~ | **Resolved** — KDF ratchet wired with per-message key derivation and forward secrecy |
+| Trust-on-first-use | No certificate pinning or key verification ceremony | Open |
+| ~~Advisory cost budget~~ | ~~Budget alerts are informational~~ | **Resolved** — Budget Guard enforced at protocol level with hard stop at limits |
 
 ---
 

@@ -308,6 +308,11 @@ BASTION_PROJECT_DIR=/var/lib/bastion-ai/project
 # Challenge Me More configuration
 BASTION_CHALLENGE_CONFIG=/var/lib/bastion-ai/challenge-config.json
 
+# Budget Guard (web search cost enforcement)
+BASTION_BUDGET_DB=/var/lib/bastion-ai/budget.db
+BASTION_BUDGET_CONFIG=/var/lib/bastion-ai/budget-config.json
+# Default limits: $10/month, 500 searches/month, 50/day, 20/session
+
 # Conversation manager
 BASTION_TOKEN_BUDGET=100000
 BASTION_USER_CONTEXT_PATH=/var/lib/bastion-ai/user-context.md
@@ -625,6 +630,16 @@ pnpm build
 sudo systemctl restart bastion-relay
 sudo systemctl restart bastion-ai-client
 ```
+
+## Cryptography Notes
+
+**AI client (Node.js):** Uses libsodium-wrappers-sumo (loaded automatically via `ensureSodium()`). No additional crypto configuration needed. The X25519 key exchange and XSalsa20-Poly1305 encryption are handled by the startup script.
+
+**Human client (browser/Tauri):** Uses tweetnacl (pure JavaScript, zero native dependencies). No WASM loading, no native compilation — works in every browser and Tauri WebView. Crypto initialisation is synchronous.
+
+**Interoperability:** Both implementations produce byte-identical NaCl ciphertext. The KDF ratchet uses SHA-512 truncated to 32 bytes on both sides.
+
+**Budget Guard:** Web search usage is tracked in SQLite at `BASTION_BUDGET_DB` (default: `/var/lib/bastion-ai/budget.db`). Budget configuration persisted at `BASTION_BUDGET_CONFIG` (default: `/var/lib/bastion-ai/budget-config.json`). Default limits: $10/month, 500 searches/month, 50/day, 20/session. Monthly cap increases take effect next month only (tighten-only mid-month). All config changes have a 7-day cooldown and are blocked during challenge hours.
 
 ## Security Checklist
 

@@ -66,12 +66,15 @@ We will not pursue legal action against security researchers who:
 - File transfer metadata: filenames, sizes, MIME types, transfer states
 - JWT tokens (short-lived, 15-minute expiry)
 
-### What the Relay Cannot See
+### What the Relay Cannot See (Enforced)
 
-- Message content (E2E encrypted)
+Zero-knowledge relay is now **enforced**, not just designed. The relay forwards encrypted payloads without the ability to read them:
+
+- Message content (E2E encrypted with XSalsa20-Poly1305 via KDF ratchet chain)
 - File content (E2E encrypted, separately from message encryption)
 - AI provider API keys (stored on AI VM only)
 - Safety engine evaluation details (runs on AI client)
+- Session keys (derived independently by each client from X25519 key exchange)
 
 ### Hardcoded Security Properties
 
@@ -128,12 +131,21 @@ These are hardcoded and cannot be disabled by any configuration:
 - Server clock enforcement via `Intl.DateTimeFormat().resolvedOptions().timeZone`.
 - Tighten-only: enabling is immediate, disabling requires 7-day cooldown.
 
+### E2E Encryption Implementation
+
+Messages are encrypted end-to-end with XSalsa20-Poly1305 via a KDF ratchet chain. Key exchange uses X25519 (`key_exchange` message type). Each message gets a unique, irreversibly-derived key — per-message forward secrecy.
+
+**Dual implementation for cross-platform interoperability:**
+- **Human client (browser/Tauri):** tweetnacl (pure JavaScript, zero native dependencies)
+- **AI client (Node.js):** libsodium via libsodium-wrappers-sumo (WASM/native)
+
+Both are byte-identical NaCl implementations: `nacl.box.before()` = `crypto_box_beforenm()`, `nacl.secretbox()` = `crypto_secretbox_easy()`. The KDF uses SHA-512 truncated to 32 bytes on both sides.
+
 ### Known Limitations
 
 - **Single-device sessions**: Only one human client device connected at a time. Session swap requires explicit confirmation but relies on the legitimacy of the JWT presented.
-- **Symmetric KDF chain**: No per-message Diffie-Hellman ratchet. A compromised session key exposes all messages in that session (but not past or future sessions).
+- **No per-message DH ratchet**: The KDF chain provides forward secrecy (old keys are zeroized), but does not perform a new Diffie-Hellman exchange per message. A compromised current chain key exposes subsequent messages in that session until reconnection.
 - **Trust-on-first-use for relay**: The client trusts the relay's TLS certificate. Certificate pinning is not yet implemented.
-- **Budget tracking is advisory**: Cost tracking relies on the AI client self-reporting. A compromised AI client could underreport.
 - **Read-only admin is unauthenticated**: Anyone with SSH tunnel access can view monitoring data. This is by design (the tunnel is the access control) but means a compromised SSH session exposes relay metadata.
 
 ## Security Design Principles
