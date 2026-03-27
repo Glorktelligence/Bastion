@@ -1,10 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import {
-  generateKeyPair,
-  deriveSessionKeys,
-  createSessionCipher,
-  ensureSodium,
-} from '@bastion/crypto';
+import { ensureSodium } from '@bastion/crypto';
+import { createHash } from 'node:crypto';
 import {
   BastionAiClient,
   createApiKeyManager,
@@ -156,20 +152,38 @@ function sendBudgetStatus() {
 // ---------------------------------------------------------------------------
 
 let ownKeyPair = null;
-let sessionCipher = null;
+let e2eCipher = null; // { nextSendKey(), nextReceiveKey(), destroy() }
 
-/** Generate X25519 keypair on startup. */
+// KDF constants — must match human client's browser-crypto.ts
+const KDF_CHAIN_STEP = new Uint8Array([0x01]);
+const KDF_MESSAGE_KEY = new Uint8Array([0x02]);
+const DIRECTIONAL_SEND = new TextEncoder().encode('bastion-e2e-send');
+const DIRECTIONAL_RECV = new TextEncoder().encode('bastion-e2e-recv');
+
+function concatBytes(...arrays) {
+  const total = arrays.reduce((sum, a) => sum + a.length, 0);
+  const result = new Uint8Array(total);
+  let offset = 0;
+  for (const a of arrays) { result.set(a, offset); offset += a.length; }
+  return result;
+}
+
+/** SHA-512 (matches tweetnacl's nacl.hash) truncated to 32 bytes. */
+function sha512_32(data) {
+  return new Uint8Array(createHash('sha512').update(data).digest().buffer, 0, 32);
+}
+
+/** Generate X25519 keypair using libsodium's crypto_box_keypair. */
 async function initKeyPair() {
-  ownKeyPair = await generateKeyPair();
-  console.log('[✓] X25519 keypair generated');
+  const sodium = await ensureSodium();
+  ownKeyPair = sodium.crypto_box_keypair();
+  console.log('[✓] X25519 keypair generated (crypto_box)');
 }
 
 /** Send key_exchange message to peer. */
 function sendKeyExchange() {
   if (!client || !ownKeyPair) return;
-  const sodium = ownKeyPair.publicKey;
-  // Convert Uint8Array to base64 for JSON transport
-  const pubKeyB64 = Buffer.from(sodium).toString('base64');
+  const pubKeyB64 = Buffer.from(ownKeyPair.publicKey).toString('base64');
   client.send(JSON.stringify({
     type: 'key_exchange',
     id: randomUUID(),
@@ -180,15 +194,50 @@ function sendKeyExchange() {
   console.log('[→] Key exchange: public key sent to peer');
 }
 
-/** Handle incoming key_exchange from peer — derive session keys. */
+/**
+ * Handle incoming key_exchange from peer — derive session keys.
+ * Uses crypto_box_beforenm (= tweetnacl nacl.box.before) for shared secret,
+ * then SHA-512-truncated-to-32 for directional keys and KDF ratchet.
+ */
 async function handleKeyExchange(peerPublicKeyB64) {
   if (!ownKeyPair) return;
+  const sodium = await ensureSodium();
   const peerPublicKey = new Uint8Array(Buffer.from(peerPublicKeyB64, 'base64'));
 
-  // AI client is the 'responder' role (human is 'initiator')
-  const sessionKeys = await deriveSessionKeys('responder', ownKeyPair, peerPublicKey);
-  sessionCipher = await createSessionCipher(randomUUID(), sessionKeys);
-  console.log('[✓] E2E session established — Double Ratchet active');
+  // Shared secret: HSalsa20(X25519(mySecret, theirPublic)) — interoperable with nacl.box.before
+  const sharedSecret = sodium.crypto_box_beforenm(peerPublicKey, ownKeyPair.privateKey);
+
+  // Directional keys — AI is 'responder', swaps send/receive vs initiator
+  const keyA = sha512_32(concatBytes(DIRECTIONAL_SEND, sharedSecret, peerPublicKey, ownKeyPair.publicKey));
+  const keyB = sha512_32(concatBytes(DIRECTIONAL_RECV, sharedSecret, peerPublicKey, ownKeyPair.publicKey));
+
+  // Responder: sendKey = keyB, receiveKey = keyA (swapped from initiator)
+  let sendChainKey = keyB;
+  let sendCounter = 0;
+  let receiveChainKey = keyA;
+  let receiveCounter = 0;
+
+  e2eCipher = {
+    nextSendKey() {
+      const messageKey = sha512_32(concatBytes(sendChainKey, KDF_MESSAGE_KEY));
+      const nextChain = sha512_32(concatBytes(sendChainKey, KDF_CHAIN_STEP));
+      sendChainKey.fill(0);
+      sendChainKey = nextChain;
+      return { key: messageKey, counter: sendCounter++ };
+    },
+    nextReceiveKey() {
+      const messageKey = sha512_32(concatBytes(receiveChainKey, KDF_MESSAGE_KEY));
+      const nextChain = sha512_32(concatBytes(receiveChainKey, KDF_CHAIN_STEP));
+      receiveChainKey.fill(0);
+      receiveChainKey = nextChain;
+      return { key: messageKey, counter: receiveCounter++ };
+    },
+    destroy() {
+      sendChainKey.fill(0);
+      receiveChainKey.fill(0);
+    },
+  };
+  console.log('[✓] E2E session established — interoperable ratchet active');
 }
 
 /** Messages that must stay plaintext — relay or pre-key-exchange control messages. */
@@ -200,28 +249,24 @@ const PLAINTEXT_TYPES = new Set([
 
 /**
  * Send a message, encrypting the payload if session cipher is available.
- * Metadata (type, id, timestamp, sender) stays plaintext for relay routing.
- * The payload is encrypted and placed in encryptedPayload + nonce fields.
+ * Uses XSalsa20-Poly1305 (crypto_secretbox_easy) — interoperable with tweetnacl.secretbox.
  */
 async function sendSecure(envelope) {
   if (!client) return false;
 
-  if (!sessionCipher || PLAINTEXT_TYPES.has(envelope.type)) {
+  if (!e2eCipher || PLAINTEXT_TYPES.has(envelope.type)) {
     return client.send(JSON.stringify(envelope));
   }
 
   try {
     const sodium = await ensureSodium();
-
-    // Encrypt just the payload
     const payloadStr = JSON.stringify(envelope.payload || {});
     const payloadBytes = new TextEncoder().encode(payloadStr);
-    const { key } = sessionCipher.nextSendKey();
+    const { key } = e2eCipher.nextSendKey();
     const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
     const ciphertext = sodium.crypto_secretbox_easy(payloadBytes, nonce, key);
-    sodium.memzero(key);
+    key.fill(0);
 
-    // Build encrypted envelope — metadata plaintext, payload encrypted
     const encrypted = {
       id: envelope.id,
       type: envelope.type,
@@ -379,14 +424,14 @@ client.on('message', async (data) => {
   }
 
   // Decrypt if this is an encrypted envelope (has encryptedPayload field)
-  if (msg.encryptedPayload && sessionCipher) {
+  if (msg.encryptedPayload && e2eCipher) {
     try {
       const sodium = await ensureSodium();
       const nonce = sodium.from_base64(msg.nonce);
       const ciphertext = sodium.from_base64(msg.encryptedPayload);
-      const { key } = sessionCipher.nextReceiveKey();
+      const { key } = e2eCipher.nextReceiveKey();
       const plaintext = sodium.crypto_secretbox_open_easy(ciphertext, nonce, key);
-      sodium.memzero(key);
+      key.fill(0);
       const payloadStr = new TextDecoder().decode(plaintext);
       sodium.memzero(plaintext);
       msg = { ...msg, payload: JSON.parse(payloadStr) };

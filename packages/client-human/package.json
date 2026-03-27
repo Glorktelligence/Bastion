@@ -24,9 +24,9 @@
   },
   "dependencies": {
     "@bastion/protocol": "workspace:*",
-    "@bastion/crypto": "workspace:*",
     "@tauri-apps/api": "^2.0.0",
-    "libsodium-wrappers-sumo": "^0.7.15"
+    "tweetnacl": "^1.0.3",
+    "tweetnacl-util": "^0.15.1"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.0",

@@ -33,6 +33,8 @@ interface SodiumLibrary {
   readonly crypto_pwhash_OPSLIMIT_MODERATE: number;
   readonly crypto_pwhash_MEMLIMIT_MODERATE: number;
   crypto_kx_keypair(): { publicKey: Uint8Array; privateKey: Uint8Array };
+  crypto_box_keypair(): { publicKey: Uint8Array; privateKey: Uint8Array };
+  crypto_box_beforenm(theirPublicKey: Uint8Array, mySecretKey: Uint8Array): Uint8Array;
   crypto_kx_client_session_keys(
     clientPk: Uint8Array,
     clientSk: Uint8Array,
@@ -97,7 +99,7 @@ async function loadViaCjs(): Promise<SodiumLibrary | null> {
 async function loadViaEsm(): Promise<SodiumLibrary | null> {
   try {
     const mod = await import('libsodium-wrappers-sumo');
-    return (mod.default ?? mod) as SodiumLibrary;
+    return (mod.default ?? mod) as unknown as SodiumLibrary;
   } catch {
     return null;
   }
