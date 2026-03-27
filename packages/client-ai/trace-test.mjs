@@ -22,6 +22,7 @@ import {
   scanContent,
   ToolRegistryManager,
   ChallengeManager,
+  BudgetGuard,
 } from './dist/index.js';
 import {
   BastionRelay,
@@ -1785,6 +1786,98 @@ async function run() {
 
     // Cleanup
     try { const { unlinkSync } = await import('node:fs'); unlinkSync(cfgPath); } catch {}
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: BudgetGuard — immutable enforcement
+  // -------------------------------------------------------------------
+  console.log('--- Test: BudgetGuard ---');
+  {
+    const tmpDb = '/tmp/bastion-budget-test-' + Date.now() + '.db';
+    const tmpCfg = '/tmp/bastion-budget-cfg-' + Date.now() + '.json';
+    const guard = new BudgetGuard({
+      dbPath: tmpDb,
+      configPath: tmpCfg,
+    });
+
+    // Initial status
+    const s0 = guard.getStatus();
+    check('budget: initial session 0', s0.searchesThisSession === 0);
+    check('budget: initial month 0', s0.searchesThisMonth === 0);
+    check('budget: initial cost 0', s0.costThisMonth === 0);
+    check('budget: initial alert none', s0.alertLevel === 'none');
+    check('budget: initial remaining > 0', s0.budgetRemaining > 0);
+
+    // Check budget — should be allowed
+    const c1 = guard.checkBudget(1);
+    check('budget: check allowed', 'allowed' in c1 && c1.allowed === true);
+
+    // Record usage
+    const r1 = guard.recordUsage(3, 0.03);
+    check('budget: record alertLevel none', r1.alertLevel === 'none');
+    const s1 = guard.getStatus();
+    check('budget: session count 3', s1.searchesThisSession === 3);
+    check('budget: month count 3', s1.searchesThisMonth === 3);
+    check('budget: cost recorded', s1.costThisMonth === 0.03);
+
+    // Tighten-only: lower limit takes effect immediately
+    const u1 = guard.updateLimits({ maxPerSession: 5 });
+    check('budget: tighten accepted', u1.accepted);
+    check('budget: tighten not pending', !u1.pendingNextMonth);
+    check('budget: tighten applied', guard.getLimits().maxPerSession === 5);
+
+    // Increase: takes effect next month
+    const u2 = guard.updateLimits({ maxPerSession: 100 });
+    check('budget: increase accepted', u2.accepted);
+    check('budget: increase pending', u2.pendingNextMonth);
+    check('budget: limit still 5', guard.getLimits().maxPerSession === 5);
+    check('budget: pending stored', guard.getPendingNextMonth()?.maxPerSession === 100);
+
+    // Session limit enforcement
+    guard.recordUsage(2, 0.02); // now at 5 session searches
+    const c2 = guard.checkBudget(1);
+    check('budget: session limit blocked', 'blocked' in c2 && c2.blocked === true);
+    check('budget: session limit error code', 'errorCode' in c2 && c2.errorCode === 'BASTION-8003');
+
+    // Cooldown check
+    const cd1 = guard.checkCooldown();
+    check('budget: cooldown active', !cd1.allowed);
+    check('budget: cooldown has availableAt', !!cd1.availableAt);
+
+    // Reset session
+    guard.resetSession();
+    check('budget: session reset', guard.sessionSearches === 0);
+    const c3 = guard.checkBudget(1);
+    check('budget: after reset allowed', 'allowed' in c3 && c3.allowed === true);
+
+    // Monthly cap enforcement
+    const u3 = guard.updateLimits({ monthlyCapUsd: 0.06 });
+    check('budget: cap tighten accepted', u3.accepted);
+    // Already at $0.05 cost, cap is $0.06
+    guard.recordUsage(1, 0.02); // now at $0.07 > $0.06 cap
+    const c4 = guard.checkBudget(1);
+    check('budget: monthly exhausted blocked', 'blocked' in c4 && c4.blocked === true);
+    check('budget: monthly exhausted code', 'errorCode' in c4 && c4.errorCode === 'BASTION-8001');
+    const s2 = guard.getStatus();
+    check('budget: alertLevel exhausted', s2.alertLevel === 'exhausted');
+    check('budget: percentUsed >= 100', s2.percentUsed >= 100);
+
+    // Daily limit enforcement
+    const guard2 = new BudgetGuard({
+      dbPath: '/tmp/bastion-budget-test-day-' + Date.now() + '.db',
+      configPath: '/tmp/bastion-budget-cfg-day-' + Date.now() + '.json',
+    });
+    guard2.updateLimits({ maxPerDay: 3 });
+    guard2.recordUsage(3, 0.03);
+    const c5 = guard2.checkBudget(1);
+    check('budget: daily limit blocked', 'blocked' in c5 && c5.blocked === true);
+    check('budget: daily limit code', 'errorCode' in c5 && c5.errorCode === 'BASTION-8002');
+
+    // Cleanup (best-effort — SQLite may hold lock on Windows)
+    const { rmSync } = await import('node:fs');
+    try { rmSync(tmpDb, { force: true }); } catch { /* locked on Windows */ }
+    try { rmSync(tmpCfg, { force: true }); } catch { /* non-fatal */ }
   }
   console.log();
 

@@ -55,6 +55,7 @@ export {
   ToolRegistryManager,
   McpClientAdapter,
   ChallengeManager,
+  BudgetGuard,
   validateParameters,
 } from './provider/index.js';
 export type {
@@ -90,6 +91,11 @@ export type {
   ChallengeSchedule,
   ChallengeCooldowns,
   ChallengeResult,
+  BudgetLimits,
+  BudgetGuardConfig,
+  BudgetCheckResult,
+  BudgetStatus,
+  BudgetGuardOptions,
 } from './provider/index.js';
 
 // ---------------------------------------------------------------------------

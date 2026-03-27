@@ -62,3 +62,13 @@ export type { ChallengeConfig, ChallengeSchedule, ChallengeCooldowns, ChallengeR
 export { McpClientAdapter, validateParameters } from './mcp-client-adapter.js';
 export type { McpTool, McpCallResult, McpClientConfig } from './mcp-client-adapter.js';
 export type { ProjectFile, ProjectConfig, ProjectStoreConfig, ProjectSaveResult } from './project-store.js';
+
+// Budget Guard
+export { BudgetGuard } from './budget-guard.js';
+export type {
+  BudgetLimits,
+  BudgetGuardConfig,
+  BudgetCheckResult,
+  BudgetStatus,
+  BudgetGuardOptions,
+} from './budget-guard.js';

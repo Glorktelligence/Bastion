@@ -56,6 +56,8 @@ import {
   TokenRefreshPayloadSchema,
   ProviderStatusPayloadSchema,
   BudgetAlertPayloadSchema,
+  BudgetStatusPayloadSchema,
+  BudgetConfigPayloadSchema,
 
   // Schemas — file transfer
   FileTransferStateSchema,
@@ -182,9 +184,19 @@ function validPayloads() {
     token_refresh: { currentJwt: 'eyJhbGciOiJIUzI1NiJ9.refresh.sig' },
     provider_status: { providerName: 'anthropic', status: 'available' },
     budget_alert: {
-      thresholdPercent: 80, usedAmountUsd: 40.0,
-      budgetLimitUsd: 50.0, currentPeriod: '2026-03',
-      estimatedCostForNextTask: 2.5,
+      alertLevel: 'urgent_80', message: 'Budget 80% used',
+      budgetRemaining: 10.0, searchesRemaining: 100,
+    },
+    budget_status: {
+      searchesThisSession: 5, searchesThisDay: 12,
+      searchesThisMonth: 127, costThisMonth: 3.73,
+      budgetRemaining: 6.27, percentUsed: 37.3,
+      monthlyCapUsd: 10.0, alertLevel: 'none',
+    },
+    budget_config: {
+      monthlyCapUsd: 10.0, maxPerMonth: 500,
+      maxPerDay: 50, maxPerSession: 20,
+      maxPerCall: 5, alertAtPercent: 50,
     },
     audit_query: {
       startTime: '2026-03-01T00:00:00.000Z',
@@ -369,8 +381,8 @@ async function run() {
         break;
       }
     }
-    check('all 54 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 54 entries', ALL_MESSAGE_TYPES.length === 54);
+    check('all 56 message types accepted in envelope', allTypesValid);
+    check('ALL_MESSAGE_TYPES has 56 entries', ALL_MESSAGE_TYPES.length === 56);
   }
   console.log();
 
@@ -406,8 +418,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 54 entries', typeKeys.length === 54);
-    check('PAYLOAD_SCHEMAS has 54 entries', Object.keys(PAYLOAD_SCHEMAS).length === 54);
+    check('MESSAGE_TYPES has 56 entries', typeKeys.length === 56);
+    check('PAYLOAD_SCHEMAS has 56 entries', Object.keys(PAYLOAD_SCHEMAS).length === 56);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -573,7 +585,8 @@ async function run() {
 
     // Invalid error code formats
     check('BASTION-0001 fails (category 0)', !ErrorPayloadSchema.safeParse({ ...payloads.error, code: 'BASTION-0001' }).success);
-    check('BASTION-8001 fails (category 8)', !ErrorPayloadSchema.safeParse({ ...payloads.error, code: 'BASTION-8001' }).success);
+    check('BASTION-8001 passes (budget category)', ErrorPayloadSchema.safeParse({ ...payloads.error, code: 'BASTION-8001' }).success);
+    check('BASTION-9001 fails (category 9)', !ErrorPayloadSchema.safeParse({ ...payloads.error, code: 'BASTION-9001' }).success);
     check('ERROR-1001 fails (wrong prefix)', !ErrorPayloadSchema.safeParse({ ...payloads.error, code: 'ERROR-1001' }).success);
     check('BASTION-100 fails (too short)', !ErrorPayloadSchema.safeParse({ ...payloads.error, code: 'BASTION-100' }).success);
 
@@ -685,11 +698,23 @@ async function run() {
     const fullProvider = { ...minProvider, errorDetail: 'API down', retryAttempt: 3, nextRetryMs: 30000 };
     check('provider_status with all fields passes', ProviderStatusPayloadSchema.safeParse(fullProvider).success);
 
-    // BudgetAlert constraints
-    check('budget thresholdPercent 0 passes', BudgetAlertPayloadSchema.safeParse({ ...payloads.budget_alert, thresholdPercent: 0 }).success);
-    check('budget thresholdPercent 100 passes', BudgetAlertPayloadSchema.safeParse({ ...payloads.budget_alert, thresholdPercent: 100 }).success);
-    check('budget thresholdPercent 101 fails', !BudgetAlertPayloadSchema.safeParse({ ...payloads.budget_alert, thresholdPercent: 101 }).success);
-    check('budget negative usedAmount fails', !BudgetAlertPayloadSchema.safeParse({ ...payloads.budget_alert, usedAmountUsd: -1 }).success);
+    // BudgetAlert constraints (new schema)
+    check('budget alert valid', BudgetAlertPayloadSchema.safeParse(payloads.budget_alert).success);
+    check('budget alert bad level fails', !BudgetAlertPayloadSchema.safeParse({ ...payloads.budget_alert, alertLevel: 'invalid' }).success);
+    check('budget alert empty message fails', !BudgetAlertPayloadSchema.safeParse({ ...payloads.budget_alert, message: '' }).success);
+
+    // BudgetStatus constraints
+    check('budget status valid', BudgetStatusPayloadSchema.safeParse(payloads.budget_status).success);
+    check('budget status negative session fails', !BudgetStatusPayloadSchema.safeParse({ ...payloads.budget_status, searchesThisSession: -1 }).success);
+    check('budget status pct > 100 fails', !BudgetStatusPayloadSchema.safeParse({ ...payloads.budget_status, percentUsed: 101 }).success);
+    check('budget status bad alertLevel fails', !BudgetStatusPayloadSchema.safeParse({ ...payloads.budget_status, alertLevel: 'invalid' }).success);
+
+    // BudgetConfig constraints
+    check('budget config valid', BudgetConfigPayloadSchema.safeParse(payloads.budget_config).success);
+    check('budget config zero cap fails', !BudgetConfigPayloadSchema.safeParse({ ...payloads.budget_config, monthlyCapUsd: 0 }).success);
+    check('budget config zero maxPerMonth fails', !BudgetConfigPayloadSchema.safeParse({ ...payloads.budget_config, maxPerMonth: 0 }).success);
+    check('budget config alertAt 0 fails', !BudgetConfigPayloadSchema.safeParse({ ...payloads.budget_config, alertAtPercent: 0 }).success);
+    check('budget config alertAt 100 fails', !BudgetConfigPayloadSchema.safeParse({ ...payloads.budget_config, alertAtPercent: 100 }).success);
 
     // Reconnect JWT is optional
     const minReconnect = { sessionId: uuid(), lastReceivedMessageId: uuid() };
@@ -806,7 +831,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 54 message types survive serialisation round-trip', allPassed);
+    check('all 56 message types survive serialisation round-trip', allPassed);
   }
   console.log();
 
@@ -853,8 +878,8 @@ async function run() {
 
     // Error codes have correct format
     const allCodes = Object.values(ERROR_CODES);
-    check('all error codes match BASTION-CXXX', allCodes.every(c => /^BASTION-[1-7]\d{3}$/.test(c)));
-    check('error codes span 7 categories', new Set(allCodes.map(c => c[8])).size === 7);
+    check('all error codes match BASTION-CXXX', allCodes.every(c => /^BASTION-[1-8]\d{3}$/.test(c)));
+    check('error codes span 8 categories', new Set(allCodes.map(c => c[8])).size === 8);
   }
   console.log();
 

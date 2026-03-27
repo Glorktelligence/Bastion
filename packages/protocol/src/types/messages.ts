@@ -538,13 +538,37 @@ export interface ProviderStatusPayload {
   readonly nextRetryMs?: number;
 }
 
-/** AI → Human (via Relay): Budget threshold reached. */
+/** AI → Human (via Relay): Budget threshold crossed. */
 export interface BudgetAlertPayload {
-  readonly thresholdPercent: number;
-  readonly usedAmountUsd: number;
-  readonly budgetLimitUsd: number;
-  readonly currentPeriod: string;
-  readonly estimatedCostForNextTask?: number;
+  readonly alertLevel: BudgetAlertLevel;
+  readonly message: string;
+  readonly budgetRemaining: number;
+  readonly searchesRemaining: number;
+}
+
+/** Alert level for budget threshold events. */
+export type BudgetAlertLevel = 'warning_50' | 'urgent_80' | 'session_limit' | 'daily_limit' | 'monthly_exhausted';
+
+/** AI → Human (via Relay): Current budget usage status. Sent on connect and after each search. */
+export interface BudgetStatusPayload {
+  readonly searchesThisSession: number;
+  readonly searchesThisDay: number;
+  readonly searchesThisMonth: number;
+  readonly costThisMonth: number;
+  readonly budgetRemaining: number;
+  readonly percentUsed: number;
+  readonly monthlyCapUsd: number;
+  readonly alertLevel: 'none' | 'warning' | 'urgent' | 'exhausted';
+}
+
+/** Human → AI (via Admin): Configure budget limits. Tighten-only mid-month. */
+export interface BudgetConfigPayload {
+  readonly monthlyCapUsd: number;
+  readonly maxPerMonth: number;
+  readonly maxPerDay: number;
+  readonly maxPerSession: number;
+  readonly maxPerCall: number;
+  readonly alertAtPercent: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -605,4 +629,6 @@ export type MessagePayload =
   | { type: 'tool_alert_response'; payload: ToolAlertResponsePayload }
   | { type: 'challenge_status'; payload: ChallengeStatusPayload }
   | { type: 'challenge_config'; payload: ChallengeConfigPayload }
-  | { type: 'challenge_config_ack'; payload: ChallengeConfigAckPayload };
+  | { type: 'challenge_config_ack'; payload: ChallengeConfigAckPayload }
+  | { type: 'budget_status'; payload: BudgetStatusPayload }
+  | { type: 'budget_config'; payload: BudgetConfigPayload };

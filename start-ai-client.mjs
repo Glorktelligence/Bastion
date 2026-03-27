@@ -11,6 +11,7 @@ import {
   McpClientAdapter,
   validateParameters,
   ChallengeManager,
+  BudgetGuard,
   evaluateSafety,
   defaultSafetyConfig,
   createPatternHistory,
@@ -118,6 +119,33 @@ const challengeManager = new ChallengeManager(CHALLENGE_CONFIG_PATH);
 console.log(`[✓] Challenge manager: ${challengeManager.enabled ? 'ENABLED' : 'disabled'} (tz: ${challengeManager.timezone}, active: ${challengeManager.isActive()})`);
 
 // ---------------------------------------------------------------------------
+// Budget Guard — immutable enforcement (same tier as MaliClaw)
+// ---------------------------------------------------------------------------
+
+const BUDGET_DB = process.env.BASTION_BUDGET_DB || '/var/lib/bastion-ai/budget.db';
+const BUDGET_CONFIG_PATH = process.env.BASTION_BUDGET_CONFIG || '/var/lib/bastion-ai/budget-config.json';
+const budgetGuard = new BudgetGuard({
+  dbPath: BUDGET_DB,
+  configPath: BUDGET_CONFIG_PATH,
+  timezone: challengeManager.timezone,
+});
+const budgetStatus = budgetGuard.getStatus();
+console.log(`[✓] Budget Guard armed (${budgetStatus.searchesThisMonth}/${budgetGuard.getLimits().maxPerMonth} searches, $${budgetStatus.costThisMonth}/$${budgetStatus.monthlyCapUsd} cost, alert: ${budgetStatus.alertLevel})`);
+
+/** Send budget_status to human client. */
+function sendBudgetStatus() {
+  if (!client) return;
+  const status = budgetGuard.getStatus();
+  client.send(JSON.stringify({
+    type: 'budget_status',
+    id: randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: IDENTITY,
+    payload: status,
+  }));
+}
+
+// ---------------------------------------------------------------------------
 // Tool registry + MCP adapters
 // ---------------------------------------------------------------------------
 
@@ -211,7 +239,12 @@ client.on('authenticated', async (jwt, expiresAt) => {
   }));
   if (challengeStatus.active) console.log(`[🛡️] Challenge hours ACTIVE until ${challengeStatus.periodEnd}`);
 
+  // Send budget status to human
+  budgetGuard.resetSession();
+  sendBudgetStatus();
+
   console.log('[★] Safety engine active — 3-layer evaluation armed');
+  console.log('[★] Budget Guard active — immutable enforcement armed');
   console.log('[★] Awaiting messages...');
 });
 
@@ -328,6 +361,54 @@ client.on('message', async (data) => {
       sender: IDENTITY,
       payload: challengeManager.getStatus(),
     }));
+    return;
+  }
+
+  // Handle budget_config — update budget limits (immutable enforcement)
+  if (msg.type === 'budget_config') {
+    const p = msg.payload || msg;
+
+    // Check challenge hours FIRST — budget changes blocked during challenge hours
+    const challengeCheck = challengeManager.checkAction('budget_change');
+    if ('blocked' in challengeCheck && challengeCheck.blocked) {
+      console.log(`[!] Budget config BLOCKED: ${challengeCheck.reason}`);
+      client.send(JSON.stringify({
+        type: 'error', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+        payload: { code: 'BASTION-8005', message: challengeCheck.reason },
+      }));
+      return;
+    }
+
+    // Check cooldown
+    const cooldownCheck = budgetGuard.checkCooldown();
+    if (!cooldownCheck.allowed) {
+      console.log(`[!] Budget config COOLDOWN: ${cooldownCheck.reason}`);
+      client.send(JSON.stringify({
+        type: 'error', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+        payload: { code: 'BASTION-8004', message: cooldownCheck.reason, availableAt: cooldownCheck.availableAt },
+      }));
+      return;
+    }
+
+    // Apply limits (tighten-only mid-month enforced by BudgetGuard)
+    const result = budgetGuard.updateLimits({
+      monthlyCapUsd: p.monthlyCapUsd,
+      maxPerMonth: p.maxPerMonth,
+      maxPerDay: p.maxPerDay,
+      maxPerSession: p.maxPerSession,
+      maxPerCall: p.maxPerCall,
+      alertAtPercent: p.alertAtPercent,
+    });
+    challengeManager.recordAction('budget_change');
+
+    console.log(`[${result.accepted ? '✓' : '!'}] Budget config: ${result.reason}${result.pendingNextMonth ? ' (pending next month)' : ''}`);
+    client.send(JSON.stringify({
+      type: 'config_ack', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+      payload: { configType: 'budget_config', accepted: result.accepted, reason: result.reason, pendingNextMonth: result.pendingNextMonth },
+    }));
+
+    // Send updated budget status
+    sendBudgetStatus();
     return;
   }
 
@@ -575,6 +656,14 @@ client.on('message', async (data) => {
     }
 
     processing = true;
+
+    // Budget check — if budget exhausted, notify human but still allow non-search conversation
+    const budgetCheck = budgetGuard.checkBudget();
+    if ('blocked' in budgetCheck && budgetCheck.blocked) {
+      console.log(`[!] Budget: ${budgetCheck.reason}`);
+      // Still allow the API call but without web_search tool
+    }
+
     console.log('[~] Calling Anthropic API...');
 
     try {
@@ -600,6 +689,26 @@ client.on('message', async (data) => {
 
         console.log(`[✓] API response (${result.response.usage.inputTokens}in/${result.response.usage.outputTokens}out, $${cost.estimatedCostUsd.toFixed(4)})`);
         console.log(`[→] Claude: ${responseText.substring(0, 100)}${responseText.length > 100 ? '...' : ''}`);
+
+        // Record web search usage if any (from server_tool_use in response)
+        const searchCount = result.response.usage.serverToolUse?.webSearchRequests ?? 0;
+        if (searchCount > 0) {
+          const budgetResult = budgetGuard.recordUsage(searchCount);
+          console.log(`[💰] Budget: ${searchCount} search(es), alert: ${budgetResult.alertLevel}`);
+          if (budgetResult.thresholdCrossed) {
+            const status = budgetGuard.getStatus();
+            client.send(JSON.stringify({
+              type: 'budget_alert', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+              payload: {
+                alertLevel: budgetResult.thresholdCrossed,
+                message: `Budget threshold crossed: ${budgetResult.thresholdCrossed}`,
+                budgetRemaining: status.budgetRemaining,
+                searchesRemaining: Math.max(0, budgetGuard.getLimits().maxPerMonth - status.searchesThisMonth),
+              },
+            }));
+          }
+          sendBudgetStatus();
+        }
 
         // Send response back through the relay
         const responseMsg = JSON.stringify({

@@ -20,6 +20,7 @@ import { BastionHumanClient } from './services/connection.js';
 import type { Writable } from './store.js';
 import { writable } from './store.js';
 import { type AuditLogEntry, createAuditLogStore } from './stores/audit-log.js';
+import { type BudgetStatusData, createBudgetStore } from './stores/budget.js';
 import { type ChallengeStats, createChallengeStatsStore } from './stores/challenge-stats.js';
 import { type ActiveChallenge, createChallengesStore } from './stores/challenges.js';
 import { type ConnectionStoreState, createConnectionStore } from './stores/connection.js';
@@ -67,6 +68,7 @@ export const settings = createSettingsStore();
 export const challengeStats = createChallengeStatsStore(challenges.store);
 export const memories = createMemoriesStore();
 export const tools = createToolsStore();
+export const budget = createBudgetStore();
 
 /** Challenge Me More status — driven by AI VM server clock. */
 export const challengeStatus: Writable<{
@@ -483,6 +485,24 @@ function handleRelayMessage(data: string): void {
       sessionId: String(p.sessionId ?? ''),
       detail: (p.detail as Record<string, unknown>) ?? {},
       chainHash: String(p.chainHash ?? ''),
+    });
+    return;
+  }
+
+  // Budget status → budget store
+  if (type === 'budget_status') {
+    budget.setStatus(payload as unknown as BudgetStatusData);
+    return;
+  }
+
+  // Budget alert → budget store
+  if (type === 'budget_alert') {
+    const p = payload as Record<string, unknown>;
+    budget.addAlert({
+      alertLevel: String(p.alertLevel ?? 'warning_50'),
+      message: String(p.message ?? ''),
+      budgetRemaining: Number(p.budgetRemaining ?? 0),
+      searchesRemaining: Number(p.searchesRemaining ?? 0),
     });
     return;
   }

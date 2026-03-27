@@ -9,6 +9,8 @@ import MessageList from '$lib/components/MessageList.svelte';
 import ChallengeBanner from '$lib/components/ChallengeBanner.svelte';
 import InputBar from '$lib/components/InputBar.svelte';
 import ToolApprovalDialog from '$lib/components/ToolApprovalDialog.svelte';
+import BudgetIndicator from '$lib/components/BudgetIndicator.svelte';
+import type { BudgetStatusData, BudgetAlert } from '$lib/stores/budget.js';
 
 // ---------------------------------------------------------------------------
 // Reactive UI state — subscribed from shared session stores
@@ -25,6 +27,8 @@ let conn: ConnectionStoreState = $state({
 let messages: DisplayMessage[] = $state([]);
 let activeChallenge: ActiveChallenge | null = $state(null);
 let pendingToolRequest: PendingToolRequest | null = $state(null);
+let budgetStatus: BudgetStatusData | null = $state(null);
+let lastBudgetAlert: BudgetAlert | null = $state(null);
 let connecting = $state(false);
 
 const isConnected = $derived(
@@ -38,6 +42,7 @@ $effect(() => {
 	unsubs.push(session.messages.store.subscribe((v) => (messages = [...v.messages])));
 	unsubs.push(session.challenges.store.subscribe((v) => (activeChallenge = v.active)));
 	unsubs.push(session.tools.store.subscribe((v) => (pendingToolRequest = v.pendingRequest)));
+	unsubs.push(session.budget.store.subscribe((v) => { budgetStatus = v.status; lastBudgetAlert = v.lastAlert; }));
 
 	return () => {
 		for (const u of unsubs) u();
@@ -194,6 +199,12 @@ function handleChallengeCancel(): void {
 			peerStatus={conn.peerStatus}
 			reconnectAttempt={conn.reconnectAttempt}
 			onRetry={handleConnect}
+		/>
+
+		<BudgetIndicator
+			status={budgetStatus}
+			{lastBudgetAlert}
+			onDismissAlert={() => session.budget.clearLastAlert()}
 		/>
 
 		{#if conn.lastError}

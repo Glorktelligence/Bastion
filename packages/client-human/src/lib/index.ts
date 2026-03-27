@@ -108,6 +108,15 @@ export type {
   PatternSensitivity,
 } from './stores/settings.js';
 
+export { createBudgetStore } from './stores/budget.js';
+export type {
+  BudgetStore,
+  BudgetStoreState,
+  BudgetStatusData,
+  BudgetAlert,
+  BudgetAlertLevel,
+} from './stores/budget.js';
+
 export { createTasksStore } from './stores/tasks.js';
 export type {
   TrackedTask,

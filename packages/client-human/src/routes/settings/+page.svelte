@@ -289,6 +289,30 @@ function handleContextSave(): void {
 	</section>
 
 	<section class="section">
+		<h3>Budget Guard</h3>
+		<p class="hint">Web search budget is immutable enforcement — same tier as MaliClaw. Limits can be tightened immediately; increases take effect next month.</p>
+		<div class="config-fields">
+			<label>
+				<span class="label">Monthly cap (USD)</span>
+				<input type="number" value="10.00" step="0.50" min="0.50" class="config-input mono" disabled />
+			</label>
+			<label>
+				<span class="label">Max searches per month</span>
+				<input type="number" value="500" min="1" class="config-input mono" disabled />
+			</label>
+			<label>
+				<span class="label">Max searches per day</span>
+				<input type="number" value="50" min="1" class="config-input mono" disabled />
+			</label>
+			<label>
+				<span class="label">Max searches per session</span>
+				<input type="number" value="20" min="1" class="config-input mono" disabled />
+			</label>
+		</div>
+		<p class="hint">Budget configuration requires connection to the AI client. Changes have a 7-day cooldown and are blocked during challenge hours.</p>
+	</section>
+
+	<section class="section">
 		<h3>Safety Controls</h3>
 		<p class="hint">Restrictions can be increased but never lowered below factory floors.</p>
 		<SettingsPanel

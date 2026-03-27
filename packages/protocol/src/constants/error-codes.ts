@@ -5,7 +5,7 @@
 /**
  * Protocol error codes following the format BASTION-CXXX.
  * Categories: 1XXX=Connection, 2XXX=Auth, 3XXX=Protocol,
- * 4XXX=Safety, 5XXX=File, 6XXX=Provider, 7XXX=Config
+ * 4XXX=Safety, 5XXX=File, 6XXX=Provider, 7XXX=Config, 8XXX=Budget
  */
 export const ERROR_CODES = {
   // --- 1XXX: Connection Errors ---
@@ -64,6 +64,13 @@ export const ERROR_CODES = {
   CONFIG_KEY_ROTATION_FAILED: 'BASTION-7003',
   CONFIG_ADMIN_KEY_INVALID: 'BASTION-7004',
   CONFIG_REGISTRY_MODIFICATION_DENIED: 'BASTION-7005',
+
+  // --- 8XXX: Budget Errors ---
+  BUDGET_MONTHLY_EXHAUSTED: 'BASTION-8001',
+  BUDGET_DAILY_EXHAUSTED: 'BASTION-8002',
+  BUDGET_SESSION_EXHAUSTED: 'BASTION-8003',
+  BUDGET_CONFIG_COOLDOWN: 'BASTION-8004',
+  BUDGET_CONFIG_CHALLENGE_HOURS: 'BASTION-8005',
 } as const;
 
 /** Union type of all error code strings. */

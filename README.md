@@ -1,9 +1,9 @@
 # Project Bastion
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-2%2C632_passing-brightgreen.svg)](#run-tests)
+[![Tests](https://img.shields.io/badge/Tests-2%2C673_passing-brightgreen.svg)](#run-tests)
 [![Packages](https://img.shields.io/badge/Packages-7-purple.svg)](#packages)
-[![Protocol](https://img.shields.io/badge/Protocol-54_message_types-orange.svg)](#protocol)
+[![Protocol](https://img.shields.io/badge/Protocol-56_message_types-orange.svg)](#protocol)
 [![Node](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-339933.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-3178C6.svg)](https://www.typescriptlang.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -133,7 +133,7 @@ pnpm build
 pnpm test
 
 # Individual packages
-node packages/tests/trace-test.mjs              # Protocol schema tests (221 checks)
+node packages/tests/trace-test.mjs              # Protocol schema tests (232 checks)
 node packages/tests/integration-test.mjs         # Integration round-trip tests (82 checks)
 node packages/tests/file-transfer-integration-test.mjs  # File transfer E2E (105 checks)
 node packages/relay/trace-test.mjs               # Relay tests (353 checks)
@@ -141,7 +141,7 @@ node packages/relay/quarantine-trace-test.mjs    # Relay quarantine tests (105 c
 node packages/relay/file-transfer-trace-test.mjs # Relay file-transfer routing (96 checks)
 node packages/relay/admin-trace-test.mjs          # Admin auth, routes, extensions (312 checks)
 node packages/crypto/trace-test.mjs              # Crypto tests (134 checks)
-node packages/client-ai/trace-test.mjs           # AI client: safety, provider, memory, project, tools, challenge (386 checks)
+node packages/client-ai/trace-test.mjs           # AI client: safety, provider, memory, project, tools, challenge, budget (416 checks)
 node packages/client-ai/file-handling-trace-test.mjs  # AI client file handling (155 checks)
 node packages/client-human/trace-test.mjs        # Desktop client tests (321 checks)
 node packages/client-human-mobile/trace-test.mjs # Mobile client tests (123 checks)

@@ -106,7 +106,7 @@ export const ResultPayloadSchema = z.object({
   transparency: TransparencyMetadataSchema,
 });
 
-export const ErrorCodeSchema = z.string().regex(/^BASTION-[1-7]\d{3}$/, 'Must match format BASTION-CXXX');
+export const ErrorCodeSchema = z.string().regex(/^BASTION-[1-8]\d{3}$/, 'Must match format BASTION-CXXX');
 
 export const ErrorPayloadSchema = z.object({
   code: ErrorCodeSchema,
@@ -463,12 +463,39 @@ export const ProviderStatusPayloadSchema = z.object({
   nextRetryMs: z.number().int().nonnegative().optional(),
 });
 
+export const BudgetAlertLevelSchema = z.enum([
+  'warning_50',
+  'urgent_80',
+  'session_limit',
+  'daily_limit',
+  'monthly_exhausted',
+]);
+
 export const BudgetAlertPayloadSchema = z.object({
-  thresholdPercent: z.number().min(0).max(100),
-  usedAmountUsd: z.number().nonnegative(),
-  budgetLimitUsd: z.number().nonnegative(),
-  currentPeriod: z.string().min(1),
-  estimatedCostForNextTask: z.number().nonnegative().optional(),
+  alertLevel: BudgetAlertLevelSchema,
+  message: z.string().min(1),
+  budgetRemaining: z.number(),
+  searchesRemaining: z.number().int(),
+});
+
+export const BudgetStatusPayloadSchema = z.object({
+  searchesThisSession: z.number().int().nonnegative(),
+  searchesThisDay: z.number().int().nonnegative(),
+  searchesThisMonth: z.number().int().nonnegative(),
+  costThisMonth: z.number().nonnegative(),
+  budgetRemaining: z.number(),
+  percentUsed: z.number().min(0).max(100),
+  monthlyCapUsd: z.number().nonnegative(),
+  alertLevel: z.enum(['none', 'warning', 'urgent', 'exhausted']),
+});
+
+export const BudgetConfigPayloadSchema = z.object({
+  monthlyCapUsd: z.number().positive(),
+  maxPerMonth: z.number().int().positive(),
+  maxPerDay: z.number().int().positive(),
+  maxPerSession: z.number().int().positive(),
+  maxPerCall: z.number().int().positive(),
+  alertAtPercent: z.number().min(1).max(99),
 });
 
 // ---------------------------------------------------------------------------
@@ -536,4 +563,6 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.CHALLENGE_STATUS]: ChallengeStatusPayloadSchema,
   [MESSAGE_TYPES.CHALLENGE_CONFIG]: ChallengeConfigPayloadSchema,
   [MESSAGE_TYPES.CHALLENGE_CONFIG_ACK]: ChallengeConfigAckPayloadSchema,
+  [MESSAGE_TYPES.BUDGET_STATUS]: BudgetStatusPayloadSchema,
+  [MESSAGE_TYPES.BUDGET_CONFIG]: BudgetConfigPayloadSchema,
 } as const;

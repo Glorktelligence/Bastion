@@ -523,6 +523,37 @@ relay.on('message', async (data, info) => {
     return;
   }
 
+  // ----- budget_* messages: forward between paired clients with audit -----
+  if (msg.type === 'budget_status' || msg.type === 'budget_alert' || msg.type === 'budget_config') {
+    const peerId = router.getPeer(connId);
+    if (peerId) {
+      relay.send(peerId, data);
+      console.log(`[→] ${msg.type} forwarded to peer ${peerId.slice(0, 8)}`);
+      const sid = sessionIds.get(connId);
+      if (sid) {
+        if (msg.type === 'budget_alert') {
+          auditLogger.logEvent('budget_alert', sid, {
+            alertLevel: msg.payload?.alertLevel,
+            budgetRemaining: msg.payload?.budgetRemaining,
+            message: msg.payload?.message,
+          });
+        } else if (msg.type === 'budget_config') {
+          auditLogger.logEvent('budget_config_changed', sid, {
+            monthlyCapUsd: msg.payload?.monthlyCapUsd,
+            maxPerMonth: msg.payload?.maxPerMonth,
+            maxPerDay: msg.payload?.maxPerDay,
+          });
+        } else {
+          auditLogger.logEvent('budget_status', sid, {
+            percentUsed: msg.payload?.percentUsed,
+            alertLevel: msg.payload?.alertLevel,
+          });
+        }
+      }
+    }
+    return;
+  }
+
   // ----- tool_* messages: forward between paired clients -----
   if (msg.type === 'tool_registry_sync' || msg.type === 'tool_registry_ack' || msg.type === 'tool_request' || msg.type === 'tool_approved' || msg.type === 'tool_denied' || msg.type === 'tool_result' || msg.type === 'tool_revoke' || msg.type === 'tool_alert' || msg.type === 'tool_alert_response') {
     const peerId = router.getPeer(connId);
