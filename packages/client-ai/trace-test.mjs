@@ -19,6 +19,7 @@ import {
   MemoryStore,
   ProjectStore,
   validatePath,
+  scanContent,
   ToolRegistryManager,
   ChallengeManager,
 } from './dist/index.js';
@@ -1595,6 +1596,39 @@ async function run() {
 
     // Total size
     check('total size > 0', store.getTotalSize() > 0);
+
+    // Content scanning — reject embedded scripts
+    const script1 = store.saveFile('evil1.md', '# Hello\n<script>alert("xss")</script>', 'text/markdown');
+    check('reject <script> tag', !script1.ok && script1.error.includes('script'));
+
+    const script2 = store.saveFile('evil2.md', '[click](javascript:alert(1))', 'text/markdown');
+    check('reject javascript: URI', !script2.ok && script2.error.includes('JavaScript'));
+
+    const script3 = store.saveFile('evil3.md', '<img src=x onerror=alert(1)>', 'text/markdown');
+    check('reject event handler', !script3.ok && script3.error.includes('event handler'));
+
+    const script4 = store.saveFile('evil4.md', '<iframe src="http://evil.com"></iframe>', 'text/markdown');
+    check('reject iframe', !script4.ok && script4.error.includes('iframe'));
+
+    const yaml1 = store.saveFile('evil.yaml', '!!python/object:os.system\nargs: ["rm -rf /"]', 'text/yaml');
+    check('reject YAML deserialization', !yaml1.ok && yaml1.error.includes('YAML'));
+
+    const json1 = store.saveFile('evil.json', '{"__proto__": {"admin": true}}', 'application/json');
+    check('reject __proto__ pollution', !json1.ok && json1.error.includes('proto'));
+
+    // Safe content should still pass
+    const safe1 = store.saveFile('safe.md', '# Hello World\nThis is safe content.', 'text/markdown');
+    check('allow safe markdown', safe1.ok);
+
+    const safe2 = store.saveFile('safe.json', '{"name": "test", "value": 42}', 'application/json');
+    check('allow safe JSON', safe2.ok);
+
+    // scanContent direct tests
+    check('scanContent null for safe', scanContent('# Hello World') === null);
+    check('scanContent detects script', scanContent('<script>bad</script>') !== null);
+    check('scanContent detects onload', scanContent('<body onload=evil()>') !== null);
+    check('scanContent detects data URI', scanContent('data:text/html,<h1>hi</h1>') !== null);
+    check('scanContent detects embed', scanContent('<embed src="evil.swf">') !== null);
 
     // Cleanup
     const { rmSync: rm } = await import('node:fs');

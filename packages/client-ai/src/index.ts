@@ -51,6 +51,7 @@ export {
   MemoryStore,
   ProjectStore,
   validatePath,
+  scanContent,
   ToolRegistryManager,
   McpClientAdapter,
   ChallengeManager,

@@ -52,6 +52,47 @@ const DEFAULT_MAX_TOTAL = 50 * 1024 * 1024; // 50MB
 const ALLOWED_EXTENSIONS = new Set(['.md', '.json', '.yaml', '.yml', '.txt']);
 const CONFIG_FILE = 'bastion-project.json';
 
+/**
+ * Patterns that indicate potentially malicious content in text files.
+ * These files are rendered in client UIs or fed to AI systems, so
+ * script injection and deserialization attacks must be blocked.
+ */
+const DANGEROUS_CONTENT_PATTERNS: ReadonlyArray<{ pattern: RegExp; reason: string }> = [
+  // HTML script injection (markdown files rendered as HTML)
+  { pattern: /<script[\s>]/i, reason: 'Embedded <script> tag' },
+  { pattern: /javascript\s*:/i, reason: 'JavaScript URI scheme' },
+  { pattern: /on(?:load|error|click|mouseover|focus|blur|submit|change|input|keydown|keyup)\s*=/i, reason: 'HTML event handler attribute' },
+  { pattern: /<iframe[\s>]/i, reason: 'Embedded <iframe> tag' },
+  { pattern: /<object[\s>]/i, reason: 'Embedded <object> tag' },
+  { pattern: /<embed[\s>]/i, reason: 'Embedded <embed> tag' },
+  { pattern: /<link[^>]+rel\s*=\s*["']?import/i, reason: 'HTML import link' },
+  // Data URI with executable content
+  { pattern: /data\s*:\s*text\/html/i, reason: 'Data URI with text/html' },
+  // YAML deserialization attacks (!!python/object, !!ruby/object, etc.)
+  { pattern: /!!(?:python|ruby|java|php|perl)\//i, reason: 'YAML language-specific type tag' },
+  // JSON prototype pollution markers
+  { pattern: /"__proto__"\s*:/i, reason: 'JSON __proto__ pollution' },
+  { pattern: /"constructor"\s*:\s*\{/i, reason: 'JSON constructor pollution' },
+  { pattern: /"prototype"\s*:/i, reason: 'JSON prototype pollution' },
+];
+
+// ---------------------------------------------------------------------------
+// Content security
+// ---------------------------------------------------------------------------
+
+/**
+ * Scan file content for dangerous patterns.
+ * Returns null if safe, or a rejection reason string if dangerous.
+ */
+export function scanContent(content: string): string | null {
+  for (const { pattern, reason } of DANGEROUS_CONTENT_PATTERNS) {
+    if (pattern.test(content)) {
+      return `Dangerous content detected: ${reason}`;
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Path security
 // ---------------------------------------------------------------------------
@@ -109,6 +150,12 @@ export class ProjectStore {
   saveFile(path: string, content: string, _mimeType?: string): ProjectSaveResult {
     const v = validatePath(path);
     if (!v.valid) return { ok: false, error: v.error! };
+
+    // Content security scan — reject files with embedded scripts or injection patterns
+    const scanResult = scanContent(content);
+    if (scanResult !== null) {
+      return { ok: false, error: scanResult };
+    }
 
     const size = Buffer.byteLength(content);
     if (size > this.maxFileSize) {

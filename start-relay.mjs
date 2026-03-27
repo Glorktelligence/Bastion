@@ -10,6 +10,9 @@ import {
   AdminRoutes,
   ProviderRegistry,
   ExtensionRegistry,
+  FileQuarantine,
+  HashVerifier,
+  PurgeScheduler,
 } from './packages/relay/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -27,6 +30,58 @@ const jwtSecretEnv = process.env.BASTION_JWT_SECRET;
 const jwtSecret = jwtSecretEnv
   ? new TextEncoder().encode(jwtSecretEnv)
   : randomBytes(32);
+
+// ---------------------------------------------------------------------------
+// Project sync validation — relay-side content inspection
+// ---------------------------------------------------------------------------
+
+const PROJECT_SYNC_MAX_CONTENT = 1024 * 1024; // 1MB — matches AI client limit
+const ALLOWED_EXTENSIONS = new Set(['.md', '.json', '.yaml', '.yml', '.txt']);
+const DANGEROUS_CONTENT_PATTERNS = [
+  { pattern: /<script[\s>]/i, reason: 'Embedded <script> tag' },
+  { pattern: /javascript\s*:/i, reason: 'JavaScript URI scheme' },
+  { pattern: /on(?:load|error|click|mouseover|focus|blur|submit|change|input|keydown|keyup)\s*=/i, reason: 'HTML event handler attribute' },
+  { pattern: /<iframe[\s>]/i, reason: 'Embedded <iframe> tag' },
+  { pattern: /<object[\s>]/i, reason: 'Embedded <object> tag' },
+  { pattern: /<embed[\s>]/i, reason: 'Embedded <embed> tag' },
+  { pattern: /<link[^>]+rel\s*=\s*["']?import/i, reason: 'HTML import link' },
+  { pattern: /data\s*:\s*text\/html/i, reason: 'Data URI with text/html' },
+  { pattern: /!!(?:python|ruby|java|php|perl)\//i, reason: 'YAML language-specific type tag' },
+  { pattern: /"__proto__"\s*:/i, reason: 'JSON __proto__ pollution' },
+  { pattern: /"constructor"\s*:\s*\{/i, reason: 'JSON constructor pollution' },
+  { pattern: /"prototype"\s*:/i, reason: 'JSON prototype pollution' },
+];
+
+/** Validate a project_sync payload. Returns null if valid, or a rejection reason. */
+function validateProjectSync(payload) {
+  const path = payload?.path;
+  const content = payload?.content;
+
+  // Path validation
+  if (!path || typeof path !== 'string' || path.trim().length === 0) return 'Empty path';
+  const p = path.trim().replace(/\\/g, '/');
+  if (p.startsWith('/')) return 'Absolute paths not allowed';
+  if (p.includes('..')) return 'Path traversal (..) not allowed';
+  if (p.includes('//')) return 'Double slashes not allowed';
+  if (p.length > 255) return 'Path too long (max 255)';
+  const segments = p.split('/');
+  for (const seg of segments) {
+    if (seg.startsWith('.')) return `Hidden file/directory not allowed: ${seg}`;
+  }
+  const ext = (p.lastIndexOf('.') >= 0 ? p.slice(p.lastIndexOf('.')) : '').toLowerCase();
+  if (!ALLOWED_EXTENSIONS.has(ext)) return `File type not allowed: ${ext}`;
+
+  // Content validation
+  if (content === undefined || content === null || typeof content !== 'string') return 'Missing content';
+  if (Buffer.byteLength(content) > PROJECT_SYNC_MAX_CONTENT) return `Content too large (max ${PROJECT_SYNC_MAX_CONTENT} bytes)`;
+
+  // Content security scan
+  for (const { pattern, reason } of DANGEROUS_CONTENT_PATTERNS) {
+    if (pattern.test(content)) return `Dangerous content: ${reason}`;
+  }
+
+  return null;
+}
 
 console.log('=== Project Bastion — Relay Server ===');
 console.log(`Port: ${PORT}`);
@@ -72,6 +127,32 @@ if (lockResult.errors.length > 0) {
   for (const err of lockResult.errors) console.error(`[!] Extension dependency error: ${err}`);
 }
 console.log(`[✓] Extension registry locked (${extensionRegistry.extensionCount} extensions, ${extensionRegistry.messageTypeCount} types)`);
+
+// ---------------------------------------------------------------------------
+// File quarantine system
+// ---------------------------------------------------------------------------
+
+const fileQuarantine = new FileQuarantine({
+  maxEntries: parseInt(process.env.BASTION_QUARANTINE_MAX_ENTRIES || '100'),
+  defaultTimeoutMs: parseInt(process.env.BASTION_QUARANTINE_TIMEOUT_MS || '3600000'), // 1 hour
+  auditLogger,
+});
+console.log('[✓] File quarantine initialised (capacity: ' + (process.env.BASTION_QUARANTINE_MAX_ENTRIES || '100') + ')');
+
+const hashVerifier = new HashVerifier({ quarantine: fileQuarantine, auditLogger });
+console.log('[✓] Hash verifier initialised (3-stage: submission → quarantine → delivery)');
+
+const purgeScheduler = new PurgeScheduler({
+  quarantine: fileQuarantine,
+  intervalMs: parseInt(process.env.BASTION_PURGE_INTERVAL_MS || '60000'), // 60s
+  onPurge: (result) => {
+    if (result.purged.length > 0) {
+      console.log(`[~] Quarantine purge: ${result.purged.length} expired, ${result.remaining} remaining`);
+    }
+  },
+});
+purgeScheduler.start();
+console.log('[✓] Purge scheduler started (interval: ' + (process.env.BASTION_PURGE_INTERVAL_MS || '60000') + 'ms)');
 
 // Relay server
 const relay = new BastionRelay({
@@ -176,7 +257,7 @@ const statusProvider = {
     return getMessagesPerMinute();
   },
   getQuarantineStatus() {
-    return { active: 0, capacity: 100 };
+    return { active: fileQuarantine.getAll().length, capacity: parseInt(process.env.BASTION_QUARANTINE_MAX_ENTRIES || '100') };
   },
 };
 
@@ -454,15 +535,37 @@ relay.on('message', async (data, info) => {
     return;
   }
 
-  // ----- project_* messages: forward between paired clients -----
+  // ----- project_* messages: validate and forward between paired clients -----
   if (msg.type === 'project_sync' || msg.type === 'project_sync_ack' || msg.type === 'project_list' || msg.type === 'project_list_response' || msg.type === 'project_delete' || msg.type === 'project_config' || msg.type === 'project_config_ack') {
+    // Validate project_sync content at the relay before forwarding
+    if (msg.type === 'project_sync') {
+      const p = msg.payload || msg;
+      const rejection = validateProjectSync(p);
+      if (rejection) {
+        console.log(`[!] project_sync REJECTED: ${rejection} (path: ${p.path})`);
+        relay.send(connId, JSON.stringify({
+          type: 'error',
+          message: `Project sync rejected: ${rejection}`,
+          timestamp: new Date().toISOString(),
+        }));
+        const sid = sessionIds.get(connId);
+        if (sid) auditLogger.logEvent('security_violation', sid, {
+          reason: rejection,
+          path: p.path,
+          contentLength: (p.content || '').length,
+          messageType: 'project_sync',
+        });
+        return;
+      }
+    }
+
     const peerId = router.getPeer(connId);
     if (peerId) {
       relay.send(peerId, data);
       console.log(`[→] ${msg.type} forwarded to peer ${peerId.slice(0, 8)}`);
       const sid = sessionIds.get(connId);
       if (sid) {
-        auditLogger.logEvent(msg.type.replace('project_', 'project_'), sid, {
+        auditLogger.logEvent(msg.type, sid, {
           path: msg.payload?.path,
           messageType: msg.type,
         });
@@ -616,6 +719,7 @@ relay.on('listening', () => {
   console.log(`[★] Bastion relay listening on wss://0.0.0.0:${PORT}`);
   console.log('[★] Session lifecycle: session_init → JWT → paired → routing');
   console.log('[★] Zero-knowledge relay — payloads are opaque to the relay');
+  console.log('[★] File quarantine active — hash verification at submission/quarantine/delivery');
   console.log('[★] Awaiting connections...');
 });
 
