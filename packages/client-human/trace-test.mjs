@@ -22,6 +22,9 @@ import {
   InMemoryNotificationAdapter,
   createChatHistoryService,
   InMemoryChatHistory,
+  InMemoryConfigStore,
+  migrateConfig,
+  CONFIG_VERSION,
 } from './dist/index.js';
 
 let pass = 0, fail = 0;
@@ -340,7 +343,7 @@ async function run() {
     check('state changes to reconnecting', client.connectionState === 'reconnecting');
     check('reconnecting event fired', reconnectEvents.length === 1);
     check('first attempt number is 1', reconnectEvents[0]?.attempt === 1);
-    check('first backoff is 5000ms', reconnectEvents[0]?.delayMs === 5000);
+    check('first backoff is 1000ms', reconnectEvents[0]?.delayMs === 1000);
 
     // jwt cleared on close
     check('jwt cleared after close', client.jwt === null);
@@ -1447,6 +1450,164 @@ async function run() {
     unsub();
     b.set(500);
     check('after unsub, get() still recomputes', sum.get() === 600);
+  }
+
+  // -------------------------------------------------------------------
+  // Test: Config migration
+  // -------------------------------------------------------------------
+  console.log('--- Test: Config migration ---');
+  {
+    // v1 config (no configVersion, no autoConnect/autoReconnect)
+    const v1 = {
+      relayUrl: 'wss://myrelay:9443',
+      userId: 'user-123',
+      displayName: 'Harry',
+      setupComplete: true,
+      lastConnected: '2026-01-01T00:00:00Z',
+      theme: 'dark',
+    };
+
+    const migrated = migrateConfig(v1);
+    check('migration: relayUrl preserved', migrated.relayUrl === 'wss://myrelay:9443');
+    check('migration: userId preserved', migrated.userId === 'user-123');
+    check('migration: displayName preserved', migrated.displayName === 'Harry');
+    check('migration: setupComplete preserved', migrated.setupComplete === true);
+    check('migration: theme preserved', migrated.theme === 'dark');
+    check('migration: configVersion set to current', migrated.configVersion === CONFIG_VERSION);
+    check('migration: autoConnect defaults to true', migrated.autoConnect === true);
+    check('migration: autoReconnect defaults to true', migrated.autoReconnect === true);
+
+    // v2 config with explicit autoConnect=false
+    const v2 = { ...v1, configVersion: 2, autoConnect: false, autoReconnect: true };
+    const migrated2 = migrateConfig(v2);
+    check('migration v2: autoConnect false preserved', migrated2.autoConnect === false);
+    check('migration v2: autoReconnect true preserved', migrated2.autoReconnect === true);
+
+    // Empty config
+    const empty = migrateConfig({});
+    check('migration empty: setupComplete false', empty.setupComplete === false);
+    check('migration empty: configVersion current', empty.configVersion === CONFIG_VERSION);
+    check('migration empty: defaults applied', empty.relayUrl === 'wss://10.0.30.10:9443');
+  }
+
+  // -------------------------------------------------------------------
+  // Test: InMemoryConfigStore
+  // -------------------------------------------------------------------
+  console.log('--- Test: InMemoryConfigStore ---');
+  {
+    const store = new InMemoryConfigStore({ setupComplete: true, autoConnect: false });
+    check('inmem: setupComplete true', store.get('setupComplete') === true);
+    check('inmem: autoConnect false', store.get('autoConnect') === false);
+    check('inmem: autoReconnect default true', store.get('autoReconnect') === true);
+    check('inmem: has setupComplete', store.has('setupComplete'));
+    check('inmem: has not userId (empty)', !store.has('userId'));
+
+    store.set('displayName', 'Test User');
+    check('inmem: set works', store.get('displayName') === 'Test User');
+
+    const all = store.getAll();
+    check('inmem: getAll returns copy', all !== store.getAll());
+    check('inmem: getAll has configVersion', all.configVersion === CONFIG_VERSION);
+
+    store.clear();
+    check('inmem: clear resets setupComplete', store.get('setupComplete') === false);
+    check('inmem: clear resets displayName', store.get('displayName') === '');
+  }
+
+  // -------------------------------------------------------------------
+  // Test: Ping/pong keep-alive
+  // -------------------------------------------------------------------
+  console.log('--- Test: Ping/pong keep-alive ---');
+  {
+    const factory = createMockWSFactory();
+    const client = new BastionHumanClient({
+      relayUrl: 'wss://localhost:9443',
+      identity: { id: 'human-1', type: 'human', displayName: 'TestHuman' },
+      pingIntervalMs: 50,    // Fast for testing
+      pongTimeoutMs: 30,
+      reconnect: false,
+      WebSocketImpl: factory,
+    });
+
+    await client.connect();
+    client.setToken('jwt', new Date(Date.now() + 900_000).toISOString());
+
+    const ws = factory.latest();
+    const sentMessages = [];
+    const origSend = ws.send.bind(ws);
+    ws.send = (data) => { sentMessages.push(data); origSend(data); };
+
+    // Wait for at least one ping
+    await delay(80);
+    const pingsSent = sentMessages.filter(m => m === '{"type":"ping"}');
+    check('ping sent', pingsSent.length >= 1);
+
+    // Simulate pong response
+    ws._simulateMessage('{"type":"pong"}');
+    await delay(10);
+    check('still connected after pong', client.isConnected);
+
+    await client.disconnect();
+    client.removeAllListeners();
+  }
+
+  // -------------------------------------------------------------------
+  // Test: Pong timeout triggers reconnect
+  // -------------------------------------------------------------------
+  console.log('--- Test: Pong timeout triggers close ---');
+  {
+    const factory = createMockWSFactory();
+    const client = new BastionHumanClient({
+      relayUrl: 'wss://localhost:9443',
+      identity: { id: 'human-1', type: 'human', displayName: 'TestHuman' },
+      pingIntervalMs: 30,
+      pongTimeoutMs: 20,
+      reconnect: false,
+      WebSocketImpl: factory,
+    });
+
+    await client.connect();
+    client.setToken('jwt', new Date(Date.now() + 900_000).toISOString());
+
+    // Don't respond to ping — wait for pong timeout
+    const disconnectEvents = [];
+    client.on('disconnected', (code, reason) => disconnectEvents.push({ code, reason }));
+
+    await delay(120);
+    check('pong timeout: disconnected', client.connectionState === 'disconnected');
+    check('pong timeout: event fired', disconnectEvents.length >= 1);
+
+    client.removeAllListeners();
+  }
+
+  // -------------------------------------------------------------------
+  // Test: Backoff schedule (new values)
+  // -------------------------------------------------------------------
+  console.log('--- Test: Backoff schedule ---');
+  {
+    const factory = createMockWSFactory();
+    const client = new BastionHumanClient({
+      relayUrl: 'wss://localhost:9443',
+      identity: { id: 'human-1', type: 'human', displayName: 'TestHuman' },
+      reconnect: true,
+      pingIntervalMs: 0,  // Disable ping for this test
+      WebSocketImpl: factory,
+    });
+
+    await client.connect();
+    client.setToken('jwt', new Date(Date.now() + 900_000).toISOString());
+
+    const reconnectDelays = [];
+    client.on('reconnecting', (_attempt, delayMs) => reconnectDelays.push(delayMs));
+
+    // First close
+    factory.latest()._simulateClose(1006, 'lost');
+    await delay(20);
+    check('backoff 1: 1s', reconnectDelays[0] === 1000);
+
+    // Clean up
+    await client.disconnect();
+    client.removeAllListeners();
   }
 
   // -------------------------------------------------------------------

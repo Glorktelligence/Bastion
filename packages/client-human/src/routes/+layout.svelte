@@ -11,7 +11,16 @@ let setupComplete = $state(configStore.get('setupComplete'));
 
 function handleSetupComplete() {
 	setupComplete = true;
+	// Auto-connect after wizard completion
+	session.tryAutoConnect();
 }
+
+// Auto-connect on app open if config is complete
+$effect(() => {
+	if (setupComplete) {
+		session.tryAutoConnect();
+	}
+});
 </script>
 
 {#if !setupComplete}

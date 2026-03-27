@@ -5,10 +5,14 @@ const {
   status,
   peerStatus,
   reconnectAttempt,
+  reconnectDelay = 0,
+  onRetry,
 }: {
   status: HumanClientState;
   peerStatus: string;
   reconnectAttempt: number;
+  reconnectDelay?: number;
+  onRetry?: () => void;
 } = $props();
 
 function dotColor(s: HumanClientState): string {
@@ -24,11 +28,11 @@ function statusLabel(s: HumanClientState): string {
     case 'connected':
       return 'Connected (authenticating)';
     case 'connecting':
-      return 'Connecting…';
+      return 'Connecting\u2026';
     case 'reconnecting':
-      return 'Reconnecting…';
+      return 'Reconnecting\u2026';
     case 'closing':
-      return 'Closing…';
+      return 'Closing\u2026';
     default:
       return 'Disconnected';
   }
@@ -46,6 +50,11 @@ function peerLabel(ps: string): string {
       return 'AI status unknown';
   }
 }
+
+function formatDelay(ms: number): string {
+  const secs = Math.ceil(ms / 1000);
+  return `${secs}s`;
+}
 </script>
 
 <div class="status-bar">
@@ -53,7 +62,15 @@ function peerLabel(ps: string): string {
 		<span class="dot" style="background:{dotColor(status)}"></span>
 		<span class="label">{statusLabel(status)}</span>
 		{#if status === 'reconnecting' && reconnectAttempt > 0}
-			<span class="attempt">(attempt {reconnectAttempt})</span>
+			<span class="attempt">
+				(attempt {reconnectAttempt}{#if reconnectDelay > 0}, retrying in {formatDelay(reconnectDelay)}{/if})
+			</span>
+			{#if onRetry}
+				<button class="retry-btn" onclick={onRetry}>Retry Now</button>
+			{/if}
+		{/if}
+		{#if status === 'disconnected' && onRetry}
+			<button class="retry-btn" onclick={onRetry}>Connect</button>
 		{/if}
 	</div>
 	<div class="peer-status">
@@ -95,5 +112,21 @@ function peerLabel(ps: string): string {
 
 	.peer-status {
 		color: var(--color-text-muted);
+	}
+
+	.retry-btn {
+		padding: 0.125rem 0.5rem;
+		border-radius: 4px;
+		border: 1px solid var(--color-accent);
+		background: transparent;
+		color: var(--color-accent);
+		font-size: 0.7rem;
+		cursor: pointer;
+		margin-left: 0.25rem;
+	}
+
+	.retry-btn:hover {
+		background: var(--color-accent);
+		color: #fff;
 	}
 </style>

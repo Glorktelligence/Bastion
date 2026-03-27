@@ -9,6 +9,18 @@
  * components and by trace-test.mjs.
  */
 
+// Config
+export {
+  getConfigStore,
+  generateUserId,
+  BrowserConfigStore,
+  TauriConfigStore,
+  InMemoryConfigStore,
+  migrateConfig,
+  CONFIG_VERSION,
+} from './config/config-store.js';
+export type { BastionConfig, ConfigStore } from './config/config-store.js';
+
 // Utilities
 export { TypedEmitter } from './emitter.js';
 export { writable, derived } from './store.js';

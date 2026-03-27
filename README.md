@@ -1,7 +1,7 @@
 # Project Bastion
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-2%2C604_passing-brightgreen.svg)](#run-tests)
+[![Tests](https://img.shields.io/badge/Tests-2%2C632_passing-brightgreen.svg)](#run-tests)
 [![Packages](https://img.shields.io/badge/Packages-7-purple.svg)](#packages)
 [![Protocol](https://img.shields.io/badge/Protocol-54_message_types-orange.svg)](#protocol)
 [![Node](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-339933.svg)](https://nodejs.org)
@@ -143,7 +143,7 @@ node packages/relay/admin-trace-test.mjs          # Admin auth, routes, extensio
 node packages/crypto/trace-test.mjs              # Crypto tests (134 checks)
 node packages/client-ai/trace-test.mjs           # AI client: safety, provider, memory, project, tools, challenge (386 checks)
 node packages/client-ai/file-handling-trace-test.mjs  # AI client file handling (155 checks)
-node packages/client-human/trace-test.mjs        # Desktop client tests (293 checks)
+node packages/client-human/trace-test.mjs        # Desktop client tests (321 checks)
 node packages/client-human-mobile/trace-test.mjs # Mobile client tests (123 checks)
 node packages/relay-admin-ui/trace-test.mjs      # Admin UI: stores, API, data service (239 checks)
 ```

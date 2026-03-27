@@ -23,6 +23,8 @@ const cfgStore = session.getConfigStore();
 let cfgRelayUrl = $state(cfgStore.get('relayUrl'));
 let cfgDisplayName = $state(cfgStore.get('displayName'));
 let cfgUserId = $state(cfgStore.get('userId'));
+let cfgAutoConnect = $state(cfgStore.get('autoConnect'));
+let cfgAutoReconnect = $state(cfgStore.get('autoReconnect'));
 let showResetConfirm = $state(false);
 
 // Tool state
@@ -191,6 +193,16 @@ function handleContextSave(): void {
 			<label>
 				<span class="label">User ID</span>
 				<input type="text" value={cfgUserId} onchange={(e) => { cfgUserId = e.currentTarget.value; cfgStore.set('userId', cfgUserId); }} class="config-input mono" />
+			</label>
+		</div>
+		<div class="toggle-fields">
+			<label class="toggle-label">
+				<input type="checkbox" bind:checked={cfgAutoConnect} onchange={() => { cfgStore.set('autoConnect', cfgAutoConnect); }} />
+				<span>Auto-connect on launch</span>
+			</label>
+			<label class="toggle-label">
+				<input type="checkbox" bind:checked={cfgAutoReconnect} onchange={() => { cfgStore.set('autoReconnect', cfgAutoReconnect); }} />
+				<span>Auto-reconnect on disconnect</span>
 			</label>
 		</div>
 		<p class="hint">Changes saved automatically. Relay URL change takes effect on next connect.</p>
@@ -450,6 +462,10 @@ function handleContextSave(): void {
 	.config-fields label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem; color: var(--color-text-muted); }
 	.config-input { padding: 0.375rem 0.5rem; border: 1px solid var(--color-border, #2a2a4a); border-radius: 0.25rem; background: var(--color-bg, #0f0f23); color: var(--color-text); font-size: 0.85rem; }
 	.config-input.mono { font-family: monospace; font-size: 0.8rem; }
+
+	.toggle-fields { display: flex; flex-direction: column; gap: 0.375rem; margin-top: 0.75rem; }
+	.toggle-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--color-text); cursor: pointer; }
+	.toggle-label input[type="checkbox"] { accent-color: var(--color-accent, #4a9eff); width: 16px; height: 16px; }
 
 	.danger-zone { border-color: #ef4444 !important; }
 	.danger-zone h3 { color: #ef4444; }

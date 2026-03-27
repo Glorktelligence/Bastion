@@ -9,6 +9,11 @@
  * transitions. The main messaging page calls connect()/disconnect();
  * other routes subscribe to the same store instances to display tasks,
  * challenges, audit entries, and settings.
+ *
+ * Auto-connect: if ConfigStore has setupComplete=true and autoConnect=true,
+ * calling autoConnect() from the layout will initiate connection immediately.
+ * After reconnection, state is re-hydrated by querying extension_query,
+ * memory_list, and project_list.
  */
 
 import { BastionHumanClient } from './services/connection.js';
@@ -101,6 +106,7 @@ export async function connect(): Promise<void> {
   client = new BastionHumanClient({
     relayUrl: currentRelayUrl,
     identity: currentIdentity,
+    reconnect: cfg.get('autoReconnect'),
     WebSocketImpl: WebSocket,
   });
 
@@ -126,6 +132,11 @@ export async function connect(): Promise<void> {
     }
   });
 
+  // Re-hydrate state after reconnection
+  client.on('reconnected', () => {
+    hydrateState();
+  });
+
   await client.connect();
 
   // Send session_init to start the handshake
@@ -146,6 +157,104 @@ export async function disconnect(): Promise<void> {
   if (connSub) connSub();
   connSub = null;
   client = null;
+}
+
+// ---------------------------------------------------------------------------
+// Auto-connect — called from layout on app open
+// ---------------------------------------------------------------------------
+
+let autoConnectAttempted = false;
+
+/**
+ * Attempt auto-connection if config is complete.
+ * Safe to call multiple times — only runs once per session.
+ */
+export async function tryAutoConnect(): Promise<void> {
+  if (autoConnectAttempted) return;
+  autoConnectAttempted = true;
+
+  if (!cfg.get('setupComplete')) return;
+  if (!cfg.get('autoConnect')) return;
+
+  try {
+    await connect();
+  } catch (err) {
+    console.warn('[Bastion] Auto-connect failed:', err instanceof Error ? err.message : String(err));
+    // Connection failure will trigger reconnection via BastionHumanClient
+  }
+}
+
+/**
+ * Reset auto-connect flag (e.g. after config reset).
+ */
+export function resetAutoConnect(): void {
+  autoConnectAttempted = false;
+}
+
+// ---------------------------------------------------------------------------
+// State re-hydration — after auth or reconnect
+// ---------------------------------------------------------------------------
+
+/**
+ * Send queries to re-hydrate all store state from the relay/AI client.
+ * Called after initial authentication and after reconnection.
+ */
+function hydrateState(): void {
+  if (!client || !client.isConnected) return;
+
+  const identity = getIdentity();
+  const ts = new Date().toISOString();
+
+  // Re-send session_init for reconnect (relay needs to re-authenticate)
+  client.send(
+    JSON.stringify({
+      type: 'session_init',
+      identity,
+      timestamp: ts,
+    }),
+  );
+}
+
+/**
+ * Send data queries to populate stores. Called after successful authentication.
+ */
+function sendHydrationQueries(): void {
+  if (!client || !client.isConnected) return;
+
+  const identity = getIdentity();
+  const ts = new Date().toISOString();
+
+  // Request extension list
+  client.send(
+    JSON.stringify({
+      type: 'extension_query',
+      id: crypto.randomUUID(),
+      timestamp: ts,
+      sender: identity,
+    }),
+  );
+
+  // Request memory list
+  client.send(
+    JSON.stringify({
+      type: 'memory_list',
+      id: crypto.randomUUID(),
+      timestamp: ts,
+      sender: identity,
+      payload: {},
+    }),
+  );
+
+  // Request project file list
+  client.send(
+    JSON.stringify({
+      type: 'project_list',
+      id: crypto.randomUUID(),
+      timestamp: ts,
+      sender: identity,
+      payload: {},
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -173,6 +282,9 @@ function handleRelayMessage(data: string): void {
   if (type === 'session_established' && client) {
     client.setToken(String(envelope.jwt), String(envelope.expiresAt));
     console.log('[Bastion] Authenticated with relay');
+    cfg.set('lastConnected', new Date().toISOString());
+    // Hydrate stores after authentication
+    sendHydrationQueries();
     return;
   }
 

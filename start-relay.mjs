@@ -339,6 +339,12 @@ relay.on('message', async (data, info) => {
     return;
   }
 
+  // ----- ping: application-level keep-alive -----
+  if (msg.type === 'ping') {
+    relay.send(connId, '{"type":"pong"}');
+    return;
+  }
+
   // ----- session_init: authenticate and register -----
   if (msg.type === 'session_init') {
     const identity = msg.identity;

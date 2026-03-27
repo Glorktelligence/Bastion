@@ -185,7 +185,7 @@ function handleChallengeCancel(): void {
 	{#if !session.getClient() && !connecting}
 		<div class="connect-screen">
 			<p class="connect-label">Connect to the Bastion relay to start messaging.</p>
-			<p class="connect-url">{session.RELAY_URL}</p>
+			<p class="connect-url">{session.getRelayUrl()}</p>
 			<button class="connect-btn" onclick={handleConnect}>Connect</button>
 		</div>
 	{:else}
@@ -193,6 +193,7 @@ function handleChallengeCancel(): void {
 			status={conn.status}
 			peerStatus={conn.peerStatus}
 			reconnectAttempt={conn.reconnectAttempt}
+			onRetry={handleConnect}
 		/>
 
 		{#if conn.lastError}

@@ -6,8 +6,9 @@
  * ConfigStore — persistent configuration for the human client.
  *
  * Abstracts storage behind a simple key-value interface.
- * BrowserConfigStore uses localStorage. TauriConfigStore would
- * use Tauri's fs API (falls back to browser if Tauri not detected).
+ * BrowserConfigStore uses localStorage. TauriConfigStore uses the
+ * Tauri fs API to persist to the app data directory (survives
+ * origin/port changes). Falls back to browser if Tauri not detected.
  *
  * The setup wizard writes config on first launch. Session.ts reads
  * relay URL and identity from here instead of globalThis overrides.
@@ -17,23 +18,70 @@
 // Config schema
 // ---------------------------------------------------------------------------
 
+/** Current config schema version. Bump when fields are added/changed. */
+export const CONFIG_VERSION = 2;
+
 export interface BastionConfig {
+  /** Schema version for migration. */
+  configVersion: number;
   relayUrl: string;
   userId: string;
   displayName: string;
   setupComplete: boolean;
   lastConnected: string;
   theme: 'dark' | 'light';
+  /** Auto-connect to relay on app open (default: true after setup). */
+  autoConnect: boolean;
+  /** Auto-reconnect on unexpected disconnect (default: true). */
+  autoReconnect: boolean;
 }
 
 export const DEFAULT_CONFIG: BastionConfig = {
+  configVersion: CONFIG_VERSION,
   relayUrl: 'wss://10.0.30.10:9443',
   userId: '',
   displayName: '',
   setupComplete: false,
   lastConnected: '',
   theme: 'dark',
+  autoConnect: true,
+  autoReconnect: true,
 };
+
+// ---------------------------------------------------------------------------
+// Migration
+// ---------------------------------------------------------------------------
+
+/**
+ * Migrate a config object from an older version to the current schema.
+ * Returns a new object with missing fields filled from defaults.
+ */
+export function migrateConfig(raw: Record<string, unknown>): BastionConfig {
+  const version = typeof raw.configVersion === 'number' ? raw.configVersion : 1;
+
+  // Start from defaults, overlay saved values
+  const config: BastionConfig = { ...DEFAULT_CONFIG };
+
+  // Always carry forward core fields that exist in all versions
+  if (typeof raw.relayUrl === 'string') config.relayUrl = raw.relayUrl;
+  if (typeof raw.userId === 'string') config.userId = raw.userId;
+  if (typeof raw.displayName === 'string') config.displayName = raw.displayName;
+  if (typeof raw.setupComplete === 'boolean') config.setupComplete = raw.setupComplete;
+  if (typeof raw.lastConnected === 'string') config.lastConnected = raw.lastConnected;
+  if (raw.theme === 'dark' || raw.theme === 'light') config.theme = raw.theme;
+
+  // v2 fields — only apply if they were explicitly saved
+  if (version >= 2) {
+    if (typeof raw.autoConnect === 'boolean') config.autoConnect = raw.autoConnect;
+    if (typeof raw.autoReconnect === 'boolean') config.autoReconnect = raw.autoReconnect;
+  }
+  // v1 → v2: autoConnect and autoReconnect get defaults (true)
+
+  // Stamp current version
+  config.configVersion = CONFIG_VERSION;
+
+  return config;
+}
 
 // ---------------------------------------------------------------------------
 // Interface
@@ -92,7 +140,11 @@ export class BrowserConfigStore implements ConfigStore {
       const raw = globalThis.localStorage?.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        this.config = { ...DEFAULT_CONFIG, ...parsed };
+        this.config = migrateConfig(parsed);
+        // Re-save if migration bumped the version
+        if (parsed.configVersion !== CONFIG_VERSION) {
+          this.save();
+        }
       }
     } catch {
       // localStorage unavailable or corrupt — use defaults
@@ -104,6 +156,106 @@ export class BrowserConfigStore implements ConfigStore {
       globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(this.config));
     } catch {
       // localStorage unavailable
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// TauriConfigStore (app data directory)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tauri-backed config store. Persists config to a JSON file in the
+ * app's data directory (e.g. %APPDATA%/com.glorktelligence.bastion/).
+ *
+ * This survives origin changes, port changes, and WebView resets.
+ * Falls back to localStorage if Tauri APIs are unavailable.
+ */
+export class TauriConfigStore implements ConfigStore {
+  private config: BastionConfig;
+  private readonly filePath: string;
+
+  constructor(filePath = 'bastion-config.json') {
+    this.config = { ...DEFAULT_CONFIG };
+    this.filePath = filePath;
+    // Synchronous init: try localStorage first, then async Tauri load will overwrite
+    this.loadFromLocalStorage();
+    // Kick off async Tauri load
+    this.loadFromTauri();
+  }
+
+  get<K extends keyof BastionConfig>(key: K): BastionConfig[K] {
+    return this.config[key];
+  }
+
+  set<K extends keyof BastionConfig>(key: K, value: BastionConfig[K]): void {
+    this.config[key] = value;
+    this.saveToLocalStorage();
+    this.saveToTauri();
+  }
+
+  getAll(): BastionConfig {
+    return { ...this.config };
+  }
+
+  has(key: keyof BastionConfig): boolean {
+    return this.config[key] !== undefined && this.config[key] !== '' && this.config[key] !== false;
+  }
+
+  clear(): void {
+    this.config = { ...DEFAULT_CONFIG };
+    this.saveToLocalStorage();
+    this.saveToTauri();
+  }
+
+  private loadFromLocalStorage(): void {
+    try {
+      const raw = globalThis.localStorage?.getItem(STORAGE_KEY);
+      if (raw) {
+        this.config = migrateConfig(JSON.parse(raw));
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  private saveToLocalStorage(): void {
+    try {
+      globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(this.config));
+    } catch {
+      // Ignore
+    }
+  }
+
+  private async loadFromTauri(): Promise<void> {
+    try {
+      // Dynamic import — only available in Tauri context.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pathMod: any = await import('@tauri-apps/api/path' as string);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const fsMod: any = await import('@tauri-apps/plugin-fs' as string);
+      const dir: string = await pathMod.appDataDir();
+      const raw: string = await fsMod.readTextFile(`${dir}${this.filePath}`);
+      const parsed = JSON.parse(raw);
+      this.config = migrateConfig(parsed);
+      // Sync back to localStorage for fastest reads
+      this.saveToLocalStorage();
+    } catch {
+      // File doesn't exist yet or Tauri not available — use localStorage values
+    }
+  }
+
+  private async saveToTauri(): Promise<void> {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pathMod: any = await import('@tauri-apps/api/path' as string);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const fsMod: any = await import('@tauri-apps/plugin-fs' as string);
+      const dir: string = await pathMod.appDataDir();
+      await fsMod.mkdir(dir, { recursive: true }).catch(() => {});
+      await fsMod.writeTextFile(`${dir}${this.filePath}`, JSON.stringify(this.config, null, 2));
+    } catch {
+      // Tauri not available — localStorage is the fallback
     }
   }
 }
@@ -146,12 +298,22 @@ export class InMemoryConfigStore implements ConfigStore {
 
 let _instance: ConfigStore | null = null;
 
+/** Detect whether running inside a Tauri WebView. */
+function isTauri(): boolean {
+  try {
+    // Tauri v2 injects __TAURI_INTERNALS__ on the window object
+    return typeof globalThis !== 'undefined' && '__TAURI_INTERNALS__' in globalThis;
+  } catch {
+    return false;
+  }
+}
+
 export function getConfigStore(): ConfigStore {
   if (!_instance) {
-    // In browser/Tauri context, use localStorage-backed store.
-    // In SSR/test context (no localStorage), use in-memory.
     try {
-      if (typeof globalThis.localStorage !== 'undefined') {
+      if (isTauri()) {
+        _instance = new TauriConfigStore();
+      } else if (typeof globalThis.localStorage !== 'undefined') {
         _instance = new BrowserConfigStore();
       } else {
         _instance = new InMemoryConfigStore();
