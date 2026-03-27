@@ -271,6 +271,8 @@ export class TauriConfigStore implements ConfigStore {
 // ---------------------------------------------------------------------------
 
 export class InMemoryConfigStore implements ConfigStore {
+  /** Marker for SSR→browser detection in getConfigStore(). */
+  readonly _isInMemory = true;
   private config: BastionConfig;
 
   constructor(initial?: Partial<BastionConfig>) {
@@ -332,7 +334,9 @@ export function getConfigStore(): ConfigStore {
   if (_instance) {
     // If we cached an InMemoryConfigStore during SSR but are now in browser,
     // discard it and create a BrowserConfigStore that reads localStorage.
-    if (_instance instanceof InMemoryConfigStore && typeof globalThis.localStorage !== 'undefined') {
+    // Use marker property instead of instanceof (survives HMR module identity changes).
+    const isInMem = (_instance as unknown as Record<string, unknown>)._isInMemory === true;
+    if (isInMem && typeof globalThis.localStorage !== 'undefined') {
       _instance = null;
     } else {
       return _instance;
