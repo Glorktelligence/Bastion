@@ -571,6 +571,11 @@ export interface BudgetConfigPayload {
   readonly alertAtPercent: number;
 }
 
+/** Bidirectional: E2E key exchange — X25519 public key for session cipher derivation. */
+export interface KeyExchangePayload {
+  readonly publicKey: string;
+}
+
 // ---------------------------------------------------------------------------
 // Discriminated union of all payload types
 // ---------------------------------------------------------------------------
@@ -631,4 +636,5 @@ export type MessagePayload =
   | { type: 'challenge_config'; payload: ChallengeConfigPayload }
   | { type: 'challenge_config_ack'; payload: ChallengeConfigAckPayload }
   | { type: 'budget_status'; payload: BudgetStatusPayload }
-  | { type: 'budget_config'; payload: BudgetConfigPayload };
+  | { type: 'budget_config'; payload: BudgetConfigPayload }
+  | { type: 'key_exchange'; payload: KeyExchangePayload };

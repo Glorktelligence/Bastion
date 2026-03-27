@@ -498,6 +498,10 @@ export const BudgetConfigPayloadSchema = z.object({
   alertAtPercent: z.number().min(1).max(99),
 });
 
+export const KeyExchangePayloadSchema = z.object({
+  publicKey: z.string().min(1),
+});
+
 // ---------------------------------------------------------------------------
 // Payload schema lookup map (message type → Zod schema)
 // ---------------------------------------------------------------------------
@@ -565,4 +569,5 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.CHALLENGE_CONFIG_ACK]: ChallengeConfigAckPayloadSchema,
   [MESSAGE_TYPES.BUDGET_STATUS]: BudgetStatusPayloadSchema,
   [MESSAGE_TYPES.BUDGET_CONFIG]: BudgetConfigPayloadSchema,
+  [MESSAGE_TYPES.KEY_EXCHANGE]: KeyExchangePayloadSchema,
 } as const;

@@ -523,6 +523,21 @@ relay.on('message', async (data, info) => {
     return;
   }
 
+  // ----- key_exchange: forward between paired clients (relay is zero-knowledge) -----
+  if (msg.type === 'key_exchange') {
+    const peerId = router.getPeer(connId);
+    if (peerId) {
+      relay.send(peerId, data);
+      console.log(`[→] key_exchange forwarded to peer ${peerId.slice(0, 8)} (relay sees public key only)`);
+      const sid = sessionIds.get(connId);
+      if (sid) auditLogger.logEvent('key_exchange', sid, {
+        // Log only that exchange happened — NOT the key itself (metadata only)
+        messageType: 'key_exchange',
+      });
+    }
+    return;
+  }
+
   // ----- budget_* messages: forward between paired clients with audit -----
   if (msg.type === 'budget_status' || msg.type === 'budget_alert' || msg.type === 'budget_config') {
     const peerId = router.getPeer(connId);

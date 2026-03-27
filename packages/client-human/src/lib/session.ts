@@ -298,13 +298,26 @@ function handleRelayMessage(data: string): void {
 
   // Peer status notifications
   if (type === 'peer_status' && client) {
-    client.emit('peerStatus', String(envelope.status ?? 'unknown'));
+    const peerStatus = String(envelope.status ?? 'unknown');
+    client.emit('peerStatus', peerStatus);
+
+    // When peer connects, send key exchange (E2E setup)
+    // Note: browser-compatible sodium needed for real X25519 — wiring tracked separately
+    if (peerStatus === 'active') {
+      console.log('[Bastion] Peer active — E2E key exchange requires browser sodium (tracked)');
+    }
     return;
   }
 
   // Relay errors
   if (type === 'error') {
     console.error('[Bastion] Relay error:', envelope.message);
+    return;
+  }
+
+  // Key exchange — log receipt (E2E cipher setup requires browser-compatible sodium)
+  if (type === 'key_exchange') {
+    console.log('[Bastion] Received peer key exchange — E2E session keys pending browser sodium wiring');
     return;
   }
 

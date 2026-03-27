@@ -198,6 +198,9 @@ function validPayloads() {
       maxPerDay: 50, maxPerSession: 20,
       maxPerCall: 5, alertAtPercent: 50,
     },
+    key_exchange: {
+      publicKey: 'dGVzdC1wdWJsaWMta2V5LWJhc2U2NC1lbmNvZGVk',
+    },
     audit_query: {
       startTime: '2026-03-01T00:00:00.000Z',
       endTime: '2026-03-22T23:59:59.999Z',
@@ -381,8 +384,8 @@ async function run() {
         break;
       }
     }
-    check('all 56 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 56 entries', ALL_MESSAGE_TYPES.length === 56);
+    check('all 57 message types accepted in envelope', allTypesValid);
+    check('ALL_MESSAGE_TYPES has 57 entries', ALL_MESSAGE_TYPES.length === 57);
   }
   console.log();
 
@@ -418,8 +421,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 56 entries', typeKeys.length === 56);
-    check('PAYLOAD_SCHEMAS has 56 entries', Object.keys(PAYLOAD_SCHEMAS).length === 56);
+    check('MESSAGE_TYPES has 57 entries', typeKeys.length === 57);
+    check('PAYLOAD_SCHEMAS has 57 entries', Object.keys(PAYLOAD_SCHEMAS).length === 57);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -831,7 +834,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 56 message types survive serialisation round-trip', allPassed);
+    check('all 57 message types survive serialisation round-trip', allPassed);
   }
   console.log();
 

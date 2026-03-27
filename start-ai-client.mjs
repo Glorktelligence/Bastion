@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import {
+  generateKeyPair,
+  deriveSessionKeys,
+  createSessionCipher,
+  ensureSodium,
+} from '@bastion/crypto';
+import {
   BastionAiClient,
   createApiKeyManager,
   createToolRegistry,
@@ -146,6 +152,92 @@ function sendBudgetStatus() {
 }
 
 // ---------------------------------------------------------------------------
+// E2E Encryption — X25519 key exchange + KDF ratchet
+// ---------------------------------------------------------------------------
+
+let ownKeyPair = null;
+let sessionCipher = null;
+
+/** Generate X25519 keypair on startup. */
+async function initKeyPair() {
+  ownKeyPair = await generateKeyPair();
+  console.log('[✓] X25519 keypair generated');
+}
+
+/** Send key_exchange message to peer. */
+function sendKeyExchange() {
+  if (!client || !ownKeyPair) return;
+  const sodium = ownKeyPair.publicKey;
+  // Convert Uint8Array to base64 for JSON transport
+  const pubKeyB64 = Buffer.from(sodium).toString('base64');
+  client.send(JSON.stringify({
+    type: 'key_exchange',
+    id: randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: IDENTITY,
+    payload: { publicKey: pubKeyB64 },
+  }));
+  console.log('[→] Key exchange: public key sent to peer');
+}
+
+/** Handle incoming key_exchange from peer — derive session keys. */
+async function handleKeyExchange(peerPublicKeyB64) {
+  if (!ownKeyPair) return;
+  const peerPublicKey = new Uint8Array(Buffer.from(peerPublicKeyB64, 'base64'));
+
+  // AI client is the 'responder' role (human is 'initiator')
+  const sessionKeys = await deriveSessionKeys('responder', ownKeyPair, peerPublicKey);
+  sessionCipher = await createSessionCipher(sessionKeys, randomUUID());
+  console.log('[✓] E2E session established — Double Ratchet active');
+}
+
+/** Messages that must stay plaintext — relay or pre-key-exchange control messages. */
+const PLAINTEXT_TYPES = new Set([
+  'session_init', 'session_established', 'key_exchange', 'token_refresh',
+  'provider_register', 'ping', 'pong', 'peer_status', 'error',
+  'config_ack', 'config_nack',
+]);
+
+/**
+ * Send a message, encrypting the payload if session cipher is available.
+ * Metadata (type, id, timestamp, sender) stays plaintext for relay routing.
+ * The payload is encrypted and placed in encryptedPayload + nonce fields.
+ */
+async function sendSecure(envelope) {
+  if (!client) return false;
+
+  if (!sessionCipher || PLAINTEXT_TYPES.has(envelope.type)) {
+    return client.send(JSON.stringify(envelope));
+  }
+
+  try {
+    const sodium = await ensureSodium();
+
+    // Encrypt just the payload
+    const payloadStr = JSON.stringify(envelope.payload || {});
+    const payloadBytes = new TextEncoder().encode(payloadStr);
+    const { key } = sessionCipher.nextSendKey();
+    const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+    const ciphertext = sodium.crypto_secretbox_easy(payloadBytes, nonce, key);
+    sodium.memzero(key);
+
+    // Build encrypted envelope — metadata plaintext, payload encrypted
+    const encrypted = {
+      id: envelope.id,
+      type: envelope.type,
+      timestamp: envelope.timestamp,
+      sender: envelope.sender,
+      encryptedPayload: sodium.to_base64(ciphertext),
+      nonce: sodium.to_base64(nonce),
+    };
+    return client.send(JSON.stringify(encrypted));
+  } catch (err) {
+    console.error(`[!] Encryption failed: ${err.message} — sending plaintext`);
+    return client.send(JSON.stringify(envelope));
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Tool registry + MCP adapters
 // ---------------------------------------------------------------------------
 
@@ -195,6 +287,9 @@ async function connectMcpProviders() {
 // ---------------------------------------------------------------------------
 // Client setup
 // ---------------------------------------------------------------------------
+
+// Generate X25519 keypair before connecting
+await initKeyPair();
 
 const client = new BastionAiClient({
   relayUrl: RELAY_URL,
@@ -283,6 +378,26 @@ client.on('message', async (data) => {
     return;
   }
 
+  // Decrypt if this is an encrypted envelope (has encryptedPayload field)
+  if (msg.encryptedPayload && sessionCipher) {
+    try {
+      const sodium = await ensureSodium();
+      const nonce = sodium.from_base64(msg.nonce);
+      const ciphertext = sodium.from_base64(msg.encryptedPayload);
+      const { key } = sessionCipher.nextReceiveKey();
+      const plaintext = sodium.crypto_secretbox_open_easy(ciphertext, nonce, key);
+      sodium.memzero(key);
+      const payloadStr = new TextDecoder().decode(plaintext);
+      sodium.memzero(plaintext);
+      msg = { ...msg, payload: JSON.parse(payloadStr) };
+      delete msg.encryptedPayload;
+      delete msg.nonce;
+    } catch (err) {
+      console.error(`[!] Decryption failed: ${err.message}`);
+      return;
+    }
+  }
+
   // Handle session_established — complete the auth handshake
   if (msg.type === 'session_established') {
     console.log(`[←] Session established (session: ${(msg.sessionId || '').slice(0, 8)})`);
@@ -320,6 +435,19 @@ client.on('message', async (data) => {
   // Handle peer status notifications
   if (msg.type === 'peer_status') {
     console.log(`[~] Peer status: ${msg.status}`);
+    if (msg.status === 'active') {
+      // Peer is connected — initiate E2E key exchange
+      sendKeyExchange();
+    }
+    return;
+  }
+
+  // Handle key_exchange — derive session keys for E2E
+  if (msg.type === 'key_exchange') {
+    const pubKey = msg.payload?.publicKey;
+    if (pubKey) {
+      await handleKeyExchange(pubKey);
+    }
     return;
   }
 
@@ -710,16 +838,16 @@ client.on('message', async (data) => {
           sendBudgetStatus();
         }
 
-        // Send response back through the relay
-        const responseMsg = JSON.stringify({
+        // Send response back through the relay (encrypted if E2E active)
+        const responseEnvelope = {
           type: 'conversation',
           id: randomUUID(),
           timestamp: new Date().toISOString(),
           sender: IDENTITY,
           payload: { content: responseText },
-        });
+        };
 
-        const sent = client.send(responseMsg);
+        const sent = await sendSecure(responseEnvelope);
         if (!sent) {
           console.error('[!] Failed to send response — not connected');
         }
