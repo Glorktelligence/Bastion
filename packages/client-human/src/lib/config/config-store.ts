@@ -228,12 +228,16 @@ export class TauriConfigStore implements ConfigStore {
   }
 
   private async loadFromTauri(): Promise<void> {
+    // Guard: never attempt Tauri imports in browser context.
+    // This prevents Vite from statically analyzing the import paths.
+    if (!isTauri()) return;
+
     try {
-      // Dynamic import — only available in Tauri context.
+      // Build module names at runtime so Vite's static analyzer cannot resolve them.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const pathMod: any = await import('@tauri-apps/api/path' as string);
+      const pathMod: any = await importTauriModule('api/path');
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const fsMod: any = await import('@tauri-apps/plugin-fs' as string);
+      const fsMod: any = await importTauriModule('plugin-fs');
       const dir: string = await pathMod.appDataDir();
       const raw: string = await fsMod.readTextFile(`${dir}${this.filePath}`);
       const parsed = JSON.parse(raw);
@@ -241,16 +245,18 @@ export class TauriConfigStore implements ConfigStore {
       // Sync back to localStorage for fastest reads
       this.saveToLocalStorage();
     } catch {
-      // File doesn't exist yet or Tauri not available — use localStorage values
+      // File doesn't exist yet or Tauri API unavailable — use localStorage values
     }
   }
 
   private async saveToTauri(): Promise<void> {
+    if (!isTauri()) return;
+
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const pathMod: any = await import('@tauri-apps/api/path' as string);
+      const pathMod: any = await importTauriModule('api/path');
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const fsMod: any = await import('@tauri-apps/plugin-fs' as string);
+      const fsMod: any = await importTauriModule('plugin-fs');
       const dir: string = await pathMod.appDataDir();
       await fsMod.mkdir(dir, { recursive: true }).catch(() => {});
       await fsMod.writeTextFile(`${dir}${this.filePath}`, JSON.stringify(this.config, null, 2));
@@ -297,6 +303,20 @@ export class InMemoryConfigStore implements ConfigStore {
 // ---------------------------------------------------------------------------
 
 let _instance: ConfigStore | null = null;
+
+/**
+ * Dynamically import a Tauri module by suffix (e.g. 'api/path' → '@tauri-apps/api/path').
+ * The module name is constructed at runtime so Vite's static analyzer cannot resolve it,
+ * preventing build failures when Tauri packages are not installed.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function importTauriModule(suffix: string): Promise<any> {
+  const prefix = '@tauri-apps/';
+  const mod = prefix + suffix;
+  // Use Function constructor to create a dynamic import that bundlers cannot statically analyze.
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+  return new Function('m', 'return import(m)')(mod);
+}
 
 /** Detect whether running inside a Tauri WebView. */
 function isTauri(): boolean {
