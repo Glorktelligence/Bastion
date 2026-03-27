@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ensureSodium } from '@bastion/crypto';
+import { ensureSodium } from './packages/crypto/dist/index.js';
 import { createHash } from 'node:crypto';
 import {
   BastionAiClient,
