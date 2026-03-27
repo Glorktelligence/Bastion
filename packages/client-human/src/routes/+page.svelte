@@ -30,6 +30,7 @@ let pendingToolRequest: PendingToolRequest | null = $state(null);
 let budgetStatus: BudgetStatusData | null = $state(null);
 let lastBudgetAlert: BudgetAlert | null = $state(null);
 let connecting = $state(false);
+let isAutoConnecting = $state(false);
 
 const isConnected = $derived(
 	conn.status === 'connected' || conn.status === 'authenticated',
@@ -43,6 +44,7 @@ $effect(() => {
 	unsubs.push(session.challenges.store.subscribe((v) => (activeChallenge = v.active)));
 	unsubs.push(session.tools.store.subscribe((v) => (pendingToolRequest = v.pendingRequest)));
 	unsubs.push(session.budget.store.subscribe((v) => { budgetStatus = v.status; lastBudgetAlert = v.lastAlert; }));
+	unsubs.push(session.autoConnecting.subscribe((v) => (isAutoConnecting = v)));
 
 	return () => {
 		for (const u of unsubs) u();
@@ -187,7 +189,7 @@ function handleChallengeCancel(): void {
 </script>
 
 <div class="messages-view">
-	{#if !session.getClient() && !connecting}
+	{#if !session.getClient() && !connecting && !isAutoConnecting && conn.status === 'disconnected'}
 		<div class="connect-screen">
 			<p class="connect-label">Connect to the Bastion relay to start messaging.</p>
 			<p class="connect-url">{session.getRelayUrl()}</p>

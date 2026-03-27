@@ -167,6 +167,9 @@ export async function disconnect(): Promise<void> {
 
 let autoConnectAttempted = false;
 
+/** Whether auto-connect is currently in progress. Subscribe from UI to avoid showing manual connect screen. */
+export const autoConnecting: Writable<boolean> = writable(false);
+
 /**
  * Attempt auto-connection if config is complete.
  * Safe to call multiple times — only runs once per session.
@@ -178,11 +181,14 @@ export async function tryAutoConnect(): Promise<void> {
   if (!cfg.get('setupComplete')) return;
   if (!cfg.get('autoConnect')) return;
 
+  autoConnecting.set(true);
   try {
     await connect();
   } catch (err) {
     console.warn('[Bastion] Auto-connect failed:', err instanceof Error ? err.message : String(err));
     // Connection failure will trigger reconnection via BastionHumanClient
+  } finally {
+    autoConnecting.set(false);
   }
 }
 
@@ -507,7 +513,30 @@ function handleRelayMessage(data: string): void {
     return;
   }
 
-  // Default: conversation messages → messages store
+  // System/store-only messages — consume silently, never show in chat
+  if (
+    type === 'extension_list_response' ||
+    type === 'project_list_response' ||
+    type === 'project_sync_ack' ||
+    type === 'project_config_ack' ||
+    type === 'config_ack' ||
+    type === 'config_nack' ||
+    type === 'tool_registry_sync' ||
+    type === 'tool_registry_ack' ||
+    type === 'tool_denied' ||
+    type === 'tool_revoke' ||
+    type === 'tool_alert' ||
+    type === 'tool_alert_response' ||
+    type === 'provider_status' ||
+    type === 'heartbeat' ||
+    type === 'session_end' ||
+    type === 'reconnect' ||
+    type === 'pong'
+  ) {
+    return;
+  }
+
+  // Default: conversation, task_submission, and other user-facing messages → messages store
   messages.addIncoming(type, payload, sender, id, timestamp);
 }
 
