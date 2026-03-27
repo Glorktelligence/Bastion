@@ -15,7 +15,7 @@
 // ---------------------------------------------------------------------------
 // Sodium: libsodium initialization
 // ---------------------------------------------------------------------------
-export { ensureSodium } from './sodium.js';
+export { initCrypto, ensureSodium } from './sodium.js';
 
 // ---------------------------------------------------------------------------
 // E2E: Session key exchange & ratchet

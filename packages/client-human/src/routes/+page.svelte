@@ -91,7 +91,8 @@ function handleSendConversation(text: string): void {
 		payload: { content: text },
 	};
 
-	client.send(JSON.stringify(envelope));
+	// Encrypt with Double Ratchet if E2E active, plaintext fallback
+	session.sendSecure(envelope);
 
 	session.messages.addMessage({
 		id,
@@ -126,7 +127,7 @@ function handleSendTask(task: {
 		payload: task,
 	};
 
-	client.send(JSON.stringify(envelope));
+	session.sendSecure(envelope);
 
 	// Track in messages store
 	session.messages.addMessage({

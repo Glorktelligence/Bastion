@@ -30,6 +30,8 @@ import { SAFETY_FLOOR_VALUES, createSettingsStore } from './stores/settings.js';
 import { type TrackedTask, createTasksStore } from './stores/tasks.js';
 import { type ApprovedTool, type PendingToolRequest, type ToolResult, createToolsStore } from './stores/tools.js';
 
+import { createSessionCipher, deriveSessionKeys, ensureSodium, generateKeyPair, initCrypto } from '@bastion/crypto';
+import type { CryptoKeyPair, SessionCipher } from '@bastion/crypto';
 import { getConfigStore } from './config/config-store.js';
 
 // ---------------------------------------------------------------------------
@@ -102,6 +104,9 @@ export function getClient(): BastionHumanClient | null {
 export async function connect(): Promise<void> {
   if (client) return;
 
+  // Initialise crypto subsystem and generate X25519 keypair
+  await initE2E();
+
   const currentRelayUrl = getRelayUrl();
   const currentIdentity = getIdentity();
 
@@ -159,6 +164,133 @@ export async function disconnect(): Promise<void> {
   if (connSub) connSub();
   connSub = null;
   client = null;
+  // Destroy cipher on disconnect — new session needs new key exchange
+  if (sessionCipher) {
+    sessionCipher.destroy();
+    sessionCipher = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// E2E Encryption — X25519 key exchange + KDF ratchet
+// ---------------------------------------------------------------------------
+
+let ownKeyPair: CryptoKeyPair | null = null;
+let sessionCipher: SessionCipher | null = null;
+
+/** Messages that must stay plaintext — relay control or pre-key-exchange. */
+const PLAINTEXT_TYPES = new Set([
+  'session_init',
+  'session_established',
+  'key_exchange',
+  'token_refresh',
+  'ping',
+  'pong',
+  'peer_status',
+  'error',
+  'config_ack',
+  'config_nack',
+]);
+
+/** Initialise crypto and generate keypair. Called before connect. */
+async function initE2E(): Promise<void> {
+  await initCrypto();
+  ownKeyPair = await generateKeyPair();
+  console.log('[Bastion] X25519 keypair generated');
+}
+
+/** Send key_exchange message to peer. */
+function sendKeyExchange(): void {
+  if (!client || !ownKeyPair) return;
+  const sodium = ownKeyPair.publicKey;
+  // Convert Uint8Array to base64 for JSON transport
+  const pubKeyB64 = btoa(String.fromCharCode(...sodium));
+  client.send(
+    JSON.stringify({
+      type: 'key_exchange',
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: getIdentity(),
+      payload: { publicKey: pubKeyB64 },
+    }),
+  );
+  console.log('[Bastion] Key exchange: public key sent to peer');
+}
+
+/** Handle incoming key_exchange — derive session keys and create cipher. */
+async function handlePeerKeyExchange(peerPublicKeyB64: string): Promise<void> {
+  if (!ownKeyPair) return;
+
+  // Decode base64 public key
+  const raw = atob(peerPublicKeyB64);
+  const peerPublicKey = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) peerPublicKey[i] = raw.charCodeAt(i);
+
+  // Human client is the 'initiator' role (AI is 'responder')
+  const sessionKeys = await deriveSessionKeys('initiator', ownKeyPair, peerPublicKey);
+  sessionCipher = await createSessionCipher(crypto.randomUUID(), sessionKeys);
+  console.log('[Bastion] E2E session established — Double Ratchet active');
+}
+
+/**
+ * Send a message, encrypting the payload if session cipher is active.
+ * Metadata stays plaintext for relay routing. Payload is encrypted.
+ */
+export async function sendSecure(envelope: Record<string, unknown>): Promise<boolean> {
+  if (!client) return false;
+
+  const msgType = String(envelope.type ?? '');
+  if (!sessionCipher || PLAINTEXT_TYPES.has(msgType)) {
+    return client.send(JSON.stringify(envelope));
+  }
+
+  try {
+    const sodium = await ensureSodium();
+    const payloadStr = JSON.stringify(envelope.payload ?? {});
+    const payloadBytes = new TextEncoder().encode(payloadStr);
+    const { key } = sessionCipher.nextSendKey();
+    const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+    const ciphertext = sodium.crypto_secretbox_easy(payloadBytes, nonce, key);
+    sodium.memzero(key);
+
+    const encrypted = {
+      id: envelope.id,
+      type: envelope.type,
+      timestamp: envelope.timestamp,
+      sender: envelope.sender,
+      encryptedPayload: sodium.to_base64(ciphertext),
+      nonce: sodium.to_base64(nonce),
+    };
+    return client.send(JSON.stringify(encrypted));
+  } catch (err) {
+    console.error('[Bastion] Encryption failed:', err instanceof Error ? err.message : String(err));
+    return client.send(JSON.stringify(envelope));
+  }
+}
+
+/**
+ * Attempt to decrypt an incoming message envelope.
+ * Returns the envelope with decrypted payload, or the original if not encrypted.
+ */
+async function tryDecrypt(msg: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (!msg.encryptedPayload || !sessionCipher) return msg;
+
+  try {
+    const sodium = await ensureSodium();
+    const nonce = sodium.from_base64(String(msg.nonce));
+    const ciphertext = sodium.from_base64(String(msg.encryptedPayload));
+    const { key } = sessionCipher.nextReceiveKey();
+    const plaintext = sodium.crypto_secretbox_open_easy(ciphertext, nonce, key);
+    sodium.memzero(key);
+    const payloadStr = new TextDecoder().decode(plaintext);
+    sodium.memzero(plaintext);
+
+    const { encryptedPayload: _ep, nonce: _n, ...rest } = msg;
+    return { ...rest, payload: JSON.parse(payloadStr) };
+  } catch (err) {
+    console.error('[Bastion] Decryption failed:', err instanceof Error ? err.message : String(err));
+    return msg;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -269,7 +401,7 @@ function sendHydrationQueries(): void {
 // Message routing
 // ---------------------------------------------------------------------------
 
-function handleRelayMessage(data: string): void {
+async function handleRelayMessage(data: string): Promise<void> {
   let envelope: Record<string, unknown>;
   try {
     envelope = JSON.parse(data);
@@ -283,6 +415,9 @@ function handleRelayMessage(data: string): void {
     );
     return;
   }
+
+  // Decrypt if this is an encrypted envelope
+  envelope = await tryDecrypt(envelope);
 
   const type = String(envelope.type ?? 'conversation');
 
@@ -301,10 +436,9 @@ function handleRelayMessage(data: string): void {
     const peerStatus = String(envelope.status ?? 'unknown');
     client.emit('peerStatus', peerStatus);
 
-    // When peer connects, send key exchange (E2E setup)
-    // Note: browser-compatible sodium needed for real X25519 — wiring tracked separately
+    // When peer connects, initiate E2E key exchange
     if (peerStatus === 'active') {
-      console.log('[Bastion] Peer active — E2E key exchange requires browser sodium (tracked)');
+      sendKeyExchange();
     }
     return;
   }
@@ -315,9 +449,14 @@ function handleRelayMessage(data: string): void {
     return;
   }
 
-  // Key exchange — log receipt (E2E cipher setup requires browser-compatible sodium)
+  // Key exchange — derive session keys and create cipher
   if (type === 'key_exchange') {
-    console.log('[Bastion] Received peer key exchange — E2E session keys pending browser sodium wiring');
+    const pubKey = (envelope.payload as Record<string, unknown>)?.publicKey ?? envelope.publicKey;
+    if (pubKey && typeof pubKey === 'string') {
+      handlePeerKeyExchange(pubKey).catch((err) =>
+        console.error('[Bastion] Key exchange failed:', err instanceof Error ? err.message : String(err)),
+      );
+    }
     return;
   }
 

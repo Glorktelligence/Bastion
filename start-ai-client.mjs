@@ -187,7 +187,7 @@ async function handleKeyExchange(peerPublicKeyB64) {
 
   // AI client is the 'responder' role (human is 'initiator')
   const sessionKeys = await deriveSessionKeys('responder', ownKeyPair, peerPublicKey);
-  sessionCipher = await createSessionCipher(sessionKeys, randomUUID());
+  sessionCipher = await createSessionCipher(randomUUID(), sessionKeys);
   console.log('[✓] E2E session established — Double Ratchet active');
 }
 

@@ -3,18 +3,22 @@
 // See LICENSE file for full terms
 
 /**
- * Shared sodium initialisation helper.
+ * Shared sodium initialisation helper — works in both Node.js and browser.
  *
- * libsodium-wrappers-sumo v0.7.x has a broken ESM build that uses a
- * relative import for its WASM module. Under PNPM's strict symlink
- * layout this import fails. We use createRequire to load the working
- * CJS build instead.
+ * Loading strategy (ordered by preference):
+ *   1. Node.js CJS via createRequire — works under PNPM's strict symlinks
+ *      (the ESM build of libsodium-wrappers-sumo has a broken relative
+ *      import for its WASM module that fails with PNPM)
+ *   2. Dynamic ESM import — works in browser/Vite (Vite resolves and
+ *      bundles the WASM correctly)
+ *
+ * Call `ensureSodium()` (or `initCrypto()`) before any crypto operation.
+ * Both are idempotent and safe to call multiple times.
  */
 
-import { createRequire } from 'node:module';
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const require = createRequire(import.meta.url);
+// ---------------------------------------------------------------------------
+// SodiumLibrary interface (subset of libsodium-wrappers-sumo API)
+// ---------------------------------------------------------------------------
 
 interface SodiumLibrary {
   readonly ready: Promise<void>;
@@ -58,21 +62,89 @@ interface SodiumLibrary {
   from_hex(encoded: string): Uint8Array;
 }
 
-// Load the CJS build which works correctly under PNPM
-const sodium: SodiumLibrary = require('libsodium-wrappers-sumo') as SodiumLibrary;
+// ---------------------------------------------------------------------------
+// Module state
+// ---------------------------------------------------------------------------
 
-let ready = false;
+let sodium: SodiumLibrary | null = null;
+let initialised = false;
+
+// ---------------------------------------------------------------------------
+// Loading strategies
+// ---------------------------------------------------------------------------
 
 /**
- * Ensure sodium is initialised. Idempotent — safe to call multiple times.
- * Must be awaited before any sodium function call.
+ * Strategy 1: Node.js CJS via createRequire.
+ * Works under PNPM's strict symlink layout where the ESM build fails.
+ * Uses dynamic import of 'node:module' which is available in Node.js ESM.
+ */
+async function loadViaCjs(): Promise<SodiumLibrary | null> {
+  try {
+    // Dynamic import of node:module — only available in Node.js
+    const nodeModule = await import('node:module');
+    const req = nodeModule.createRequire(import.meta.url);
+    return req('libsodium-wrappers-sumo') as SodiumLibrary;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Strategy 2: Dynamic ESM import.
+ * Works in browser (Vite/webpack resolve and bundle the WASM correctly).
+ * May fail in Node.js with PNPM due to broken relative import in ESM build.
+ */
+async function loadViaEsm(): Promise<SodiumLibrary | null> {
+  try {
+    const mod = await import('libsodium-wrappers-sumo');
+    return (mod.default ?? mod) as SodiumLibrary;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Initialise the crypto subsystem. Must be called (and awaited) before
+ * any crypto operation. Idempotent — safe to call multiple times.
+ *
+ * Call this once at application startup:
+ *   - AI client: top of start-ai-client.mjs
+ *   - Human client: in session.ts before connect()
+ */
+export async function initCrypto(): Promise<void> {
+  if (initialised) return;
+
+  // Try CJS first (Node.js + PNPM), then ESM (browser)
+  sodium = await loadViaCjs();
+  if (!sodium) {
+    sodium = await loadViaEsm();
+  }
+
+  if (!sodium) {
+    throw new Error(
+      'Failed to load libsodium-wrappers-sumo. ' + 'Ensure the package is installed: pnpm add libsodium-wrappers-sumo',
+    );
+  }
+
+  await sodium.ready;
+  initialised = true;
+}
+
+/**
+ * Get the initialised sodium instance.
+ * Calls initCrypto() automatically if not yet initialised.
+ *
+ * @throws Error if sodium cannot be loaded
  */
 export async function ensureSodium(): Promise<SodiumLibrary> {
-  if (!ready) {
-    await sodium.ready;
-    ready = true;
+  if (!initialised || !sodium) {
+    await initCrypto();
   }
-  return sodium;
+  return sodium!;
 }
 
 export type { SodiumLibrary };
