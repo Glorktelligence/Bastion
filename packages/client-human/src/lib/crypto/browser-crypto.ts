@@ -17,7 +17,15 @@
  */
 
 import nacl from 'tweetnacl';
-import { decodeBase64, encodeBase64 } from 'tweetnacl-util';
+
+// Base64 helpers — built-in browser APIs, zero dependencies
+function encodeBase64(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes));
+}
+
+function decodeBase64(str: string): Uint8Array {
+  return Uint8Array.from(atob(str), (c) => c.charCodeAt(0));
+}
 
 // ---------------------------------------------------------------------------
 // Types
