@@ -329,18 +329,26 @@ function isTauri(): boolean {
 }
 
 export function getConfigStore(): ConfigStore {
-  if (!_instance) {
-    try {
-      if (isTauri()) {
-        _instance = new TauriConfigStore();
-      } else if (typeof globalThis.localStorage !== 'undefined') {
-        _instance = new BrowserConfigStore();
-      } else {
-        _instance = new InMemoryConfigStore();
-      }
-    } catch {
+  if (_instance) {
+    // If we cached an InMemoryConfigStore during SSR but are now in browser,
+    // discard it and create a BrowserConfigStore that reads localStorage.
+    if (_instance instanceof InMemoryConfigStore && typeof globalThis.localStorage !== 'undefined') {
+      _instance = null;
+    } else {
+      return _instance;
+    }
+  }
+
+  try {
+    if (isTauri()) {
+      _instance = new TauriConfigStore();
+    } else if (typeof globalThis.localStorage !== 'undefined') {
+      _instance = new BrowserConfigStore();
+    } else {
       _instance = new InMemoryConfigStore();
     }
+  } catch {
+    _instance = new InMemoryConfigStore();
   }
   return _instance;
 }

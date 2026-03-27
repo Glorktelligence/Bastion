@@ -8,4 +8,9 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
   },
+  optimizeDeps: {
+    // Pre-bundle libsodium so Vite resolves its internal ./libsodium-sumo.mjs
+    // import correctly under PNPM's strict symlink layout.
+    include: ['libsodium-wrappers-sumo'],
+  },
 });

@@ -177,6 +177,7 @@ export async function disconnect(): Promise<void> {
 
 let ownKeyPair: CryptoKeyPair | null = null;
 let sessionCipher: SessionCipher | null = null;
+let e2eAvailable = false;
 
 /** Messages that must stay plaintext — relay control or pre-key-exchange. */
 const PLAINTEXT_TYPES = new Set([
@@ -192,16 +193,28 @@ const PLAINTEXT_TYPES = new Set([
   'config_nack',
 ]);
 
-/** Initialise crypto and generate keypair. Called before connect. */
+/**
+ * Initialise crypto and generate keypair. Called before connect.
+ * Gracefully optional — if sodium can't load (browser compat issue),
+ * the client operates without E2E encryption (degraded mode).
+ */
 async function initE2E(): Promise<void> {
-  await initCrypto();
-  ownKeyPair = await generateKeyPair();
-  console.log('[Bastion] X25519 keypair generated');
+  try {
+    await initCrypto();
+    ownKeyPair = await generateKeyPair();
+    e2eAvailable = true;
+    console.log('[Bastion] X25519 keypair generated — E2E available');
+  } catch (err) {
+    e2eAvailable = false;
+    ownKeyPair = null;
+    console.warn('[Bastion] E2E unavailable — crypto init failed:', err instanceof Error ? err.message : String(err));
+    console.warn('[Bastion] Operating without E2E encryption (transport-only TLS)');
+  }
 }
 
-/** Send key_exchange message to peer. */
+/** Send key_exchange message to peer. No-op if E2E unavailable. */
 function sendKeyExchange(): void {
-  if (!client || !ownKeyPair) return;
+  if (!client || !ownKeyPair || !e2eAvailable) return;
   const sodium = ownKeyPair.publicKey;
   // Convert Uint8Array to base64 for JSON transport
   const pubKeyB64 = btoa(String.fromCharCode(...sodium));
@@ -219,7 +232,7 @@ function sendKeyExchange(): void {
 
 /** Handle incoming key_exchange — derive session keys and create cipher. */
 async function handlePeerKeyExchange(peerPublicKeyB64: string): Promise<void> {
-  if (!ownKeyPair) return;
+  if (!ownKeyPair || !e2eAvailable) return;
 
   // Decode base64 public key
   const raw = atob(peerPublicKeyB64);
