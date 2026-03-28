@@ -506,6 +506,7 @@ relay.on('message', async (data, info) => {
           name: e.name,
           version: e.version,
           messageTypes: e.messageTypes.map(mt => mt.name),
+          ui: e.ui || null,
         })),
         totalCount: exts.length,
       },

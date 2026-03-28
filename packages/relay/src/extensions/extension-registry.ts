@@ -39,6 +39,46 @@ export interface ExtensionMessageType {
   };
 }
 
+/** UI component size constraints. */
+export interface ExtensionUISize {
+  readonly minHeight: string;
+  readonly maxHeight: string;
+}
+
+/** Audit configuration for a UI component. */
+export interface ExtensionUIAudit {
+  readonly logRender: boolean;
+  readonly logInteractions: boolean;
+  readonly logEvent: string;
+}
+
+/** A UI component definition within an extension page. */
+export interface ExtensionUIComponent {
+  readonly id: string;
+  readonly name: string;
+  readonly file: string;
+  readonly description: string;
+  readonly function: string;
+  readonly messageTypes: readonly string[];
+  readonly size: ExtensionUISize;
+  readonly placement: 'main' | 'full-page' | 'sidebar' | 'settings-tab';
+  readonly dangerous: boolean;
+  readonly audit: ExtensionUIAudit;
+}
+
+/** A UI page grouping components. */
+export interface ExtensionUIPage {
+  readonly id: string;
+  readonly name: string;
+  readonly icon: string;
+  readonly components: readonly ExtensionUIComponent[];
+}
+
+/** UI manifest for an extension. */
+export interface ExtensionUI {
+  readonly pages: readonly ExtensionUIPage[];
+}
+
 /** A loaded and validated extension definition. */
 export interface ExtensionDefinition {
   readonly namespace: string;
@@ -48,6 +88,7 @@ export interface ExtensionDefinition {
   readonly author: string;
   readonly messageTypes: readonly ExtensionMessageType[];
   readonly dependencies?: readonly string[];
+  readonly ui?: ExtensionUI;
 }
 
 /** Result of loading an extension. */
@@ -226,6 +267,91 @@ export class ExtensionRegistry {
       });
     }
 
+    // Validate UI section if present
+    let validatedUI: ExtensionUI | undefined;
+    if (def.ui && typeof def.ui === 'object') {
+      const uiDef = def.ui as Record<string, unknown>;
+      const pages = uiDef.pages as Array<Record<string, unknown>> | undefined;
+      if (!pages || !Array.isArray(pages)) {
+        return { ok: false, error: `Extension Violation Detected — ui.pages must be an array in ${namespace}` };
+      }
+      const typeNames = new Set(validatedTypes.map((t) => `${namespace}:${t.name}`));
+      const validatedPages: ExtensionUIPage[] = [];
+      for (const page of pages) {
+        if (!page.id || !page.name || !page.icon || !Array.isArray(page.components)) {
+          return {
+            ok: false,
+            error: `Extension Violation Detected — ui.pages[] missing required fields in ${namespace}`,
+          };
+        }
+        const comps: ExtensionUIComponent[] = [];
+        for (const c of page.components as Array<Record<string, unknown>>) {
+          const requiredFields = [
+            'id',
+            'name',
+            'file',
+            'description',
+            'function',
+            'messageTypes',
+            'size',
+            'placement',
+            'audit',
+          ];
+          for (const f of requiredFields) {
+            if (c[f] === undefined || c[f] === null) {
+              return {
+                ok: false,
+                error: `Extension Violation Detected — ui component missing [${f}] in ${namespace}:${String(c.id ?? 'unknown')}`,
+              };
+            }
+          }
+          // Validate file path (no traversal)
+          const filePath = String(c.file);
+          if (filePath.includes('..') || filePath.startsWith('/') || filePath.startsWith('\\')) {
+            return {
+              ok: false,
+              error: `Extension Violation Detected — path traversal in ui component file: ${filePath}`,
+            };
+          }
+          // Validate messageTypes are owned by this extension
+          const compTypes = c.messageTypes as string[];
+          for (const mt of compTypes) {
+            if (!typeNames.has(mt)) {
+              return {
+                ok: false,
+                error: `Extension Violation Detected — ui component references unowned message type: ${mt}`,
+              };
+            }
+          }
+          const size = c.size as Record<string, string>;
+          const audit = c.audit as Record<string, unknown>;
+          comps.push({
+            id: String(c.id),
+            name: String(c.name),
+            file: filePath,
+            description: String(c.description),
+            function: String(c.function),
+            messageTypes: compTypes,
+            size: { minHeight: size.minHeight ?? '100px', maxHeight: size.maxHeight ?? '600px' },
+            placement: String(c.placement) as ExtensionUIComponent['placement'],
+            dangerous: Boolean(c.dangerous),
+            audit: {
+              logRender: Boolean(audit.logRender),
+              logInteractions: Boolean(audit.logInteractions),
+              logEvent: String(audit.logEvent ?? ''),
+            },
+          });
+        }
+        validatedPages.push({
+          id: String(page.id),
+          name: String(page.name),
+          icon: String(page.icon),
+          components: comps,
+        });
+      }
+      validatedUI = { pages: validatedPages };
+    }
+
     const extension: ExtensionDefinition = {
       namespace,
       name: def.name as string,
@@ -234,6 +360,7 @@ export class ExtensionRegistry {
       author: (def.author as string) ?? 'unknown',
       messageTypes: validatedTypes,
       dependencies: Array.isArray(def.dependencies) ? (def.dependencies as string[]) : undefined,
+      ui: validatedUI,
     };
 
     this.extensions.set(namespace, extension);

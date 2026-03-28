@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: system-ui; color: #e0e0e0; background: transparent; padding: 12px; margin: 0; }
+    h3 { font-size: 14px; margin: 0 0 8px; color: #4a9eff; }
+    .form-group { margin-bottom: 8px; }
+    label { display: block; font-size: 12px; color: #888; margin-bottom: 2px; }
+    textarea, input { width: 100%; padding: 6px 8px; border: 1px solid #2a2a4a; border-radius: 4px; background: #0f0f23; color: #e0e0e0; font-size: 13px; box-sizing: border-box; }
+    textarea { resize: vertical; min-height: 60px; }
+    button { padding: 6px 16px; border: none; border-radius: 4px; background: #4a9eff; color: #fff; font-size: 13px; cursor: pointer; }
+    button:hover { opacity: 0.9; }
+    .status { font-size: 11px; color: #22c55e; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <h3>Submit Turn</h3>
+  <div class="form-group">
+    <label>Turn Number</label>
+    <input type="number" id="turnNum" value="1" min="1" />
+  </div>
+  <div class="form-group">
+    <label>Actions (one per line)</label>
+    <textarea id="actions" placeholder="Move fleet to sector 7&#10;Build refinery on Titan"></textarea>
+  </div>
+  <button onclick="submitTurn()">Submit Turn</button>
+  <div class="status" id="status"></div>
+
+  <script>
+    // This script uses the injected window.bastion bridge
+    function submitTurn() {
+      var turnNum = parseInt(document.getElementById('turnNum').value, 10);
+      var actions = document.getElementById('actions').value.split('\n').filter(function(a) { return a.trim(); });
+      if (actions.length === 0) return;
+
+      // Send through Bastion's extension message bridge
+      window.bastion.send('game:turn_submit', {
+        turnNumber: turnNum,
+        actions: actions
+      });
+
+      document.getElementById('status').textContent = 'Turn ' + turnNum + ' submitted (' + actions.length + ' actions)';
+      document.getElementById('turnNum').value = turnNum + 1;
+      document.getElementById('actions').value = '';
+    }
+  </script>
+</body>
+</html>

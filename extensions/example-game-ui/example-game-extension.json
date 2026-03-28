@@ -1,0 +1,74 @@
+{
+  "_example": true,
+  "_description": "Example extension with UI — not loaded in production. Shows extension authors the pattern for declaring UI components.",
+  "namespace": "game",
+  "name": "Example Game Extension",
+  "version": "0.1.0",
+  "description": "Demonstrates extension UI system with turn submission and results display",
+  "author": "Bastion Project",
+  "messageTypes": [
+    {
+      "name": "turn_submit",
+      "description": "Submit a game turn with actions",
+      "fields": {
+        "turnNumber": { "type": "number", "required": true, "description": "Current turn number" },
+        "actions": { "type": "array", "required": true, "description": "Array of turn actions" }
+      },
+      "safety": "task",
+      "audit": { "logEvent": "game_turn_submitted", "logContent": false }
+    },
+    {
+      "name": "turn_result",
+      "description": "Results of a processed game turn",
+      "fields": {
+        "turnNumber": { "type": "number", "required": true, "description": "Processed turn number" },
+        "outcomes": { "type": "array", "required": true, "description": "Turn outcomes" }
+      },
+      "safety": "passthrough",
+      "audit": { "logEvent": "game_turn_result", "logContent": false }
+    }
+  ],
+  "ui": {
+    "pages": [
+      {
+        "id": "game-main",
+        "name": "Game",
+        "icon": "sword",
+        "components": [
+          {
+            "id": "turn-submit",
+            "name": "Turn Submission Form",
+            "file": "ui/turn-submit.html",
+            "description": "Compose and submit turn actions",
+            "function": "game:turn_submit composer",
+            "messageTypes": ["game:turn_submit"],
+            "size": { "minHeight": "200px", "maxHeight": "600px" },
+            "placement": "main",
+            "dangerous": false,
+            "audit": {
+              "logRender": true,
+              "logInteractions": true,
+              "logEvent": "ext_ui_turn_submit"
+            }
+          },
+          {
+            "id": "turn-results",
+            "name": "Turn Results Display",
+            "file": "ui/turn-results.html",
+            "description": "Display processed turn outcomes",
+            "function": "game:turn_result viewer",
+            "messageTypes": ["game:turn_result"],
+            "size": { "minHeight": "150px", "maxHeight": "400px" },
+            "placement": "main",
+            "dangerous": false,
+            "audit": {
+              "logRender": true,
+              "logInteractions": false,
+              "logEvent": "ext_ui_turn_results"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

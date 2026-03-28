@@ -955,6 +955,7 @@ function handleRelayMessage(data: string): void {
         name: string;
         version: string;
         messageTypes?: readonly string[];
+        ui?: Record<string, unknown> | null;
       }>) ?? [];
     extensions.setExtensions(
       exts.map((e) => ({
@@ -962,6 +963,7 @@ function handleRelayMessage(data: string): void {
         name: e.name,
         version: e.version,
         messageTypes: e.messageTypes ?? [],
+        ui: (e.ui as ExtensionInfo['ui']) ?? null,
       })),
     );
     return;

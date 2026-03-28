@@ -17,11 +17,35 @@ import { derived, writable } from '../store.js';
 // Types
 // ---------------------------------------------------------------------------
 
+export interface ExtensionUIComponentInfo {
+  readonly id: string;
+  readonly name: string;
+  readonly file: string;
+  readonly description: string;
+  readonly function: string;
+  readonly messageTypes: readonly string[];
+  readonly size: { minHeight: string; maxHeight: string };
+  readonly placement: 'main' | 'full-page' | 'sidebar' | 'settings-tab';
+  readonly dangerous: boolean;
+}
+
+export interface ExtensionUIPageInfo {
+  readonly id: string;
+  readonly name: string;
+  readonly icon: string;
+  readonly components: readonly ExtensionUIComponentInfo[];
+}
+
+export interface ExtensionUIInfo {
+  readonly pages: readonly ExtensionUIPageInfo[];
+}
+
 export interface ExtensionInfo {
   readonly namespace: string;
   readonly name: string;
   readonly version: string;
   readonly messageTypes: readonly string[];
+  readonly ui?: ExtensionUIInfo | null;
 }
 
 export interface ExtensionsStoreState {
@@ -36,6 +60,7 @@ export interface ExtensionsStore {
   readonly store: Writable<ExtensionsStoreState>;
   readonly totalCount: Readable<number>;
   readonly totalMessageTypes: Readable<number>;
+  readonly extensionsWithUI: Readable<readonly ExtensionInfo[]>;
   setExtensions(exts: readonly ExtensionInfo[]): void;
   clear(): void;
 }
@@ -45,11 +70,13 @@ export function createExtensionsStore(): ExtensionsStore {
 
   const totalCount = derived([store], ([s]) => s.extensions.length);
   const totalMessageTypes = derived([store], ([s]) => s.extensions.reduce((sum, e) => sum + e.messageTypes.length, 0));
+  const extensionsWithUI = derived([store], ([s]) => s.extensions.filter((e) => e.ui && e.ui.pages.length > 0));
 
   return {
     store,
     totalCount,
     totalMessageTypes,
+    extensionsWithUI,
     setExtensions(exts: readonly ExtensionInfo[]): void {
       store.set({ extensions: exts });
     },

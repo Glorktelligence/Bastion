@@ -222,4 +222,9 @@ export type {
   ExtensionMessageType,
   ExtensionSafetyLevel,
   ExtensionLoadResult,
+  ExtensionUI,
+  ExtensionUIPage,
+  ExtensionUIComponent,
+  ExtensionUISize,
+  ExtensionUIAudit,
 } from './extensions/extension-registry.js';

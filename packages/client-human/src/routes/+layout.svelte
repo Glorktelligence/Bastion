@@ -28,6 +28,7 @@ let showArchived = $state(false);
 let showNewForm = $state(false);
 let newConvName = $state('');
 let newConvType = $state('normal');
+let extensionPages = $state([]);
 
 let unsubs = [];
 
@@ -38,6 +39,9 @@ $effect(() => {
 	}));
 	unsubs.push(session.conversations.archivedConversations.subscribe((a) => {
 		archivedConvs = a;
+	}));
+	unsubs.push(session.extensions.extensionsWithUI.subscribe((exts) => {
+		extensionPages = exts.flatMap((e) => (e.ui?.pages ?? []).map((p) => ({ namespace: e.namespace, pageId: p.id, name: p.name, icon: p.icon })));
 	}));
 	return () => { for (const u of unsubs) u(); unsubs = []; };
 });
@@ -161,6 +165,16 @@ function relativeTime(iso) {
 			<a href="/challenges" class="nav-item" class:active={page.url.pathname === '/challenges'}>Challenges</a>
 			<a href="/audit" class="nav-item" class:active={page.url.pathname === '/audit'}>Audit Log</a>
 			<a href="/settings" class="nav-item" class:active={page.url.pathname === '/settings'}>Settings</a>
+
+			{#if extensionPages.length > 0}
+				<div class="nav-separator"></div>
+				{#each extensionPages as ep}
+					<a href="/extensions/{ep.namespace}" class="nav-item nav-ext" class:active={page.url.pathname === `/extensions/${ep.namespace}`}>
+						<span class="nav-ext-icon">{ep.icon === 'sword' ? '⚔️' : ep.icon === 'game' ? '🎮' : '🧩'}</span>
+						{ep.name}
+					</a>
+				{/each}
+			{/if}
 		</nav>
 	</aside>
 	<main class="main-area">
@@ -239,5 +253,8 @@ function relativeTime(iso) {
 		text-decoration: none; color: var(--color-text-muted); font-size: 0.875rem;
 	}
 	.nav-item:hover, .nav-item.active { background: var(--color-border); color: var(--color-text); }
+	.nav-separator { height: 1px; background: var(--color-border); margin: 0.375rem 0.75rem; }
+	.nav-ext { display: flex; align-items: center; gap: 0.375rem; }
+	.nav-ext-icon { font-size: 0.8rem; }
 	.main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 </style>
