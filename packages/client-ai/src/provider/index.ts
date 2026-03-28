@@ -29,6 +29,8 @@ export { createAnthropicAdapter } from './anthropic-adapter.js';
 export type {
   AnthropicAdapter,
   AnthropicAdapterConfig,
+  AnthropicAdapterOptions,
+  StreamChunkCallback,
   AnthropicTextBlock,
   AnthropicToolUseBlock,
   AnthropicContentBlock,

@@ -919,6 +919,22 @@ function handleRelayMessage(data: string): void {
     return;
   }
 
+  // Conversation stream → append streaming chunk to conversations store
+  if (type === 'conversation_stream') {
+    const p = payload as Record<string, unknown>;
+    const convId = String(p.conversationId ?? '');
+    const chunk = String(p.chunk ?? '');
+    const isFinal = Boolean(p.final);
+
+    if (isFinal) {
+      // Final marker — clear streaming, the complete message follows
+      conversations.clearStreaming();
+    } else if (chunk && convId) {
+      conversations.appendStreamChunk(convId, chunk);
+    }
+    return;
+  }
+
   // Conversation compact ack → toast notification
   if (type === 'conversation_compact_ack') {
     const p = payload as Record<string, unknown>;

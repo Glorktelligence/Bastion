@@ -594,6 +594,13 @@ export const ConversationCompactPayloadSchema = z.object({
   conversationId: z.string().min(1),
 });
 
+export const ConversationStreamPayloadSchema = z.object({
+  conversationId: z.string().min(1),
+  chunk: z.string(),
+  index: z.number().int().nonnegative(),
+  final: z.boolean(),
+});
+
 export const ConversationCompactAckPayloadSchema = z.object({
   conversationId: z.string().min(1),
   summaryPreview: z.string(),
@@ -681,4 +688,5 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.CONVERSATION_DELETE]: ConversationDeletePayloadSchema,
   [MESSAGE_TYPES.CONVERSATION_COMPACT]: ConversationCompactPayloadSchema,
   [MESSAGE_TYPES.CONVERSATION_COMPACT_ACK]: ConversationCompactAckPayloadSchema,
+  [MESSAGE_TYPES.CONVERSATION_STREAM]: ConversationStreamPayloadSchema,
 } as const;

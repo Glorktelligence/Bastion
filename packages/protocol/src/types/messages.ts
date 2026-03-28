@@ -678,6 +678,14 @@ export interface ConversationDeletePayload {
   readonly conversationId: string;
 }
 
+/** AI → Human: Streaming text chunk during response generation. */
+export interface ConversationStreamPayload {
+  readonly conversationId: string;
+  readonly chunk: string;
+  readonly index: number;
+  readonly final: boolean;
+}
+
 /** Human → AI: Manual compaction trigger. */
 export interface ConversationCompactPayload {
   readonly conversationId: string;
@@ -764,4 +772,5 @@ export type MessagePayload =
   | { type: 'conversation_archive'; payload: ConversationArchivePayload }
   | { type: 'conversation_delete'; payload: ConversationDeletePayload }
   | { type: 'conversation_compact'; payload: ConversationCompactPayload }
-  | { type: 'conversation_compact_ack'; payload: ConversationCompactAckPayload };
+  | { type: 'conversation_compact_ack'; payload: ConversationCompactAckPayload }
+  | { type: 'conversation_stream'; payload: ConversationStreamPayload };

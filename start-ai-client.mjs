@@ -44,6 +44,7 @@ const API_VERSION = process.env.BASTION_API_VERSION || '2023-06-01';
 const API_TIMEOUT = parseInt(process.env.BASTION_TIMEOUT || '120000', 10);
 const PRICING_INPUT = parseFloat(process.env.BASTION_PRICING_INPUT || '3');
 const PRICING_OUTPUT = parseFloat(process.env.BASTION_PRICING_OUTPUT || '15');
+const STREAMING_ENABLED = process.env.BASTION_STREAMING !== 'false';
 const COMPACTION_MODEL = process.env.BASTION_COMPACTION_MODEL || MODEL;
 const COMPACTION_PRICING_INPUT = parseFloat(process.env.BASTION_COMPACTION_PRICING_INPUT || String(PRICING_INPUT));
 const COMPACTION_PRICING_OUTPUT = parseFloat(process.env.BASTION_COMPACTION_PRICING_OUTPUT || String(PRICING_OUTPUT));
@@ -1355,6 +1356,19 @@ client.on('message', async (data) => {
     console.log(`[~] Calling ${selectedAdapter.activeModel} (${adapterReason})...`);
 
     try {
+      // Streaming: send chunks to human client in real-time
+      let streamChunkIndex = 0;
+      const onChunk = STREAMING_ENABLED ? (chunk, index) => {
+        client.send(JSON.stringify({
+          type: 'conversation_stream',
+          id: randomUUID(),
+          timestamp: new Date().toISOString(),
+          sender: IDENTITY,
+          payload: { conversationId: activeConversationId || '', chunk, index, final: false },
+        }));
+        streamChunkIndex = index;
+      } : undefined;
+
       // Use the registry-selected adapter with conversation context
       const result = await selectedAdapter.executeTask({
         taskId: msg.id || randomUUID(),
@@ -1366,17 +1380,29 @@ client.on('message', async (data) => {
           _conversationHistory: conversationManager.getMessages(),
         },
         constraints: [],
-      });
+      }, STREAMING_ENABLED ? { streaming: true, onChunk } : undefined);
 
       if (result.ok) {
         const responseText = result.response.textContent;
         const cost = result.response.cost;
 
+        // Send final stream chunk marker if streaming was active
+        if (STREAMING_ENABLED && streamChunkIndex > 0) {
+          client.send(JSON.stringify({
+            type: 'conversation_stream',
+            id: randomUUID(),
+            timestamp: new Date().toISOString(),
+            sender: IDENTITY,
+            payload: { conversationId: activeConversationId || '', chunk: '', index: streamChunkIndex + 1, final: true },
+          }));
+        }
+
         // Add to conversation buffer and persist
         conversationManager.addAssistantMessage(responseText);
         persistMessage('assistant', 'conversation', responseText);
 
-        console.log(`[✓] API response (${result.response.usage.inputTokens}in/${result.response.usage.outputTokens}out, $${cost.estimatedCostUsd.toFixed(4)})`);
+        const streamLabel = STREAMING_ENABLED && streamChunkIndex > 0 ? ` (${streamChunkIndex + 1} chunks streamed)` : '';
+        console.log(`[✓] API response (${result.response.usage.inputTokens}in/${result.response.usage.outputTokens}out, $${cost.estimatedCostUsd.toFixed(4)})${streamLabel}`);
         console.log(`[→] Claude: ${responseText.substring(0, 100)}${responseText.length > 100 ? '...' : ''}`);
 
         // Record web search usage if any (from server_tool_use in response)
@@ -1399,7 +1425,7 @@ client.on('message', async (data) => {
           sendBudgetStatus();
         }
 
-        // Send response back through the relay (encrypted if E2E active)
+        // Send final complete response (for persistence + non-streaming clients)
         const responseEnvelope = {
           type: 'conversation',
           id: randomUUID(),

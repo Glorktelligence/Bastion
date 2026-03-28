@@ -692,6 +692,24 @@ relay.on('message', async (data, info) => {
   }
 
   // ----- conversation_* messages: forward between paired clients with audit -----
+  // ----- conversation_stream: forward streaming chunks (low-overhead, no per-chunk audit) -----
+  if (msg.type === 'conversation_stream') {
+    const peerId = router.getPeer(connId);
+    if (peerId) {
+      relay.send(peerId, data);
+      // Only audit stream start/end — not every chunk (too noisy)
+      const p = msg.payload || msg;
+      if (p.index === 0) {
+        const sid = sessionIds.get(connId);
+        if (sid) auditLogger.logEvent('stream_started', sid, { conversationId: p.conversationId });
+      } else if (p.final) {
+        const sid = sessionIds.get(connId);
+        if (sid) auditLogger.logEvent('stream_completed', sid, { conversationId: p.conversationId, chunks: p.index });
+      }
+    }
+    return;
+  }
+
   if (msg.type === 'conversation_list' || msg.type === 'conversation_list_response' || msg.type === 'conversation_create' || msg.type === 'conversation_create_ack' || msg.type === 'conversation_switch' || msg.type === 'conversation_switch_ack' || msg.type === 'conversation_history' || msg.type === 'conversation_history_response' || msg.type === 'conversation_archive' || msg.type === 'conversation_delete' || msg.type === 'conversation_compact' || msg.type === 'conversation_compact_ack') {
     const peerId = router.getPeer(connId);
     if (peerId) {

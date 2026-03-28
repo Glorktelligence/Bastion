@@ -307,6 +307,7 @@ function validPayloads() {
     conversation_delete: { conversationId: crypto.randomUUID() },
     conversation_compact: { conversationId: crypto.randomUUID() },
     conversation_compact_ack: { conversationId: crypto.randomUUID(), summaryPreview: 'Key decisions: chose SQLite...', messagesCovered: 25, tokensSaved: 3000 },
+    conversation_stream: { conversationId: crypto.randomUUID(), chunk: 'Hello, ', index: 0, final: false },
   };
 }
 
@@ -396,8 +397,8 @@ async function run() {
         break;
       }
     }
-    check('all 69 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 69 entries', ALL_MESSAGE_TYPES.length === 69);
+    check('all 70 message types accepted in envelope', allTypesValid);
+    check('ALL_MESSAGE_TYPES has 69 entries', ALL_MESSAGE_TYPES.length === 70);
   }
   console.log();
 
@@ -433,8 +434,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 69 entries', typeKeys.length === 69);
-    check('PAYLOAD_SCHEMAS has 69 entries', Object.keys(PAYLOAD_SCHEMAS).length === 69);
+    check('MESSAGE_TYPES has 69 entries', typeKeys.length === 70);
+    check('PAYLOAD_SCHEMAS has 69 entries', Object.keys(PAYLOAD_SCHEMAS).length === 70);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -846,7 +847,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 69 message types survive serialisation round-trip', allPassed);
+    check('all 70 message types survive serialisation round-trip', allPassed);
   }
   console.log();
 

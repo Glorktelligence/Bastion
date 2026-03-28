@@ -42,6 +42,8 @@ let activeConv: ConversationEntry | null = $state(null);
 let convMessages: ConversationMessage[] = $state([]);
 let hasMoreHistory = $state(false);
 let loadingHistory = $state(false);
+let streamingContent = $state('');
+let isStreaming = $state(false);
 let showConvActions = $state(false);
 let deleteConfirm = $state(false);
 
@@ -62,7 +64,7 @@ $effect(() => {
 	unsubs.push(session.notifications.subscribe((v) => { toasts = [...v]; }));
 	unsubs.push(session.provider.store.subscribe((v) => { providerName = v.provider?.providerName ?? ''; providerActive = v.provider?.status === 'active'; providerModel = v.provider?.model ?? ''; }));
 	unsubs.push(session.conversations.activeConversation.subscribe((v) => { activeConv = v; }));
-	unsubs.push(session.conversations.store.subscribe((v) => { convMessages = [...v.activeMessages]; hasMoreHistory = v.hasMoreHistory; loadingHistory = v.loadingHistory; }));
+	unsubs.push(session.conversations.store.subscribe((v) => { convMessages = [...v.activeMessages]; hasMoreHistory = v.hasMoreHistory; loadingHistory = v.loadingHistory; isStreaming = v.streaming !== null; streamingContent = v.streaming?.content ?? ''; }));
 
 	return () => {
 		for (const u of unsubs) u();
@@ -362,6 +364,15 @@ function handleChallengeCancel(): void {
 
 		<MessageList {messages} />
 
+		{#if isStreaming}
+			<div class="streaming-indicator">
+				<div class="streaming-bubble">
+					<span class="streaming-sender">Claude</span>
+					<span class="streaming-text">{streamingContent}<span class="streaming-cursor">|</span></span>
+				</div>
+			</div>
+		{/if}
+
 		<InputBar
 			disabled={!isConnected}
 			onSendConversation={handleSendConversation}
@@ -490,6 +501,20 @@ function handleChallengeCancel(): void {
 	}
 	.load-more-btn:hover { background: var(--color-border); color: var(--color-text); }
 	.load-more-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+	/* ---------- streaming indicator ---------- */
+	.streaming-indicator { padding: 0 1rem 0.25rem; }
+	.streaming-bubble {
+		background: var(--color-surface); border: 1px solid var(--color-border);
+		border-radius: 0.5rem; padding: 0.5rem 0.75rem; max-width: 80%;
+	}
+	.streaming-sender { font-size: 0.7rem; color: var(--color-accent); font-weight: 500; display: block; margin-bottom: 0.2rem; }
+	.streaming-text { font-size: 0.85rem; color: var(--color-text); white-space: pre-wrap; }
+	.streaming-cursor {
+		display: inline-block; animation: blink 0.7s infinite;
+		color: var(--color-accent); font-weight: 300;
+	}
+	@keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
 
 	/* ---------- toast notifications ---------- */
 	.toast-bar {

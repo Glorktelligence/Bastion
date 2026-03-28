@@ -108,6 +108,7 @@ export type {
   ConversationDeletePayload,
   ConversationCompactPayload,
   ConversationCompactAckPayload,
+  ConversationStreamPayload,
   MessagePayload,
 } from './types/messages.js';
 
@@ -273,6 +274,7 @@ export {
   ConversationDeletePayloadSchema,
   ConversationCompactPayloadSchema,
   ConversationCompactAckPayloadSchema,
+  ConversationStreamPayloadSchema,
   PAYLOAD_SCHEMAS,
 } from './schemas/message.schema.js';
 

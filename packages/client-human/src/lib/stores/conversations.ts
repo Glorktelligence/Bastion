@@ -43,12 +43,19 @@ export interface ConversationMessage {
   readonly payload?: unknown;
 }
 
+export interface StreamingMessage {
+  readonly conversationId: string;
+  content: string;
+  readonly isStreaming: boolean;
+}
+
 export interface ConversationsStoreState {
   readonly conversations: readonly ConversationEntry[];
   readonly activeConversationId: string | null;
   readonly activeMessages: readonly ConversationMessage[];
   readonly loadingHistory: boolean;
   readonly hasMoreHistory: boolean;
+  readonly streaming: StreamingMessage | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -68,6 +75,8 @@ export interface ConversationsStore {
   updateConversation(id: string, updates: Partial<ConversationEntry>): void;
   removeConversation(id: string): void;
   setLoadingHistory(loading: boolean): void;
+  appendStreamChunk(conversationId: string, chunk: string): void;
+  clearStreaming(): void;
   clear(): void;
 }
 
@@ -78,6 +87,7 @@ export function createConversationsStore(): ConversationsStore {
     activeMessages: [],
     loadingHistory: false,
     hasMoreHistory: false,
+    streaming: null,
   });
 
   const activeConversation = derived(
@@ -165,6 +175,20 @@ export function createConversationsStore(): ConversationsStore {
       store.update((s) => ({ ...s, loadingHistory: loading }));
     },
 
+    appendStreamChunk(conversationId, chunk) {
+      store.update((s) => {
+        const existing = s.streaming;
+        if (existing && existing.conversationId === conversationId) {
+          return { ...s, streaming: { ...existing, content: existing.content + chunk } };
+        }
+        return { ...s, streaming: { conversationId, content: chunk, isStreaming: true } };
+      });
+    },
+
+    clearStreaming() {
+      store.update((s) => ({ ...s, streaming: null }));
+    },
+
     clear() {
       store.set({
         conversations: [],
@@ -172,6 +196,7 @@ export function createConversationsStore(): ConversationsStore {
         activeMessages: [],
         loadingHistory: false,
         hasMoreHistory: false,
+        streaming: null,
       });
     },
   };

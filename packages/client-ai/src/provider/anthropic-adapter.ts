@@ -114,10 +114,19 @@ export type FetchFn = (
   json(): Promise<unknown>;
 }>;
 
+/** Callback for streaming text chunks. */
+export type StreamChunkCallback = (chunk: string, index: number) => void;
+
+/** Extended adapter options for Anthropic (adds onChunk for streaming). */
+export interface AnthropicAdapterOptions extends AdapterOptions {
+  /** Callback for each streaming text chunk. If provided and streaming=true, chunks are emitted. */
+  readonly onChunk?: StreamChunkCallback;
+}
+
 /** The Anthropic adapter interface — extends ProviderAdapter. */
 export interface AnthropicAdapter extends ProviderAdapter {
   /** Execute a task with optional per-call overrides. */
-  executeTask(task: TaskPayload, options?: AdapterOptions): Promise<AdapterResult>;
+  executeTask(task: TaskPayload, options?: AnthropicAdapterOptions): Promise<AdapterResult>;
   /** Test API connectivity. */
   testConnection(apiKey?: string): Promise<boolean>;
 }
@@ -341,6 +350,128 @@ export function createAnthropicAdapter(
     }
   }
 
+  /**
+   * Make a streaming API call. Parses Anthropic SSE events and emits text deltas.
+   * Returns the final complete AdapterResult.
+   */
+  async function callApiStreaming(
+    body: Record<string, unknown>,
+    apiKey: string,
+    onChunk: StreamChunkCallback,
+  ): Promise<AdapterResult> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await (globalThis.fetch as (...args: unknown[]) => Promise<Response>)(`${baseUrl}/v1/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': version,
+        },
+        body: JSON.stringify({ ...body, stream: true }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        return mapHttpError(response.status, errText);
+      }
+
+      // Parse SSE stream
+      let textContent = '';
+      let chunkIndex = 0;
+      let inputTokens = 0;
+      let outputTokens = 0;
+      let stopReason = 'end_turn';
+      let model = String(body.model ?? config.model);
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        return callApi(body, apiKey); // Fallback to non-streaming
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6).trim();
+          if (data === '[DONE]') continue;
+
+          try {
+            const event = JSON.parse(data) as Record<string, unknown>;
+            const eventType = String(event.type ?? '');
+
+            if (eventType === 'message_start') {
+              const msg = event.message as Record<string, unknown>;
+              model = String(msg?.model ?? model);
+              const usage = msg?.usage as Record<string, number> | undefined;
+              if (usage) inputTokens = usage.input_tokens ?? 0;
+            } else if (eventType === 'content_block_delta') {
+              const delta = event.delta as Record<string, unknown>;
+              if (delta?.type === 'text_delta') {
+                const text = String(delta.text ?? '');
+                textContent += text;
+                onChunk(text, chunkIndex++);
+              }
+            } else if (eventType === 'message_delta') {
+              const delta = event.delta as Record<string, unknown>;
+              stopReason = String(delta?.stop_reason ?? stopReason);
+              const usage = event.usage as Record<string, number> | undefined;
+              if (usage) outputTokens = usage.output_tokens ?? 0;
+            }
+          } catch {
+            // Skip malformed SSE events
+          }
+        }
+      }
+
+      const cost = {
+        inputTokens,
+        outputTokens,
+        estimatedCostUsd: inputTokens * inputRate + outputTokens * outputRate,
+      };
+
+      return {
+        ok: true,
+        response: {
+          textContent,
+          stopReason,
+          usage: { inputTokens, outputTokens },
+          cost,
+          model,
+        },
+      };
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        return {
+          ok: false,
+          errorCode: ERROR_CODES.PROVIDER_TIMEOUT,
+          message: `Request timed out after ${timeoutMs}ms`,
+          retryable: true,
+        };
+      }
+      return {
+        ok: false,
+        errorCode: ERROR_CODES.PROVIDER_UNAVAILABLE,
+        message: err instanceof Error ? err.message : String(err),
+        retryable: true,
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   return {
     providerId: adapterProviderId,
     providerName: adapterProviderName,
@@ -351,7 +482,7 @@ export function createAnthropicAdapter(
       conversation: true,
       taskExecution: true,
       fileTransfer: true,
-      streaming: false,
+      streaming: true,
       webSearch: true,
       toolUse: true,
       vision: true,
@@ -363,7 +494,7 @@ export function createAnthropicAdapter(
       return { inputPerMTok: inputRatePerMTok, outputPerMTok: outputRatePerMTok };
     },
 
-    async executeTask(task: TaskPayload, options?: AdapterOptions): Promise<AdapterResult> {
+    async executeTask(task: TaskPayload, options?: AnthropicAdapterOptions): Promise<AdapterResult> {
       const apiKey = keyManager.getKey();
       if (!apiKey) {
         return {
@@ -402,6 +533,11 @@ export function createAnthropicAdapter(
 
       if (tools.length > 0) {
         requestBody.tools = tools;
+      }
+
+      // Use streaming if requested and onChunk callback provided
+      if (options?.streaming && options?.onChunk) {
+        return callApiStreaming(requestBody, apiKey, options.onChunk);
       }
 
       return callApi(requestBody, apiKey);
