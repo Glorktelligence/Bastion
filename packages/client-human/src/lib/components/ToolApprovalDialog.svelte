@@ -39,6 +39,7 @@ function handleApprove(): void {
     trustLevel,
     scope: scopeLocked ? 'this_call' : scope,
     approvedAt: new Date().toISOString(),
+    conversationId: session.conversations.store.get().activeConversationId ?? undefined,
   });
   session.tools.setPendingRequest(null);
 }

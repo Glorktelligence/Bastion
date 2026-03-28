@@ -32,6 +32,7 @@ export interface ApprovedTool {
   readonly trustLevel: number;
   readonly scope: 'this_call' | 'session';
   readonly approvedAt: string;
+  readonly conversationId?: string;
 }
 
 export interface ToolResult {

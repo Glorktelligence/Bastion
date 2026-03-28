@@ -530,7 +530,8 @@ function handleContextSave(): void {
 	</section>
 
 	<section class="section">
-		<h3>Active Tools <span class="mem-count">{approvedTools.length} approved this session</span></h3>
+		<h3>Active Tools <span class="mem-count">{approvedTools.length} approved (this conversation)</span></h3>
+		<p class="hint">Tool approvals are per-conversation. Switching conversations starts with fresh trust.</p>
 		{#if approvedTools.length > 0}
 			<div class="memory-list">
 				{#each approvedTools as tool}

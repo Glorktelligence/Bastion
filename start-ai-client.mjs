@@ -366,6 +366,8 @@ async function sendSecure(envelope) {
 // ---------------------------------------------------------------------------
 
 const toolRegistry = new ToolRegistryManager();
+// Sync tool trust scope to the active conversation
+toolRegistry.setActiveConversation(activeConversationId);
 const mcpAdapters = new Map(); // providerId → McpClientAdapter
 const pendingToolRequests = new Map(); // requestId → { toolId, params, resolve, reject }
 
@@ -879,9 +881,10 @@ client.on('message', async (data) => {
   if (msg.type === 'conversation_create') {
     const p = msg.payload || msg;
     const conv = conversationStore.createConversation(p.name, p.type);
-    // Switch to the new conversation
+    // Switch to the new conversation (fresh trust scope)
     activeConversationId = conv.id;
     conversationStore.setActiveConversation(conv.id);
+    toolRegistry.setActiveConversation(conv.id);
     conversationManager.clear();
     client.send(JSON.stringify({
       type: 'conversation_create_ack', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
@@ -900,9 +903,10 @@ client.on('message', async (data) => {
       client.send(JSON.stringify({ type: 'error', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY, payload: { code: 'BASTION-3001', message: `Conversation not found: ${targetId}` } }));
       return;
     }
-    // Switch: clear buffer, load target's recent messages
+    // Switch: update active conversation, sync trust scope, clear buffer
     activeConversationId = targetId;
     conversationStore.setActiveConversation(targetId);
+    toolRegistry.setActiveConversation(targetId);
     conversationManager.clear();
     const recent = conversationStore.getRecentMessages(targetId, 50);
     for (const m of recent) {

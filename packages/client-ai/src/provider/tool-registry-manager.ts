@@ -57,7 +57,10 @@ export interface SessionTrust {
 export class ToolRegistryManager {
   private providers: Map<string, ToolProvider> = new Map();
   private allTools: Map<string, RegisteredTool> = new Map();
-  private sessionTrusts: Map<string, SessionTrust> = new Map();
+  /** Per-conversation trust: conversationId → Map<toolId, SessionTrust>. */
+  private conversationTrusts: Map<string, Map<string, SessionTrust>> = new Map();
+  /** Active conversation ID for trust lookups. */
+  private activeConversationId: string | null = null;
   private _registryHash = '';
 
   /** Current registry hash (SHA-256 of serialised registry). */
@@ -184,8 +187,29 @@ export class ToolRegistryManager {
   }
 
   // -----------------------------------------------------------------------
-  // Session trust
+  // Conversation-scoped session trust
   // -----------------------------------------------------------------------
+
+  /** Set the active conversation for trust lookups. */
+  setActiveConversation(conversationId: string | null): void {
+    this.activeConversationId = conversationId;
+  }
+
+  /** Get the active conversation ID. */
+  getActiveConversation(): string | null {
+    return this.activeConversationId;
+  }
+
+  /** Get or create the trust map for a conversation. */
+  private getTrustMap(conversationId?: string | null): Map<string, SessionTrust> {
+    const id = conversationId ?? this.activeConversationId ?? '__global__';
+    let map = this.conversationTrusts.get(id);
+    if (!map) {
+      map = new Map();
+      this.conversationTrusts.set(id, map);
+    }
+    return map;
+  }
 
   /**
    * Check if a tool call should be auto-approved based on session trust.
@@ -194,20 +218,22 @@ export class ToolRegistryManager {
    * - Read-only tools with trustLevel >= 4 and scope=session: auto-approve
    * - Write/destructive tools: NEVER auto-approve (always per-call)
    * - Dangerous tools: NEVER auto-approve (always per-call)
+   *
+   * Trust is scoped to the active conversation.
    */
   shouldAutoApprove(toolId: string): boolean {
-    const trust = this.sessionTrusts.get(toolId);
+    const trust = this.getTrustMap().get(toolId);
     if (!trust) return false;
     if (trust.scope !== 'session') return false;
     if (trust.trustLevel < 4) return false;
-    if (!trust.readOnly) return false; // Write/destructive always need approval
+    if (!trust.readOnly) return false;
     return true;
   }
 
-  /** Grant session trust for a tool. */
+  /** Grant session trust for a tool in the active conversation. */
   grantTrust(toolId: string, trustLevel: number, scope: 'this_call' | 'session'): void {
     const tool = this.allTools.get(toolId);
-    this.sessionTrusts.set(toolId, {
+    this.getTrustMap().set(toolId, {
       toolId,
       trustLevel,
       scope,
@@ -216,18 +242,24 @@ export class ToolRegistryManager {
     });
   }
 
-  /** Revoke session trust for a tool. */
+  /** Revoke session trust for a tool in the active conversation. */
   revokeTrust(toolId: string): boolean {
-    return this.sessionTrusts.delete(toolId);
+    return this.getTrustMap().delete(toolId);
   }
 
-  /** Get all current session trusts. */
+  /** Get all current session trusts for the active conversation. */
   getSessionTrusts(): readonly SessionTrust[] {
-    return [...this.sessionTrusts.values()];
+    return [...this.getTrustMap().values()];
   }
 
-  /** Clear all session trusts (e.g. on reconnect). */
+  /** Clear session trusts for the active conversation only. */
   clearSessionTrusts(): void {
-    this.sessionTrusts.clear();
+    const id = this.activeConversationId ?? '__global__';
+    this.conversationTrusts.delete(id);
+  }
+
+  /** Clear ALL session trusts across all conversations (e.g. on disconnect). */
+  clearAllSessionTrusts(): void {
+    this.conversationTrusts.clear();
   }
 }

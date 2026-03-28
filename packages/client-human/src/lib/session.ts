@@ -885,6 +885,8 @@ function handleRelayMessage(data: string): void {
         direction: m.role === 'user' ? ('outgoing' as const) : ('incoming' as const),
       })),
     );
+    // Clear approved tools display — trust is per-conversation on AI side
+    tools.clear();
     return;
   }
 
