@@ -103,8 +103,9 @@ export function createProjectsStore(): ProjectsStore {
     return Math.round(totalBytes / CHARS_PER_TOKEN);
   });
 
-  const alwaysLoadedCount = derived([store], ([state]) =>
-    state.files.filter((f) => state.config.alwaysLoaded.includes(f.path)).length,
+  const alwaysLoadedCount = derived(
+    [store],
+    ([state]) => state.files.filter((f) => state.config.alwaysLoaded.includes(f.path)).length,
   );
 
   // -------------------------------------------------------------------------

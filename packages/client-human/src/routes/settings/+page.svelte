@@ -4,6 +4,8 @@ import type { SafetySettings, SettingUpdateResult } from '$lib/stores/settings.j
 import type { MemoryEntry } from '$lib/stores/memories.js';
 import type { ApprovedTool } from '$lib/stores/tools.js';
 import type { ProjectFile, LoadingMode } from '$lib/stores/projects.js';
+import type { ProviderInfo } from '$lib/stores/provider.js';
+import type { ExtensionInfo } from '$lib/stores/extensions.js';
 import SettingsPanel from '$lib/components/SettingsPanel.svelte';
 
 // ---------------------------------------------------------------------------
@@ -30,6 +32,14 @@ let showResetConfirm = $state(false);
 
 // Tool state
 let approvedTools: readonly ApprovedTool[] = $state([]);
+
+// Provider state
+let providerInfo: ProviderInfo | null = $state(null);
+
+// Extensions state
+let extensionList: readonly ExtensionInfo[] = $state([]);
+let extensionCount = $state(0);
+let extensionMessageTypes = $state(0);
 
 function handleToolRevoke(toolId: string): void {
   const client = session.getClient();
@@ -75,6 +85,10 @@ $effect(() => {
 		session.projects.alwaysLoadedTokens.subscribe((v) => (projectAlwaysTokens = v)),
 		session.projects.alwaysLoadedCount.subscribe((v) => (projectAlwaysCount = v)),
 		session.challengeStatus.subscribe((v) => { challengeActive = v.active; }),
+		session.provider.store.subscribe((v) => { providerInfo = v.provider; }),
+		session.extensions.store.subscribe((v) => { extensionList = v.extensions; }),
+		session.extensions.totalCount.subscribe((v) => { extensionCount = v; }),
+		session.extensions.totalMessageTypes.subscribe((v) => { extensionMessageTypes = v; }),
 	];
 
 	// Request memory list and project list on mount
@@ -516,6 +530,55 @@ function handleContextSave(): void {
 	</section>
 
 	<section class="section">
+		<h3>Provider {#if providerInfo}<span class="mem-count">{providerInfo.providerName}</span>{:else}<span class="mem-count">not connected</span>{/if}</h3>
+		{#if providerInfo}
+			<div class="info-grid">
+				<span class="label">Name</span>
+				<span class="value">{providerInfo.providerName}</span>
+				<span class="label">ID</span>
+				<span class="value mono">{providerInfo.providerId}</span>
+				<span class="label">Status</span>
+				<span class="value">{#if providerInfo.status === 'active'}<span class="prov-active">Active</span>{:else}<span class="prov-inactive">{providerInfo.status}</span>{/if}</span>
+				<span class="label">Capabilities</span>
+				<span class="value cap-list">
+					{#if providerInfo.capabilities.conversation}<span class="cap-tag cap-yes">conversation</span>{/if}
+					{#if providerInfo.capabilities.taskExecution}<span class="cap-tag cap-yes">taskExecution</span>{/if}
+					{#if providerInfo.capabilities.fileTransfer}<span class="cap-tag cap-yes">fileTransfer</span>{:else}<span class="cap-tag cap-no">fileTransfer</span>{/if}
+					{#if providerInfo.capabilities.streaming != null}
+						{#if providerInfo.capabilities.streaming}<span class="cap-tag cap-yes">streaming</span>{:else}<span class="cap-tag cap-no">streaming</span>{/if}
+					{/if}
+				</span>
+			</div>
+		{:else}
+			<p class="empty-mem">No AI provider connected. Connect to the relay to see provider info.</p>
+		{/if}
+	</section>
+
+	<section class="section">
+		<h3>Extensions <span class="mem-count">{extensionCount} extension{extensionCount !== 1 ? 's' : ''} loaded, {extensionMessageTypes} message type{extensionMessageTypes !== 1 ? 's' : ''}</span></h3>
+		{#if extensionList.length > 0}
+			<div class="proj-table">
+				<div class="proj-header ext-header">
+					<span>Namespace</span>
+					<span>Name</span>
+					<span>Version</span>
+					<span class="ext-col-count">Types</span>
+				</div>
+				{#each extensionList as ext}
+					<div class="proj-row ext-row">
+						<span class="mono">{ext.namespace}</span>
+						<span>{ext.name}</span>
+						<span class="mono">{ext.version}</span>
+						<span class="ext-col-count">{ext.messageTypes.length}</span>
+					</div>
+				{/each}
+			</div>
+		{:else}
+			<p class="empty-mem">No extensions loaded. Extensions are registered in the relay's extensions/ directory.</p>
+		{/if}
+	</section>
+
+	<section class="section">
 		<h3>Budget Guard</h3>
 		<p class="hint">Web search budget is immutable enforcement — same tier as MaliClaw. Limits can be tightened immediately; increases take effect next month.</p>
 		<div class="config-fields">
@@ -785,6 +848,26 @@ function handleContextSave(): void {
 		color: #f59e0b;
 		white-space: nowrap;
 	}
+
+	/* Provider */
+	.prov-active { color: #22c55e; font-weight: 600; }
+	.prov-inactive { color: #ef4444; font-weight: 600; }
+	.cap-list { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+	.cap-tag {
+		font-size: 0.65rem;
+		font-weight: 600;
+		padding: 0.0625rem 0.375rem;
+		border-radius: 999px;
+		white-space: nowrap;
+	}
+	.cap-yes { background: color-mix(in srgb, #22c55e 15%, transparent); color: #22c55e; }
+	.cap-no { background: color-mix(in srgb, #ef4444 15%, transparent); color: #ef4444; text-decoration: line-through; }
+
+	/* Extensions */
+	.ext-header, .ext-row {
+		grid-template-columns: 1fr 1fr 5rem 3.5rem !important;
+	}
+	.ext-col-count { text-align: right; }
 
 	.toast-dismiss {
 		background: none;

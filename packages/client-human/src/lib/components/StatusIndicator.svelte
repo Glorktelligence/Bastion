@@ -8,6 +8,8 @@ const {
   reconnectDelay = 0,
   e2eActive = false,
   e2eAvailable = false,
+  providerName = '',
+  providerActive = false,
   onRetry,
 }: {
   status: HumanClientState;
@@ -16,6 +18,8 @@ const {
   reconnectDelay?: number;
   e2eActive?: boolean;
   e2eAvailable?: boolean;
+  providerName?: string;
+  providerActive?: boolean;
   onRetry?: () => void;
 } = $props();
 
@@ -86,6 +90,9 @@ function formatDelay(ms: number): string {
 	{/if}
 	<div class="peer-status">
 		{peerLabel(peerStatus)}
+		{#if status === 'authenticated' || status === 'connected'}
+			<span class="provider-label">{providerName ? `${providerName} ${providerActive ? '✓' : '✗'}` : 'No AI provider'}</span>
+		{/if}
 	</div>
 </div>
 
@@ -139,6 +146,14 @@ function formatDelay(ms: number): string {
 	.retry-btn:hover {
 		background: var(--color-accent);
 		color: #fff;
+	}
+
+	.provider-label {
+		margin-left: 0.5rem;
+		padding-left: 0.5rem;
+		border-left: 1px solid var(--color-border);
+		font-size: 0.7rem;
+		color: var(--color-text-muted);
 	}
 
 	.e2e-badge {

@@ -24,12 +24,14 @@ import { type BudgetStatusData, createBudgetStore } from './stores/budget.js';
 import { type ChallengeStats, createChallengeStatsStore } from './stores/challenge-stats.js';
 import { type ActiveChallenge, createChallengesStore } from './stores/challenges.js';
 import { type ConnectionStoreState, createConnectionStore } from './stores/connection.js';
+import { type ExtensionInfo, createExtensionsStore } from './stores/extensions.js';
 import { type MemoryEntry, createMemoriesStore } from './stores/memories.js';
 import { type DisplayMessage, createMessagesStore } from './stores/messages.js';
+import { type LoadingMode, type ProjectConfig, type ProjectFile, createProjectsStore } from './stores/projects.js';
+import { type ProviderCapabilities, type ProviderInfo, createProviderStore } from './stores/provider.js';
 import { SAFETY_FLOOR_VALUES, createSettingsStore } from './stores/settings.js';
 import { type TrackedTask, createTasksStore } from './stores/tasks.js';
 import { type ApprovedTool, type PendingToolRequest, type ToolResult, createToolsStore } from './stores/tools.js';
-import { type ProjectFile, type ProjectConfig, type LoadingMode, createProjectsStore } from './stores/projects.js';
 
 import { getConfigStore } from './config/config-store.js';
 import {
@@ -81,6 +83,8 @@ export const memories = createMemoriesStore();
 export const tools = createToolsStore();
 export const budget = createBudgetStore();
 export const projects = createProjectsStore();
+export const provider = createProviderStore();
+export const extensions = createExtensionsStore();
 
 /** General-purpose toast notifications (cross-cutting — not owned by a single store). */
 export interface ToastNotification {
@@ -703,7 +707,14 @@ function handleRelayMessage(data: string): void {
   // Project list response → populate projects store
   if (type === 'project_list_response') {
     const p = payload as Record<string, unknown>;
-    const files = (p.files as Array<{ path: string; size?: number; sizeBytes?: number; mimeType?: string; lastModified?: string }>) ?? [];
+    const files =
+      (p.files as Array<{
+        path: string;
+        size?: number;
+        sizeBytes?: number;
+        mimeType?: string;
+        lastModified?: string;
+      }>) ?? [];
     projects.setFiles(
       files.map((f) => ({
         path: f.path,
@@ -780,15 +791,53 @@ function handleRelayMessage(data: string): void {
     return;
   }
 
+  // Provider status → provider store
+  if (type === 'provider_status') {
+    const p = payload as Record<string, unknown>;
+    const caps = (p.capabilities ?? {}) as Record<string, unknown>;
+    provider.setProvider({
+      providerId: String(p.providerId ?? ''),
+      providerName: String(p.providerName ?? p.name ?? ''),
+      status: String(p.status ?? 'active') as ProviderInfo['status'],
+      capabilities: {
+        conversation: Boolean(caps.conversation ?? true),
+        taskExecution: Boolean(caps.taskExecution ?? true),
+        fileTransfer: Boolean(caps.fileTransfer ?? false),
+        streaming: caps.streaming != null ? Boolean(caps.streaming) : undefined,
+      },
+      lastUpdated: new Date().toISOString(),
+    });
+    return;
+  }
+
+  // Extension list response → extensions store
+  if (type === 'extension_list_response') {
+    const p = payload as Record<string, unknown>;
+    const exts =
+      (p.extensions as Array<{
+        namespace: string;
+        name: string;
+        version: string;
+        messageTypes?: readonly string[];
+      }>) ?? [];
+    extensions.setExtensions(
+      exts.map((e) => ({
+        namespace: e.namespace,
+        name: e.name,
+        version: e.version,
+        messageTypes: e.messageTypes ?? [],
+      })),
+    );
+    return;
+  }
+
   // System/store-only messages — consume silently, never show in chat
   if (
-    type === 'extension_list_response' ||
     type === 'tool_registry_sync' ||
     type === 'tool_registry_ack' ||
     type === 'tool_denied' ||
     type === 'tool_revoke' ||
     type === 'tool_alert_response' ||
-    type === 'provider_status' ||
     type === 'heartbeat' ||
     type === 'session_end' ||
     type === 'reconnect' ||
@@ -815,6 +864,9 @@ export type {
   ProjectFile,
   ProjectConfig,
   LoadingMode,
+  ProviderInfo,
+  ProviderCapabilities,
+  ExtensionInfo,
 };
 export { SAFETY_FLOOR_VALUES };
 export { getConfigStore, generateUserId } from './config/config-store.js';

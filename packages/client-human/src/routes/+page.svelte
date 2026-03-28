@@ -34,6 +34,8 @@ let isAutoConnecting = $state(false);
 let e2eActive = $state(false);
 let e2eAvailable = $state(false);
 let toasts: session.ToastNotification[] = $state([]);
+let providerName = $state('');
+let providerActive = $state(false);
 
 const isConnected = $derived(
 	conn.status === 'connected' || conn.status === 'authenticated',
@@ -50,6 +52,7 @@ $effect(() => {
 	unsubs.push(session.autoConnecting.subscribe((v) => (isAutoConnecting = v)));
 	unsubs.push(session.e2eStatus.subscribe((v) => { e2eActive = v.active; e2eAvailable = v.available; }));
 	unsubs.push(session.notifications.subscribe((v) => { toasts = [...v]; }));
+	unsubs.push(session.provider.store.subscribe((v) => { providerName = v.provider?.providerName ?? ''; providerActive = v.provider?.status === 'active'; }));
 
 	return () => {
 		for (const u of unsubs) u();
@@ -208,6 +211,8 @@ function handleChallengeCancel(): void {
 			reconnectAttempt={conn.reconnectAttempt}
 			{e2eActive}
 			{e2eAvailable}
+			{providerName}
+			{providerActive}
 			onRetry={handleConnect}
 		/>
 
