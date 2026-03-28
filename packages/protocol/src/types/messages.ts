@@ -594,6 +594,7 @@ export interface ConversationSummary {
   readonly messageCount: number;
   readonly lastMessagePreview: string;
   readonly archived: boolean;
+  readonly preferredAdapter?: string | null;
 }
 
 /** Stored message with hash chain data. */
@@ -625,6 +626,7 @@ export interface ConversationListResponsePayload {
 export interface ConversationCreatePayload {
   readonly name?: string;
   readonly type?: 'normal' | 'game';
+  readonly preferredAdapter?: string;
 }
 
 /** AI → Human: Confirm creation with assigned ID. */
@@ -633,6 +635,7 @@ export interface ConversationCreateAckPayload {
   readonly name: string;
   readonly type: 'normal' | 'game';
   readonly createdAt: string;
+  readonly preferredAdapter?: string | null;
 }
 
 /** Human → AI: Switch active conversation. */
@@ -646,6 +649,7 @@ export interface ConversationSwitchAckPayload {
   readonly name: string;
   readonly recentMessages: readonly StoredMessage[];
   readonly memories: readonly { id: string; content: string; category: string }[];
+  readonly preferredAdapter?: string | null;
 }
 
 /** Human → AI: Request message page for a conversation. */

@@ -982,7 +982,7 @@ client.on('message', async (data) => {
     client.send(JSON.stringify({
       type: 'conversation_list_response', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
       payload: {
-        conversations: convs.map(c => ({ id: c.id, name: c.name, type: c.type, updatedAt: c.updatedAt, messageCount: c.messageCount, lastMessagePreview: c.lastMessagePreview, archived: c.archived })),
+        conversations: convs.map(c => ({ id: c.id, name: c.name, type: c.type, updatedAt: c.updatedAt, messageCount: c.messageCount, lastMessagePreview: c.lastMessagePreview, archived: c.archived, preferredAdapter: c.preferredAdapter })),
         totalCount: convs.length,
       },
     }));
@@ -993,17 +993,18 @@ client.on('message', async (data) => {
   // ----- conversation_create: create new conversation -----
   if (msg.type === 'conversation_create') {
     const p = msg.payload || msg;
-    const conv = conversationStore.createConversation(p.name, p.type);
+    const conv = conversationStore.createConversation(p.name, p.type, p.preferredAdapter);
     // Switch to the new conversation (fresh trust scope)
     activeConversationId = conv.id;
     conversationStore.setActiveConversation(conv.id);
     toolRegistry.setActiveConversation(conv.id);
     conversationManager.clear();
+    const adapterName = conv.preferredAdapter ? adapterRegistry.get(conv.preferredAdapter)?.activeModel ?? conv.preferredAdapter : 'default';
     client.send(JSON.stringify({
       type: 'conversation_create_ack', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
-      payload: { conversationId: conv.id, name: conv.name, type: conv.type, createdAt: conv.createdAt },
+      payload: { conversationId: conv.id, name: conv.name, type: conv.type, createdAt: conv.createdAt, preferredAdapter: conv.preferredAdapter },
     }));
-    console.log(`[✓] Conversation created: "${conv.name}" (${conv.id.slice(0, 8)})`);
+    console.log(`[✓] Conversation created: "${conv.name}" (${conv.id.slice(0, 8)}, adapter: ${adapterName})`);
     return;
   }
 
@@ -1034,9 +1035,11 @@ client.on('message', async (data) => {
         conversationId: targetId, name: conv.name,
         recentMessages: recent.map(m => ({ id: m.id, conversationId: m.conversationId, role: m.role, type: m.type, content: m.content, timestamp: m.timestamp, hash: m.hash, previousHash: m.previousHash, pinned: m.pinned })),
         memories,
+        preferredAdapter: conv.preferredAdapter,
       },
     }));
-    console.log(`[✓] Switched to conversation: "${conv.name}" (${targetId.slice(0, 8)}, ${recent.length} messages loaded)`);
+    const adapterName = conv.preferredAdapter ? adapterRegistry.get(conv.preferredAdapter)?.activeModel ?? conv.preferredAdapter : 'default';
+    console.log(`[✓] Switched to conversation: "${conv.name}" (${targetId.slice(0, 8)}, ${recent.length} messages, adapter: ${adapterName})`);
     return;
   }
 
@@ -1081,7 +1084,7 @@ client.on('message', async (data) => {
     const convs = conversationStore.listConversations(true);
     client.send(JSON.stringify({
       type: 'conversation_list_response', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
-      payload: { conversations: convs.map(c => ({ id: c.id, name: c.name, type: c.type, updatedAt: c.updatedAt, messageCount: c.messageCount, lastMessagePreview: c.lastMessagePreview, archived: c.archived })), totalCount: convs.length },
+      payload: { conversations: convs.map(c => ({ id: c.id, name: c.name, type: c.type, updatedAt: c.updatedAt, messageCount: c.messageCount, lastMessagePreview: c.lastMessagePreview, archived: c.archived, preferredAdapter: c.preferredAdapter })), totalCount: convs.length },
     }));
     return;
   }
@@ -1114,7 +1117,7 @@ client.on('message', async (data) => {
     const convs = conversationStore.listConversations(true);
     client.send(JSON.stringify({
       type: 'conversation_list_response', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
-      payload: { conversations: convs.map(c => ({ id: c.id, name: c.name, type: c.type, updatedAt: c.updatedAt, messageCount: c.messageCount, lastMessagePreview: c.lastMessagePreview, archived: c.archived })), totalCount: convs.length },
+      payload: { conversations: convs.map(c => ({ id: c.id, name: c.name, type: c.type, updatedAt: c.updatedAt, messageCount: c.messageCount, lastMessagePreview: c.lastMessagePreview, archived: c.archived, preferredAdapter: c.preferredAdapter })), totalCount: convs.length },
     }));
     return;
   }
@@ -1347,7 +1350,8 @@ client.on('message', async (data) => {
     }
 
     const operation = msg.type === 'task' ? 'task' : 'conversation';
-    const { adapter: selectedAdapter, reason: adapterReason } = adapterRegistry.selectAdapter(operation);
+    const activeConv = activeConversationId ? conversationStore.getConversation(activeConversationId) : null;
+    const { adapter: selectedAdapter, reason: adapterReason } = adapterRegistry.selectAdapter(operation, activeConv?.preferredAdapter);
     console.log(`[~] Calling ${selectedAdapter.activeModel} (${adapterReason})...`);
 
     try {

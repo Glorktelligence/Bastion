@@ -25,6 +25,7 @@ export interface ConversationEntry {
   readonly messageCount: number;
   readonly lastMessagePreview: string;
   readonly archived: boolean;
+  readonly preferredAdapter?: string | null;
 }
 
 export interface ConversationMessage {

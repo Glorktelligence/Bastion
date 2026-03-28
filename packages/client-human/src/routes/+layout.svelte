@@ -28,6 +28,8 @@ let showArchived = $state(false);
 let showNewForm = $state(false);
 let newConvName = $state('');
 let newConvType = $state('normal');
+let newConvAdapter = $state('');
+let availableAdapters = $state([]);
 let extensionPages = $state([]);
 
 let unsubs = [];
@@ -39,6 +41,14 @@ $effect(() => {
 	}));
 	unsubs.push(session.conversations.archivedConversations.subscribe((a) => {
 		archivedConvs = a;
+	}));
+	unsubs.push(session.provider.store.subscribe((v) => {
+		const adpts = v.provider?.adapters ?? [];
+		availableAdapters = adpts.filter((a) => a.roles.includes('default') || a.roles.includes('conversation'));
+		if (!newConvAdapter && availableAdapters.length > 0) {
+			const def = availableAdapters.find((a) => a.roles.includes('default'));
+			newConvAdapter = def?.id ?? availableAdapters[0]?.id ?? '';
+		}
 	}));
 	unsubs.push(session.extensions.extensionsWithUI.subscribe((exts) => {
 		extensionPages = exts.flatMap((e) => (e.ui?.pages ?? []).map((p) => ({ namespace: e.namespace, pageId: p.id, name: p.name, icon: p.icon })));
@@ -66,7 +76,7 @@ function handleCreateConversation() {
 		id: crypto.randomUUID(),
 		timestamp: new Date().toISOString(),
 		sender: session.getIdentity(),
-		payload: { name: newConvName.trim() || undefined, type: newConvType },
+		payload: { name: newConvName.trim() || undefined, type: newConvType, preferredAdapter: newConvAdapter || undefined },
 	}));
 	newConvName = '';
 	newConvType = 'normal';
@@ -112,8 +122,15 @@ function relativeTime(iso) {
 						<label class="conv-type-label">
 							<input type="radio" bind:group={newConvType} value="game" /> Game
 						</label>
-						<button class="conv-create-btn" onclick={handleCreateConversation}>Create</button>
 					</div>
+					{#if availableAdapters.length > 1}
+					<select class="conv-input" bind:value={newConvAdapter} style="font-size:0.75rem;">
+						{#each availableAdapters as ad}
+							<option value={ad.id}>{ad.name} ({ad.model})</option>
+						{/each}
+					</select>
+					{/if}
+					<button class="conv-create-btn" onclick={handleCreateConversation}>Create</button>
 				</div>
 			{/if}
 

@@ -855,6 +855,7 @@ function handleRelayMessage(data: string): void {
       messageCount: 0,
       lastMessagePreview: '',
       archived: false,
+      preferredAdapter: p.preferredAdapter ? String(p.preferredAdapter) : null,
     });
     conversations.setActiveConversation(String(p.conversationId ?? ''), []);
     addNotification(`Conversation created: ${String(p.name ?? 'New Conversation')}`, 'success');

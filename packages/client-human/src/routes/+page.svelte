@@ -330,6 +330,9 @@ function handleChallengeCancel(): void {
 			<div class="conv-header-bar">
 				<span class="conv-header-icon">{activeConv.type === 'game' ? '🎮' : '💬'}</span>
 				<span class="conv-header-name">{activeConv.name}</span>
+				{#if activeConv.preferredAdapter}
+					<span class="conv-model-badge">{activeConv.preferredAdapter}</span>
+				{/if}
 				<span class="conv-header-count">{activeConv.messageCount} messages</span>
 				<div class="conv-header-actions">
 					<button class="conv-action-btn" onclick={() => { showConvActions = !showConvActions; }}>···</button>
@@ -456,6 +459,7 @@ function handleChallengeCancel(): void {
 	}
 	.conv-header-icon { font-size: 0.9rem; }
 	.conv-header-name { font-weight: 500; color: var(--color-text); }
+	.conv-model-badge { font-size: 0.65rem; padding: 0.0625rem 0.375rem; border-radius: 999px; background: color-mix(in srgb, var(--color-accent) 15%, transparent); color: var(--color-accent); white-space: nowrap; }
 	.conv-header-count { color: var(--color-text-muted); font-size: 0.75rem; margin-left: auto; }
 	.conv-header-actions { position: relative; }
 	.conv-action-btn {

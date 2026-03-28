@@ -517,6 +517,7 @@ const ConversationSummarySchema = z.object({
   messageCount: z.number().int().nonnegative(),
   lastMessagePreview: z.string(),
   archived: z.boolean(),
+  preferredAdapter: z.string().nullable().optional(),
 });
 
 const StoredMessageSchema = z.object({
@@ -544,6 +545,7 @@ export const ConversationListResponsePayloadSchema = z.object({
 export const ConversationCreatePayloadSchema = z.object({
   name: z.string().optional(),
   type: z.enum(['normal', 'game']).optional(),
+  preferredAdapter: z.string().optional(),
 });
 
 export const ConversationCreateAckPayloadSchema = z.object({
@@ -551,6 +553,7 @@ export const ConversationCreateAckPayloadSchema = z.object({
   name: z.string().min(1),
   type: z.enum(['normal', 'game']),
   createdAt: z.string().min(1),
+  preferredAdapter: z.string().nullable().optional(),
 });
 
 export const ConversationSwitchPayloadSchema = z.object({
@@ -562,6 +565,7 @@ export const ConversationSwitchAckPayloadSchema = z.object({
   name: z.string().min(1),
   recentMessages: z.array(StoredMessageSchema).readonly(),
   memories: z.array(z.object({ id: z.string(), content: z.string(), category: z.string() })).readonly(),
+  preferredAdapter: z.string().nullable().optional(),
 });
 
 export const ConversationHistoryPayloadSchema = z.object({

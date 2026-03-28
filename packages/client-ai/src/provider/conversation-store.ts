@@ -30,6 +30,7 @@ export interface ConversationRecord {
   readonly messageCount: number;
   readonly lastMessagePreview: string;
   readonly metadata: Record<string, unknown> | null;
+  readonly preferredAdapter: string | null;
 }
 
 export interface MessageRecord {
@@ -147,21 +148,30 @@ export class ConversationStore {
     this.db.exec(CREATE_CONFIG);
     this.db.exec(CREATE_COMPACTION_SUMMARIES);
     this.db.exec(CREATE_COMPACTION_INDEX);
+    // Migration: add preferredAdapter column if missing
+    try {
+      this.db.exec('ALTER TABLE conversations ADD COLUMN preferredAdapter TEXT');
+    } catch {
+      /* already exists */
+    }
   }
 
   // -----------------------------------------------------------------------
   // Conversation CRUD
   // -----------------------------------------------------------------------
 
-  createConversation(name?: string, type?: 'normal' | 'game'): ConversationRecord {
+  createConversation(name?: string, type?: 'normal' | 'game', preferredAdapter?: string | null): ConversationRecord {
     const id = randomUUID();
     const now = new Date().toISOString();
     const convName = name || 'New Conversation';
     const convType = type || 'normal';
+    const adapter = preferredAdapter ?? null;
 
     this.db
-      .prepare('INSERT INTO conversations (id, name, type, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)')
-      .run(id, convName, convType, now, now);
+      .prepare(
+        'INSERT INTO conversations (id, name, type, createdAt, updatedAt, preferredAdapter) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run(id, convName, convType, now, now, adapter);
 
     return {
       id,
@@ -173,6 +183,7 @@ export class ConversationStore {
       messageCount: 0,
       lastMessagePreview: '',
       metadata: null,
+      preferredAdapter: adapter,
     };
   }
 
@@ -435,6 +446,7 @@ export class ConversationStore {
       messageCount: Number(row.messageCount),
       lastMessagePreview: String(row.lastMessagePreview ?? ''),
       metadata: row.metadata ? JSON.parse(String(row.metadata)) : null,
+      preferredAdapter: row.preferredAdapter ? String(row.preferredAdapter) : null,
     };
   }
 
