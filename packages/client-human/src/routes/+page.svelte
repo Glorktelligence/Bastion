@@ -191,6 +191,21 @@ function handleLoadOlderMessages(): void {
 	}));
 }
 
+function handleCompactConversation(): void {
+	const client = session.getClient();
+	const convId = session.conversations.store.get().activeConversationId;
+	if (!client || !convId) return;
+	client.send(JSON.stringify({
+		type: 'conversation_compact',
+		id: crypto.randomUUID(),
+		timestamp: new Date().toISOString(),
+		sender: session.getIdentity(),
+		payload: { conversationId: convId },
+	}));
+	showConvActions = false;
+	session.addNotification('Compacting conversation...', 'info');
+}
+
 function handleArchiveConversation(): void {
 	const client = session.getClient();
 	const convId = session.conversations.store.get().activeConversationId;
@@ -318,6 +333,7 @@ function handleChallengeCancel(): void {
 					<button class="conv-action-btn" onclick={() => { showConvActions = !showConvActions; }}>···</button>
 					{#if showConvActions}
 						<div class="conv-action-menu">
+							<button onclick={handleCompactConversation}>Summarise earlier messages</button>
 							<button onclick={handleArchiveConversation}>Archive</button>
 							{#if deleteConfirm}
 								<button class="conv-delete-confirm" onclick={handleDeleteConversation}>Confirm Delete</button>

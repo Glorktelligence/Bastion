@@ -688,7 +688,7 @@ relay.on('message', async (data, info) => {
   }
 
   // ----- conversation_* messages: forward between paired clients with audit -----
-  if (msg.type === 'conversation_list' || msg.type === 'conversation_list_response' || msg.type === 'conversation_create' || msg.type === 'conversation_create_ack' || msg.type === 'conversation_switch' || msg.type === 'conversation_switch_ack' || msg.type === 'conversation_history' || msg.type === 'conversation_history_response' || msg.type === 'conversation_archive' || msg.type === 'conversation_delete') {
+  if (msg.type === 'conversation_list' || msg.type === 'conversation_list_response' || msg.type === 'conversation_create' || msg.type === 'conversation_create_ack' || msg.type === 'conversation_switch' || msg.type === 'conversation_switch_ack' || msg.type === 'conversation_history' || msg.type === 'conversation_history_response' || msg.type === 'conversation_archive' || msg.type === 'conversation_delete' || msg.type === 'conversation_compact' || msg.type === 'conversation_compact_ack') {
     const peerId = router.getPeer(connId);
     if (peerId) {
       relay.send(peerId, data);
@@ -700,6 +700,8 @@ relay.on('message', async (data, info) => {
           : msg.type === 'conversation_switch' ? 'conversation_switched'
           : msg.type === 'conversation_archive' ? 'conversation_archived'
           : msg.type === 'conversation_delete' ? 'conversation_deleted'
+          : msg.type === 'conversation_compact' ? 'compaction_triggered'
+          : msg.type === 'conversation_compact_ack' ? 'compaction_completed'
           : msg.type;
         auditLogger.logEvent(auditType, sid, {
           conversationId: msg.payload?.conversationId,

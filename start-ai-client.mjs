@@ -22,6 +22,7 @@ import {
   OutboundStaging,
   FilePurgeManager,
   ConversationStore,
+  CompactionManager,
 } from './packages/client-ai/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -149,10 +150,68 @@ if (activeConversationId) {
   console.log(`[✓] Active conversation: ${activeConversationId.slice(0, 8)} (${recent.length} messages loaded)`);
 }
 
-/** Persist a message to the active conversation. */
+// ---------------------------------------------------------------------------
+// Compaction manager — context optimisation via conversation summarisation
+// ---------------------------------------------------------------------------
+
+const compactionManager = new CompactionManager(conversationStore, {
+  conversationBudget: parseInt(process.env.BASTION_CONVERSATION_BUDGET || '80000', 10),
+  triggerPercent: 80,
+  keepRecent: 50,
+});
+console.log('[✓] Compaction manager initialised (budget: 80k tokens, trigger: 80%)');
+
+/** Summarise function — calls Anthropic API for compaction. */
+async function summariseForCompaction(prompt) {
+  try {
+    const result = await adapter.executeTask({
+      taskId: randomUUID(),
+      action: 'summarise',
+      target: 'conversation-compaction',
+      priority: 'normal',
+      parameters: {
+        _systemPrompt: 'You are a conversation summariser. Produce concise, structured notes.',
+        _conversationHistory: [{ role: 'user', content: prompt }],
+      },
+      constraints: [],
+    });
+    if (result.ok) {
+      return { ok: true, text: result.response.textContent };
+    }
+    return { ok: false, text: '', error: result.message };
+  } catch (err) {
+    return { ok: false, text: '', error: err.message };
+  }
+}
+
+/** Persist a message to the active conversation + auto-compact check. */
 function persistMessage(role, type, content) {
   if (activeConversationId) {
     conversationStore.addMessage(activeConversationId, role, type, content);
+
+    // Auto-compact check (non-blocking)
+    const check = compactionManager.shouldCompact(activeConversationId);
+    if (check.needed) {
+      compactionManager.compact(activeConversationId, summariseForCompaction).then(result => {
+        if (result.success && result.messagesCovered > 0) {
+          console.log(`[✓] Auto-compacted: ${result.messagesCovered} messages, ~${result.tokensSaved} tokens saved`);
+          // Notify human client
+          if (client) {
+            client.send(JSON.stringify({
+              type: 'conversation_compact_ack', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+              payload: {
+                conversationId: activeConversationId,
+                summaryPreview: (result.summary || '').slice(0, 200),
+                messagesCovered: result.messagesCovered,
+                tokensSaved: result.tokensSaved,
+              },
+            }));
+          }
+        }
+      }).catch(err => {
+        console.error(`[!] Auto-compaction failed: ${err.message}`);
+      });
+    }
   }
 }
 
@@ -1003,6 +1062,36 @@ client.on('message', async (data) => {
       type: 'conversation_list_response', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
       payload: { conversations: convs.map(c => ({ id: c.id, name: c.name, type: c.type, updatedAt: c.updatedAt, messageCount: c.messageCount, lastMessagePreview: c.lastMessagePreview, archived: c.archived })), totalCount: convs.length },
     }));
+    return;
+  }
+
+  // ----- conversation_compact: manual compaction trigger -----
+  if (msg.type === 'conversation_compact') {
+    const p = msg.payload || msg;
+    const convId = p.conversationId;
+    console.log(`[←] Manual compaction requested for ${(convId || '').slice(0, 8)}`);
+
+    compactionManager.compact(convId, summariseForCompaction).then(result => {
+      if (result.success) {
+        console.log(`[✓] Compacted: ${result.messagesCovered} messages, ~${result.tokensSaved} tokens saved`);
+        client.send(JSON.stringify({
+          type: 'conversation_compact_ack', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+          payload: {
+            conversationId: convId,
+            summaryPreview: (result.summary || '').slice(0, 200),
+            messagesCovered: result.messagesCovered || 0,
+            tokensSaved: result.tokensSaved || 0,
+          },
+        }));
+      } else {
+        client.send(JSON.stringify({
+          type: 'error', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+          payload: { code: 'BASTION-3001', message: `Compaction failed: ${result.error}` },
+        }));
+      }
+    }).catch(err => {
+      console.error(`[!] Compaction failed: ${err.message}`);
+    });
     return;
   }
 

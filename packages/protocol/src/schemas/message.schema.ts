@@ -586,6 +586,17 @@ export const ConversationDeletePayloadSchema = z.object({
   conversationId: z.string().min(1),
 });
 
+export const ConversationCompactPayloadSchema = z.object({
+  conversationId: z.string().min(1),
+});
+
+export const ConversationCompactAckPayloadSchema = z.object({
+  conversationId: z.string().min(1),
+  summaryPreview: z.string(),
+  messagesCovered: z.number().int().nonnegative(),
+  tokensSaved: z.number().int().nonnegative(),
+});
+
 // ---------------------------------------------------------------------------
 // Payload schema lookup map (message type → Zod schema)
 // ---------------------------------------------------------------------------
@@ -664,4 +675,6 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.CONVERSATION_HISTORY_RESPONSE]: ConversationHistoryResponsePayloadSchema,
   [MESSAGE_TYPES.CONVERSATION_ARCHIVE]: ConversationArchivePayloadSchema,
   [MESSAGE_TYPES.CONVERSATION_DELETE]: ConversationDeletePayloadSchema,
+  [MESSAGE_TYPES.CONVERSATION_COMPACT]: ConversationCompactPayloadSchema,
+  [MESSAGE_TYPES.CONVERSATION_COMPACT_ACK]: ConversationCompactAckPayloadSchema,
 } as const;

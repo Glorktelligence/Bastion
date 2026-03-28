@@ -45,6 +45,17 @@ export interface MessageRecord {
   readonly metadata: Record<string, unknown> | null;
 }
 
+export interface CompactionSummary {
+  readonly id: string;
+  readonly conversationId: string;
+  readonly fromMessageId: string;
+  readonly toMessageId: string;
+  readonly summary: string;
+  readonly messagesCovered: number;
+  readonly tokensSaved: number;
+  readonly createdAt: string;
+}
+
 export interface ChainVerification {
   readonly valid: boolean;
   readonly checkedCount: number;
@@ -100,6 +111,23 @@ const CREATE_CONFIG = `
   )
 `;
 
+const CREATE_COMPACTION_SUMMARIES = `
+  CREATE TABLE IF NOT EXISTS compaction_summaries (
+    id TEXT PRIMARY KEY,
+    conversationId TEXT NOT NULL,
+    fromMessageId TEXT NOT NULL,
+    toMessageId TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    messagesCovered INTEGER NOT NULL,
+    tokensSaved INTEGER NOT NULL DEFAULT 0,
+    createdAt TEXT NOT NULL,
+    FOREIGN KEY (conversationId) REFERENCES conversations(id)
+  )
+`;
+
+const CREATE_COMPACTION_INDEX =
+  'CREATE INDEX IF NOT EXISTS idx_compaction_conversation ON compaction_summaries(conversationId, createdAt DESC)';
+
 // ---------------------------------------------------------------------------
 // ConversationStore
 // ---------------------------------------------------------------------------
@@ -117,6 +145,8 @@ export class ConversationStore {
     this.db.exec(CREATE_MSG_INDEX);
     this.db.exec(CREATE_CONV_INDEX);
     this.db.exec(CREATE_CONFIG);
+    this.db.exec(CREATE_COMPACTION_SUMMARIES);
+    this.db.exec(CREATE_COMPACTION_INDEX);
   }
 
   // -----------------------------------------------------------------------
@@ -314,6 +344,67 @@ export class ConversationStore {
 
   setActiveConversation(id: string): void {
     this.db.prepare("INSERT OR REPLACE INTO config (key, value) VALUES ('activeConversationId', ?)").run(id);
+  }
+
+  // -----------------------------------------------------------------------
+  // Compaction summaries
+  // -----------------------------------------------------------------------
+
+  /** Store a compaction summary. */
+  addCompactionSummary(
+    conversationId: string,
+    fromMessageId: string,
+    toMessageId: string,
+    summary: string,
+    messagesCovered: number,
+    tokensSaved: number,
+  ): CompactionSummary {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        'INSERT INTO compaction_summaries (id, conversationId, fromMessageId, toMessageId, summary, messagesCovered, tokensSaved, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+      .run(id, conversationId, fromMessageId, toMessageId, summary, messagesCovered, tokensSaved, now);
+    return { id, conversationId, fromMessageId, toMessageId, summary, messagesCovered, tokensSaved, createdAt: now };
+  }
+
+  /** Get the most recent compaction summary for a conversation. */
+  getLatestCompaction(conversationId: string): CompactionSummary | null {
+    const row = this.db
+      .prepare('SELECT * FROM compaction_summaries WHERE conversationId = ? ORDER BY createdAt DESC LIMIT 1')
+      .get(conversationId) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+      id: String(row.id),
+      conversationId: String(row.conversationId),
+      fromMessageId: String(row.fromMessageId),
+      toMessageId: String(row.toMessageId),
+      summary: String(row.summary),
+      messagesCovered: Number(row.messagesCovered),
+      tokensSaved: Number(row.tokensSaved),
+      createdAt: String(row.createdAt),
+    };
+  }
+
+  /** Get non-pinned messages older than the most recent N, for compaction. */
+  getCompactableMessages(conversationId: string, keepRecent = 50): MessageRecord[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages WHERE conversationId = ? AND pinned = 0
+         AND timestamp < (SELECT timestamp FROM messages WHERE conversationId = ? ORDER BY timestamp DESC LIMIT 1 OFFSET ?)
+         ORDER BY timestamp ASC`,
+      )
+      .all(conversationId, conversationId, keepRecent - 1) as Record<string, unknown>[];
+    return rows.map((r) => this.mapMessage(r));
+  }
+
+  /** Get pinned messages for a conversation. */
+  getPinnedMessages(conversationId: string): MessageRecord[] {
+    const rows = this.db
+      .prepare('SELECT * FROM messages WHERE conversationId = ? AND pinned = 1 ORDER BY timestamp ASC')
+      .all(conversationId) as Record<string, unknown>[];
+    return rows.map((r) => this.mapMessage(r));
   }
 
   // -----------------------------------------------------------------------

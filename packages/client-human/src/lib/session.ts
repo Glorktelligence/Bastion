@@ -918,6 +918,15 @@ function handleRelayMessage(data: string): void {
     return;
   }
 
+  // Conversation compact ack → toast notification
+  if (type === 'conversation_compact_ack') {
+    const p = payload as Record<string, unknown>;
+    const covered = Number(p.messagesCovered ?? 0);
+    const saved = Number(p.tokensSaved ?? 0);
+    addNotification(`Conversation compacted: ${covered} messages summarised, ~${saved} tokens saved`, 'success');
+    return;
+  }
+
   // Provider status → provider store
   if (type === 'provider_status') {
     const p = payload as Record<string, unknown>;

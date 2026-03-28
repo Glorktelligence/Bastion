@@ -49,8 +49,13 @@ export type {
   ConversationRecord,
   MessageRecord,
   ChainVerification,
+  CompactionSummary,
   ConversationStoreConfig,
 } from './conversation-store.js';
+
+// Compaction Manager
+export { CompactionManager } from './compaction-manager.js';
+export type { CompactionCheck, CompactionResult, CompactionManagerConfig, SummariseFn } from './compaction-manager.js';
 
 // Memory Store
 export { MemoryStore } from './memory-store.js';

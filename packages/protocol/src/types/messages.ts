@@ -674,6 +674,19 @@ export interface ConversationDeletePayload {
   readonly conversationId: string;
 }
 
+/** Human → AI: Manual compaction trigger. */
+export interface ConversationCompactPayload {
+  readonly conversationId: string;
+}
+
+/** AI → Human: Confirms compaction with results. */
+export interface ConversationCompactAckPayload {
+  readonly conversationId: string;
+  readonly summaryPreview: string;
+  readonly messagesCovered: number;
+  readonly tokensSaved: number;
+}
+
 // ---------------------------------------------------------------------------
 // Discriminated union of all payload types
 // ---------------------------------------------------------------------------
@@ -745,4 +758,6 @@ export type MessagePayload =
   | { type: 'conversation_history'; payload: ConversationHistoryPayload }
   | { type: 'conversation_history_response'; payload: ConversationHistoryResponsePayload }
   | { type: 'conversation_archive'; payload: ConversationArchivePayload }
-  | { type: 'conversation_delete'; payload: ConversationDeletePayload };
+  | { type: 'conversation_delete'; payload: ConversationDeletePayload }
+  | { type: 'conversation_compact'; payload: ConversationCompactPayload }
+  | { type: 'conversation_compact_ack'; payload: ConversationCompactAckPayload };

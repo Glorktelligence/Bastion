@@ -106,6 +106,8 @@ export type {
   ConversationHistoryResponsePayload,
   ConversationArchivePayload,
   ConversationDeletePayload,
+  ConversationCompactPayload,
+  ConversationCompactAckPayload,
   MessagePayload,
 } from './types/messages.js';
 
@@ -260,6 +262,8 @@ export {
   ConversationHistoryResponsePayloadSchema,
   ConversationArchivePayloadSchema,
   ConversationDeletePayloadSchema,
+  ConversationCompactPayloadSchema,
+  ConversationCompactAckPayloadSchema,
   PAYLOAD_SCHEMAS,
 } from './schemas/message.schema.js';
 
