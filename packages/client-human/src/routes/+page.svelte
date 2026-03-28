@@ -53,34 +53,28 @@ const isConnected = $derived(
 	conn.status === 'connected' || conn.status === 'authenticated',
 );
 
-let unsubs: (() => void)[] = [];
-
 $effect(() => {
 	if (!browser) return () => {};
-	unsubs.push(session.connection.subscribe((v) => {
-		conn = v;
-		// Connected or authenticated = no longer initialising
-		if (v.status === 'connected' || v.status === 'authenticated') initialising = false;
-	}));
-	unsubs.push(session.messages.store.subscribe((v) => (messages = [...v.messages])));
-	unsubs.push(session.challenges.store.subscribe((v) => (activeChallenge = v.active)));
-	unsubs.push(session.tools.store.subscribe((v) => (pendingToolRequest = v.pendingRequest)));
-	unsubs.push(session.budget.store.subscribe((v) => { budgetStatus = v.status; lastBudgetAlert = v.lastAlert; }));
-	unsubs.push(session.autoConnecting.subscribe((v) => {
-		isAutoConnecting = v;
-		// Once auto-connect finishes (success or failure), we're no longer initialising
-		if (!v && initialising) initialising = false;
-	}));
-	unsubs.push(session.e2eStatus.subscribe((v) => { e2eActive = v.active; e2eAvailable = v.available; }));
-	unsubs.push(session.notifications.subscribe((v) => { toasts = [...v]; }));
-	unsubs.push(session.provider.store.subscribe((v) => { providerName = v.provider?.providerName ?? ''; providerActive = v.provider?.status === 'active'; providerModel = v.provider?.model ?? ''; }));
-	unsubs.push(session.conversations.activeConversation.subscribe((v) => { activeConv = v; }));
-	unsubs.push(session.conversations.store.subscribe((v) => { convMessages = [...v.activeMessages]; hasMoreHistory = v.hasMoreHistory; loadingHistory = v.loadingHistory; isStreaming = v.streaming !== null; streamingContent = v.streaming?.content ?? ''; }));
-
-	return () => {
-		for (const u of unsubs) u();
-		unsubs = [];
-	};
+	const subs = [
+		session.connection.subscribe((v) => {
+			conn = v;
+			if (v.status === 'connected' || v.status === 'authenticated') initialising = false;
+		}),
+		session.messages.store.subscribe((v) => (messages = [...v.messages])),
+		session.challenges.store.subscribe((v) => (activeChallenge = v.active)),
+		session.tools.store.subscribe((v) => (pendingToolRequest = v.pendingRequest)),
+		session.budget.store.subscribe((v) => { budgetStatus = v.status; lastBudgetAlert = v.lastAlert; }),
+		session.autoConnecting.subscribe((v) => {
+			isAutoConnecting = v;
+			if (!v && initialising) initialising = false;
+		}),
+		session.e2eStatus.subscribe((v) => { e2eActive = v.active; e2eAvailable = v.available; }),
+		session.notifications.subscribe((v) => { toasts = [...v]; }),
+		session.provider.store.subscribe((v) => { providerName = v.provider?.providerName ?? ''; providerActive = v.provider?.status === 'active'; providerModel = v.provider?.model ?? ''; }),
+		session.conversations.activeConversation.subscribe((v) => { activeConv = v; }),
+		session.conversations.store.subscribe((v) => { convMessages = [...v.activeMessages]; hasMoreHistory = v.hasMoreHistory; loadingHistory = v.loadingHistory; isStreaming = v.streaming !== null; streamingContent = v.streaming?.content ?? ''; }),
+	];
+	return () => { for (const u of subs) u(); };
 });
 
 // ---------------------------------------------------------------------------

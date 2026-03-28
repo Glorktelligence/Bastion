@@ -9,7 +9,11 @@ const { children } = $props();
 
 // During SSR: assume setup is complete (prevents wizard flash).
 // Client hydration reads the real value from ConfigStore (localStorage).
-let setupComplete = $state(browser ? session.getConfigStore().get('setupComplete') : true);
+const initialSetup = browser ? session.getConfigStore().get('setupComplete') : true;
+let setupComplete = $state(initialSetup);
+
+// One-time auto-connect flag — prevents repeated connect attempts
+let autoConnectFired = false;
 
 function handleSetupComplete() {
 	setupComplete = true;
@@ -17,9 +21,11 @@ function handleSetupComplete() {
 }
 
 $effect(() => {
-	// Re-check config on client hydration (SSR may have assumed true)
-	if (browser) {
-		setupComplete = session.getConfigStore().get('setupComplete');
+	// Fire auto-connect ONCE on client hydration — not on every navigation
+	if (browser && !autoConnectFired) {
+		autoConnectFired = true;
+		const cfg = session.getConfigStore();
+		setupComplete = cfg.get('setupComplete');
 		if (setupComplete) {
 			session.tryAutoConnect();
 		}
@@ -38,29 +44,29 @@ let newConvAdapter = $state('');
 let availableAdapters = $state([]);
 let extensionPages = $state([]);
 
-let unsubs = [];
-
 $effect(() => {
 	if (!browser) return () => {};
-	unsubs.push(session.conversations.store.subscribe((s) => {
-		convList = s.conversations.filter((c) => !c.archived);
-		activeConvId = s.activeConversationId;
-	}));
-	unsubs.push(session.conversations.archivedConversations.subscribe((a) => {
-		archivedConvs = a;
-	}));
-	unsubs.push(session.provider.store.subscribe((v) => {
-		const adpts = v.provider?.adapters ?? [];
-		availableAdapters = adpts.filter((a) => a.roles.includes('default') || a.roles.includes('conversation'));
-		if (!newConvAdapter && availableAdapters.length > 0) {
-			const def = availableAdapters.find((a) => a.roles.includes('default'));
-			newConvAdapter = def?.id ?? availableAdapters[0]?.id ?? '';
-		}
-	}));
-	unsubs.push(session.extensions.extensionsWithUI.subscribe((exts) => {
-		extensionPages = exts.flatMap((e) => (e.ui?.pages ?? []).map((p) => ({ namespace: e.namespace, pageId: p.id, name: p.name, icon: p.icon })));
-	}));
-	return () => { for (const u of unsubs) u(); unsubs = []; };
+	const subs = [
+		session.conversations.store.subscribe((s) => {
+			convList = s.conversations.filter((c) => !c.archived);
+			activeConvId = s.activeConversationId;
+		}),
+		session.conversations.archivedConversations.subscribe((a) => {
+			archivedConvs = a;
+		}),
+		session.provider.store.subscribe((v) => {
+			const adpts = v.provider?.adapters ?? [];
+			availableAdapters = adpts.filter((a) => a.roles.includes('default') || a.roles.includes('conversation'));
+			if (!newConvAdapter && availableAdapters.length > 0) {
+				const def = availableAdapters.find((a) => a.roles.includes('default'));
+				newConvAdapter = def?.id ?? availableAdapters[0]?.id ?? '';
+			}
+		}),
+		session.extensions.extensionsWithUI.subscribe((exts) => {
+			extensionPages = exts.flatMap((e) => (e.ui?.pages ?? []).map((p) => ({ namespace: e.namespace, pageId: p.id, name: p.name, icon: p.icon })));
+		}),
+	];
+	return () => { for (const u of subs) u(); };
 });
 
 function handleSwitchConversation(id) {
