@@ -13,6 +13,7 @@ import {
   FileQuarantine,
   HashVerifier,
   PurgeScheduler,
+  FileTransferRouter,
 } from './packages/relay/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -153,6 +154,15 @@ const purgeScheduler = new PurgeScheduler({
 });
 purgeScheduler.start();
 console.log('[✓] Purge scheduler started (interval: ' + (process.env.BASTION_PURGE_INTERVAL_MS || '60000') + 'ms)');
+
+// File transfer router — orchestrates manifest/offer/request workflow with 3-stage custody chain
+const fileTransferRouter = new FileTransferRouter({
+  quarantine: fileQuarantine,
+  hashVerifier,
+  send: (connectionId, data) => relay.send(connectionId, data),
+  auditLogger,
+});
+console.log('[✓] File transfer router initialised (3-stage custody chain)');
 
 // Relay server
 const relay = new BastionRelay({
@@ -656,6 +666,186 @@ relay.on('message', async (data, info) => {
     return;
   }
 
+  // ----- file_manifest: intercept file upload, quarantine, notify peer -----
+  if (msg.type === 'file_manifest') {
+    const p = msg.payload || msg;
+    const senderClient = router.getClient(connId);
+    const peerId = router.getPeer(connId);
+
+    if (!senderClient || !peerId) {
+      relay.send(connId, JSON.stringify({
+        type: 'error',
+        code: 'BASTION-3001',
+        message: 'No paired peer — file transfer cannot proceed',
+        timestamp: new Date().toISOString(),
+      }));
+      return;
+    }
+
+    // Determine direction from sender type
+    const direction = senderClient.identity.type === 'human' ? 'human_to_ai' : 'ai_to_human';
+
+    // Extract file data — client embeds base64-encoded file bytes in payload
+    const fileDataB64 = p.fileData;
+    if (!fileDataB64) {
+      relay.send(connId, JSON.stringify({
+        type: 'error',
+        code: 'BASTION-5001',
+        message: 'file_manifest missing fileData — file content required for quarantine',
+        timestamp: new Date().toISOString(),
+      }));
+      return;
+    }
+
+    const fileData = new Uint8Array(Buffer.from(fileDataB64, 'base64'));
+    const transferId = p.transferId || randomUUID();
+
+    // Submit to FileTransferRouter — quarantines, verifies hash, notifies peer
+    const result = fileTransferRouter.submitFile({
+      transferId,
+      direction,
+      sender: senderClient.identity,
+      filename: p.filename,
+      sizeBytes: p.sizeBytes || fileData.length,
+      mimeType: p.mimeType,
+      declaredHash: p.hash,
+      data: fileData,
+      purpose: p.purpose || '',
+      projectContext: p.projectContext,
+      taskId: p.taskId,
+      recipientConnectionId: peerId,
+    });
+
+    if (result.status === 'submitted') {
+      console.log(`[✓] File quarantined: ${p.filename} (${transferId.slice(0, 8)}) ${direction}`);
+      recordMessage(connId);
+      const sid = sessionIds.get(connId);
+      if (sid) auditLogger.logEvent('file_submitted', sid, {
+        transferId,
+        filename: p.filename,
+        direction,
+        sizeBytes: fileData.length,
+        sender_hash: p.hash,
+        stage: 'submitted',
+        actor: senderClient.identity.id,
+      });
+    } else if (result.status === 'hash_mismatch') {
+      console.log(`[!] BASTION-5001: File hash mismatch at submission: ${p.filename}`);
+      relay.send(connId, JSON.stringify({
+        type: 'error',
+        code: 'BASTION-5001',
+        message: `Hash verification failed at submission: expected ${result.expected}, got ${result.actual}`,
+        timestamp: new Date().toISOString(),
+      }));
+      const sid = sessionIds.get(connId);
+      if (sid) auditLogger.logEvent('file_hash_mismatch', sid, {
+        transferId, filename: p.filename, stage: 'submission',
+        expected: result.expected, actual: result.actual,
+      });
+    } else if (result.status === 'quarantine_full') {
+      console.log(`[!] BASTION-5004: Quarantine full — rejecting ${p.filename}`);
+      relay.send(connId, JSON.stringify({
+        type: 'error',
+        code: 'BASTION-5004',
+        message: 'File quarantine is full — try again later',
+        timestamp: new Date().toISOString(),
+      }));
+    } else {
+      relay.send(connId, JSON.stringify({
+        type: 'error',
+        message: `File submission failed: ${result.status}`,
+        timestamp: new Date().toISOString(),
+      }));
+    }
+    return;
+  }
+
+  // ----- file_request: recipient accepts — authorise and deliver file data -----
+  if (msg.type === 'file_request') {
+    const p = msg.payload || msg;
+    const transferId = p.transferId;
+
+    if (!transferId) {
+      relay.send(connId, JSON.stringify({
+        type: 'error',
+        code: 'BASTION-5005',
+        message: 'file_request missing transferId',
+        timestamp: new Date().toISOString(),
+      }));
+      return;
+    }
+
+    // Verify the requester is the intended recipient (not the sender)
+    const transfer = fileTransferRouter.getTransfer(transferId);
+    if (!transfer) {
+      relay.send(connId, JSON.stringify({
+        type: 'error',
+        code: 'BASTION-5005',
+        message: `File transfer not found: ${transferId}`,
+        timestamp: new Date().toISOString(),
+      }));
+      return;
+    }
+
+    if (transfer.recipientConnectionId !== connId) {
+      console.log(`[!] Unauthorised file_request from ${connId.slice(0, 8)} — expected recipient ${transfer.recipientConnectionId.slice(0, 8)}`);
+      relay.send(connId, JSON.stringify({
+        type: 'error',
+        code: 'BASTION-5005',
+        message: 'Not authorised to request this file',
+        timestamp: new Date().toISOString(),
+      }));
+      const sid = sessionIds.get(connId);
+      if (sid) auditLogger.logEvent('security_violation', sid, {
+        reason: 'Unauthorised file_request',
+        transferId,
+        requester: connId,
+        expectedRecipient: transfer.recipientConnectionId,
+      });
+      return;
+    }
+
+    // Deliver: FTR verifies hash at delivery, releases from quarantine, sends file_data
+    const result = fileTransferRouter.handleFileRequest(transferId, connId);
+
+    if (result.status === 'delivered') {
+      console.log(`[✓] File delivered: ${transferId.slice(0, 8)} (${result.sizeBytes} bytes) — 3-stage hash verified`);
+      recordMessage(connId);
+      const sid = sessionIds.get(connId);
+      if (sid) auditLogger.logEvent('file_delivered', sid, {
+        transferId,
+        sizeBytes: result.sizeBytes,
+        recipient_hash: 'verified',
+        stage: 'delivered',
+        actor: router.getClient(connId)?.identity.id || 'unknown',
+      });
+    } else if (result.status === 'hash_mismatch_at_delivery') {
+      console.log(`[!] BASTION-5001: Hash mismatch at delivery stage — transfer ${transferId.slice(0, 8)} aborted`);
+      relay.send(connId, JSON.stringify({
+        type: 'error',
+        code: 'BASTION-5001',
+        message: 'Hash verification failed at delivery — transfer aborted',
+        timestamp: new Date().toISOString(),
+      }));
+      const sid = sessionIds.get(connId);
+      if (sid) auditLogger.logEvent('file_hash_mismatch', sid, { transferId, stage: 'delivery' });
+    } else {
+      relay.send(connId, JSON.stringify({
+        type: 'error',
+        code: 'BASTION-5005',
+        message: `File delivery failed: ${result.status}`,
+        timestamp: new Date().toISOString(),
+      }));
+    }
+    return;
+  }
+
+  // ----- file_offer: relay-generated only — clients should not send this -----
+  if (msg.type === 'file_offer') {
+    console.log(`[!] Unexpected file_offer from client ${connId.slice(0, 8)} — file_offer is relay-generated`);
+    return;
+  }
+
   // ----- token_refresh: re-issue JWT -----
   if (msg.type === 'token_refresh') {
     try {
@@ -771,7 +961,8 @@ relay.on('listening', () => {
   console.log(`[★] Bastion relay listening on wss://0.0.0.0:${PORT}`);
   console.log('[★] Session lifecycle: session_init → JWT → paired → routing');
   console.log('[★] Zero-knowledge relay — payloads are opaque to the relay');
-  console.log('[★] File quarantine active — hash verification at submission/quarantine/delivery');
+  console.log('[★] File transfer pipeline active — quarantine + 3-stage hash verification');
+  console.log('[★] Custody chain: [submission] → [quarantine] → [delivery]');
   console.log('[★] Awaiting connections...');
 });
 

@@ -3,6 +3,7 @@ import * as session from '$lib/session.js';
 import type { SafetySettings, SettingUpdateResult } from '$lib/stores/settings.js';
 import type { MemoryEntry } from '$lib/stores/memories.js';
 import type { ApprovedTool } from '$lib/stores/tools.js';
+import type { ProjectFile, LoadingMode } from '$lib/stores/projects.js';
 import SettingsPanel from '$lib/components/SettingsPanel.svelte';
 
 // ---------------------------------------------------------------------------
@@ -65,13 +66,24 @@ $effect(() => {
 		}),
 		session.memories.totalCount.subscribe((v) => (memoryCount = v)),
 		session.tools.store.subscribe((v) => (approvedTools = v.sessionApproved)),
+		session.projects.store.subscribe((v) => {
+			projectFiles = v.files;
+			projectTotalSize = v.totalSize;
+			projectTotalCount = v.totalCount;
+			projectNotification = v.notification;
+		}),
+		session.projects.alwaysLoadedTokens.subscribe((v) => (projectAlwaysTokens = v)),
+		session.projects.alwaysLoadedCount.subscribe((v) => (projectAlwaysCount = v)),
+		session.challengeStatus.subscribe((v) => { challengeActive = v.active; }),
 	];
 
-	// Request memory list on mount
+	// Request memory list and project list on mount
 	requestMemoryList();
+	requestProjectList();
 
 	return () => {
 		for (const u of unsubs) u();
+		if (deleteTimerInterval) clearInterval(deleteTimerInterval);
 	};
 });
 
@@ -153,6 +165,138 @@ function handleMemoryDelete(id: string): void {
   }));
   deleteConfirmId = null;
   setTimeout(requestMemoryList, 200);
+}
+
+// ---------------------------------------------------------------------------
+// Project files state
+// ---------------------------------------------------------------------------
+
+let projectFiles: readonly ProjectFile[] = $state([]);
+let projectTotalSize = $state(0);
+let projectTotalCount = $state(0);
+let projectNotification: string | null = $state(null);
+let projectAlwaysTokens = $state(0);
+let projectAlwaysCount = $state(0);
+
+// Upload form state
+let uploadPath = $state('');
+let uploadContent = $state('');
+let uploadMimeType = $state('text/markdown');
+
+// Delete confirmation (with optional challenge-hours timer)
+let deleteConfirmPath: string | null = $state(null);
+let deleteTimer = $state(0);
+let deleteTimerInterval: ReturnType<typeof setInterval> | null = null;
+let challengeActive = $state(false);
+
+function requestProjectList(): void {
+  const client = session.getClient();
+  if (!client || !client.isConnected) return;
+  client.send(JSON.stringify({
+    type: 'project_list',
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: session.getIdentity(),
+    payload: {},
+  }));
+}
+
+function handleProjectUpload(): void {
+  const client = session.getClient();
+  if (!client || !uploadPath.trim() || !uploadContent.trim()) return;
+
+  const ext = uploadPath.lastIndexOf('.') >= 0 ? uploadPath.slice(uploadPath.lastIndexOf('.')) : '';
+  const allowed = ['.md', '.json', '.yaml', '.yml', '.txt'];
+  if (!allowed.includes(ext.toLowerCase())) {
+    session.projects.setNotification(`File type not allowed: ${ext} — use .md, .json, .yaml, .yml, or .txt`);
+    return;
+  }
+
+  client.send(JSON.stringify({
+    type: 'project_sync',
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: session.getIdentity(),
+    payload: {
+      path: uploadPath.trim(),
+      content: uploadContent,
+      mimeType: uploadMimeType,
+    },
+  }));
+  uploadPath = '';
+  uploadContent = '';
+}
+
+function handleProjectDelete(path: string): void {
+  // If challenge hours active, require 10s countdown confirmation
+  const cs = session.challengeStatus.get();
+  if (cs.active && deleteTimer === 0) {
+    deleteConfirmPath = path;
+    challengeActive = true;
+    deleteTimer = 10;
+    deleteTimerInterval = setInterval(() => {
+      deleteTimer--;
+      if (deleteTimer <= 0) {
+        if (deleteTimerInterval) clearInterval(deleteTimerInterval);
+        deleteTimerInterval = null;
+      }
+    }, 1000);
+    return;
+  }
+
+  const client = session.getClient();
+  if (!client) return;
+  client.send(JSON.stringify({
+    type: 'project_delete',
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: session.getIdentity(),
+    payload: { path },
+  }));
+  session.projects.removeFile(path);
+  deleteConfirmPath = null;
+  challengeActive = false;
+  deleteTimer = 0;
+  if (deleteTimerInterval) { clearInterval(deleteTimerInterval); deleteTimerInterval = null; }
+}
+
+function cancelProjectDelete(): void {
+  deleteConfirmPath = null;
+  challengeActive = false;
+  deleteTimer = 0;
+  if (deleteTimerInterval) { clearInterval(deleteTimerInterval); deleteTimerInterval = null; }
+}
+
+function handleLoadingModeChange(path: string, mode: LoadingMode): void {
+  const client = session.getClient();
+  if (!client) return;
+
+  const state = session.projects.store.get();
+  const alwaysLoaded = state.config.alwaysLoaded.filter((p) => p !== path);
+  const available = state.config.available.filter((p) => p !== path);
+
+  if (mode === 'always') alwaysLoaded.push(path);
+  else if (mode === 'available') available.push(path);
+
+  session.projects.setConfig({ alwaysLoaded, available });
+
+  client.send(JSON.stringify({
+    type: 'project_config',
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: session.getIdentity(),
+    payload: { alwaysLoaded, available },
+  }));
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getLoadingModeForFile(path: string): LoadingMode {
+  return session.projects.getLoadingMode(path);
 }
 
 function handleContextSave(): void {
@@ -263,6 +407,88 @@ function handleContextSave(): void {
 			</div>
 		{:else}
 			<p class="empty-mem">No memories saved yet. Use the "R" button on any message to remember it.</p>
+		{/if}
+	</section>
+
+	<section class="section">
+		<h3>Project Files <span class="mem-count">{projectTotalCount} files, {formatSize(projectTotalSize)} total</span></h3>
+		<p class="hint">Upload files to give the AI persistent context about your project. Files are synced to the AI's project store and can be loaded into the system prompt.</p>
+
+		{#if projectNotification}
+			<div class="toast" role="status">{projectNotification}
+				<button class="toast-dismiss" onclick={() => session.projects.clearNotification()}>×</button>
+			</div>
+		{/if}
+
+		<!-- Upload form -->
+		<div class="proj-upload">
+			<label>
+				<span class="label">File path</span>
+				<input type="text" class="config-input mono" bind:value={uploadPath} placeholder="e.g. factions/iron-league.md" />
+			</label>
+			<label>
+				<span class="label">Content</span>
+				<textarea class="context-textarea proj-textarea" bind:value={uploadContent} placeholder="File content (.md, .json, .yaml, .yml, .txt)" rows="4"></textarea>
+			</label>
+			<div class="proj-upload-actions">
+				<button class="btn-save" onclick={handleProjectUpload} disabled={!uploadPath.trim() || !uploadContent.trim() || !session.getClient()}>
+					Upload
+				</button>
+				{#if !session.getClient()}
+					<span class="hint">Connect to relay first</span>
+				{/if}
+			</div>
+		</div>
+
+		<!-- Token budget impact -->
+		{#if projectTotalCount > 0}
+			<div class="proj-stats">
+				<span class="proj-stat">~{projectAlwaysTokens.toLocaleString()} tokens of {projectAlwaysCount} alwaysLoaded file{projectAlwaysCount !== 1 ? 's' : ''} in context</span>
+			</div>
+		{/if}
+
+		<!-- File list -->
+		{#if projectFiles.length > 0}
+			<div class="proj-table">
+				<div class="proj-header">
+					<span class="proj-col-path">Path</span>
+					<span class="proj-col-size">Size</span>
+					<span class="proj-col-mode">Loading Mode</span>
+					<span class="proj-col-actions">Actions</span>
+				</div>
+				{#each projectFiles as file}
+					<div class="proj-row">
+						<span class="proj-col-path mono">{file.path}</span>
+						<span class="proj-col-size">{formatSize(file.size)}</span>
+						<span class="proj-col-mode">
+							<select
+								class="proj-mode-select"
+								value={getLoadingModeForFile(file.path)}
+								onchange={(e) => handleLoadingModeChange(file.path, e.currentTarget.value as LoadingMode)}
+							>
+								<option value="always">Always Loaded</option>
+								<option value="available">Available</option>
+								<option value="none">Not Loaded</option>
+							</select>
+						</span>
+						<span class="proj-col-actions">
+							{#if deleteConfirmPath === file.path}
+								{#if challengeActive && deleteTimer > 0}
+									<span class="proj-timer">Challenge hours active — {deleteTimer}s</span>
+								{/if}
+								<button class="btn-sm btn-delete-confirm" onclick={() => handleProjectDelete(file.path)} disabled={challengeActive && deleteTimer > 0}>
+									{challengeActive && deleteTimer > 0 ? `Wait ${deleteTimer}s` : 'Confirm Delete'}
+								</button>
+								<button class="btn-sm btn-cancel" onclick={cancelProjectDelete}>Cancel</button>
+							{:else}
+								<button class="btn-sm btn-delete" onclick={() => { deleteConfirmPath = file.path; if (!session.challengeStatus.get().active) deleteTimer = 0; else handleProjectDelete(file.path); }}>Delete</button>
+							{/if}
+						</span>
+					</div>
+				{/each}
+			</div>
+		{:else}
+			<p class="empty-mem">No project files. Upload files to give the AI context about your project.</p>
 		{/if}
 	</section>
 
@@ -496,4 +722,78 @@ function handleContextSave(): void {
 	.danger-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
 	.btn-danger { padding: 0.375rem 0.75rem; background: #ef4444; color: white; border: none; border-radius: 0.25rem; font-size: 0.8rem; cursor: pointer; }
 	.btn-danger-outline { padding: 0.375rem 0.75rem; background: transparent; color: #ef4444; border: 1px solid #ef4444; border-radius: 0.25rem; font-size: 0.8rem; cursor: pointer; }
+
+	/* Project files */
+	.proj-upload { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.75rem; }
+	.proj-textarea { margin-top: 0.25rem; min-height: 4rem; }
+	.proj-upload-actions { display: flex; align-items: center; gap: 0.75rem; }
+
+	.proj-stats {
+		display: flex;
+		gap: 1rem;
+		padding: 0.5rem 0.75rem;
+		background: color-mix(in srgb, var(--color-accent, #4a9eff) 8%, transparent);
+		border-radius: 0.25rem;
+		margin-bottom: 0.75rem;
+		font-size: 0.8rem;
+	}
+	.proj-stat { color: var(--color-accent, #4a9eff); }
+
+	.proj-table { display: flex; flex-direction: column; gap: 0; }
+	.proj-header, .proj-row {
+		display: grid;
+		grid-template-columns: 1fr 5rem 9rem 10rem;
+		gap: 0.5rem;
+		padding: 0.5rem 0.625rem;
+		align-items: center;
+		font-size: 0.8rem;
+	}
+	.proj-header {
+		font-weight: 600;
+		color: var(--color-text-muted);
+		border-bottom: 1px solid var(--color-border, #2a2a4a);
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+	}
+	.proj-row {
+		background: var(--color-bg, #0f0f23);
+		border: 1px solid var(--color-border, #2a2a4a);
+		border-radius: 0.25rem;
+		margin-top: 0.25rem;
+		color: var(--color-text);
+	}
+	.proj-col-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.proj-col-size { text-align: right; color: var(--color-text-muted); font-size: 0.75rem; }
+	.proj-col-mode { display: flex; }
+	.proj-col-actions { display: flex; gap: 0.375rem; justify-content: flex-end; flex-wrap: wrap; }
+
+	.proj-mode-select {
+		font-size: 0.75rem;
+		padding: 0.125rem 0.25rem;
+		border: 1px solid var(--color-border, #2a2a4a);
+		border-radius: 0.2rem;
+		background: var(--color-bg, #0f0f23);
+		color: var(--color-text);
+		cursor: pointer;
+		width: 100%;
+	}
+
+	.proj-timer {
+		font-size: 0.7rem;
+		color: #f59e0b;
+		white-space: nowrap;
+	}
+
+	.toast-dismiss {
+		background: none;
+		border: none;
+		color: inherit;
+		cursor: pointer;
+		font-size: 1rem;
+		margin-left: 0.5rem;
+		padding: 0;
+		line-height: 1;
+	}
+	.toast { display: flex; align-items: center; justify-content: space-between; }
 </style>

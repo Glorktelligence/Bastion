@@ -29,6 +29,7 @@ import { type DisplayMessage, createMessagesStore } from './stores/messages.js';
 import { SAFETY_FLOOR_VALUES, createSettingsStore } from './stores/settings.js';
 import { type TrackedTask, createTasksStore } from './stores/tasks.js';
 import { type ApprovedTool, type PendingToolRequest, type ToolResult, createToolsStore } from './stores/tools.js';
+import { type ProjectFile, type ProjectConfig, type LoadingMode, createProjectsStore } from './stores/projects.js';
 
 import { getConfigStore } from './config/config-store.js';
 import {
@@ -79,6 +80,7 @@ export const challengeStats = createChallengeStatsStore(challenges.store);
 export const memories = createMemoriesStore();
 export const tools = createToolsStore();
 export const budget = createBudgetStore();
+export const projects = createProjectsStore();
 
 /** Challenge Me More status — driven by AI VM server clock. */
 export const challengeStatus: Writable<{
@@ -670,12 +672,44 @@ function handleRelayMessage(data: string): void {
     return;
   }
 
+  // Project list response → populate projects store
+  if (type === 'project_list_response') {
+    const p = payload as Record<string, unknown>;
+    const files = (p.files as Array<{ path: string; size?: number; sizeBytes?: number; mimeType?: string; lastModified?: string }>) ?? [];
+    projects.setFiles(
+      files.map((f) => ({
+        path: f.path,
+        size: f.size ?? f.sizeBytes ?? 0,
+        mimeType: f.mimeType ?? 'text/plain',
+        lastModified: f.lastModified,
+      })),
+      Number(p.totalSize ?? 0),
+      Number(p.totalCount ?? files.length),
+    );
+    return;
+  }
+
+  // Project sync ack → update local file list + toast
+  if (type === 'project_sync_ack') {
+    const p = payload as Record<string, unknown>;
+    const path = String(p.path ?? '');
+    const size = Number(p.size ?? 0);
+    if (path) {
+      projects.upsertFile(path, size);
+      projects.setNotification(`File synced: ${path}`);
+    }
+    return;
+  }
+
+  // Project config ack → toast
+  if (type === 'project_config_ack') {
+    projects.setNotification('Project config updated');
+    return;
+  }
+
   // System/store-only messages — consume silently, never show in chat
   if (
     type === 'extension_list_response' ||
-    type === 'project_list_response' ||
-    type === 'project_sync_ack' ||
-    type === 'project_config_ack' ||
     type === 'config_ack' ||
     type === 'config_nack' ||
     type === 'tool_registry_sync' ||
@@ -708,6 +742,9 @@ export type {
   PendingToolRequest,
   ApprovedTool,
   ToolResult,
+  ProjectFile,
+  ProjectConfig,
+  LoadingMode,
 };
 export { SAFETY_FLOOR_VALUES };
 export { getConfigStore, generateUserId } from './config/config-store.js';

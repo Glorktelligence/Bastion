@@ -18,6 +18,9 @@ import {
   defaultSafetyConfig,
   createPatternHistory,
   generateSafetyResponse,
+  IntakeDirectory,
+  OutboundStaging,
+  FilePurgeManager,
 } from './packages/client-ai/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -103,6 +106,32 @@ console.log(`[✓] Conversation manager initialised (budget: ${conversationManag
 if (conversationManager.getUserContext()) {
   console.log(`[✓] User context loaded (${conversationManager.getUserContext().length} chars)`);
 }
+
+// ---------------------------------------------------------------------------
+// File handling — intake directory, outbound staging, purge manager
+// ---------------------------------------------------------------------------
+
+const intakeDirectory = new IntakeDirectory({ maxFiles: 50 });
+console.log('[✓] Intake directory initialised (read-only, max: 50 files)');
+
+const outboundStaging = new OutboundStaging({ maxFiles: 50 });
+console.log('[✓] Outbound staging initialised (write-only, max: 50 files)');
+
+const filePurgeManager = new FilePurgeManager(intakeDirectory, outboundStaging, {
+  defaultTimeoutMs: 3_600_000, // 1 hour
+  checkIntervalMs: 30_000,     // 30 seconds
+  onPurge: (result) => {
+    console.log(`[~] File purge: task ${result.taskId.slice(0, 8)} — ${result.totalPurged} files (${result.reason})`);
+  },
+});
+filePurgeManager.start();
+console.log('[✓] File purge manager started (timeout: 1h, check: 30s)');
+
+/** Pending file acceptances — transferId → metadata from file_manifest. */
+const pendingFileAcceptances = new Map();
+
+/** Track which tasks have been registered with purge manager. */
+const registeredPurgeTasks = new Set();
 
 // ---------------------------------------------------------------------------
 // Safety engine
@@ -245,6 +274,7 @@ const PLAINTEXT_TYPES = new Set([
   'session_init', 'session_established', 'key_exchange', 'token_refresh',
   'provider_register', 'ping', 'pong', 'peer_status', 'error',
   'config_ack', 'config_nack',
+  'file_manifest', 'file_offer', 'file_request', 'file_data',
 ]);
 
 /**
@@ -423,6 +453,20 @@ client.on('message', async (data) => {
     return;
   }
 
+  // Decode relay-generated messages — relay wraps payload as base64 JSON in encryptedPayload
+  // These are NOT E2E encrypted, just base64 transport encoding from the relay
+  if (msg.encryptedPayload && msg.sender?.type === 'relay') {
+    try {
+      const payloadStr = Buffer.from(msg.encryptedPayload, 'base64').toString('utf-8');
+      msg = { ...msg, payload: JSON.parse(payloadStr) };
+      delete msg.encryptedPayload;
+      delete msg.nonce;
+    } catch (err) {
+      console.error(`[!] Failed to decode relay message: ${err.message}`);
+      return;
+    }
+  }
+
   // Decrypt if this is an encrypted envelope (has encryptedPayload field)
   if (msg.encryptedPayload && e2eCipher) {
     try {
@@ -457,7 +501,7 @@ client.on('message', async (data) => {
         capabilities: {
           conversation: true,
           taskExecution: true,
-          fileTransfer: false,
+          fileTransfer: true,
         },
       },
       timestamp: new Date().toISOString(),
@@ -756,10 +800,125 @@ client.on('message', async (data) => {
     return;
   }
 
-  // Handle file transfer messages — acknowledge but not yet implemented in runtime
-  if (msg.type === 'file_manifest' || msg.type === 'file_offer' || msg.type === 'file_request') {
-    console.log(`[←] File transfer message: ${msg.type} — file handling not yet wired in runtime`);
-    // TODO: Wire to IntakeDirectory/OutboundStaging when file transfer is enabled
+  // ----- file_manifest: relay notifies AI of incoming file from human -----
+  if (msg.type === 'file_manifest') {
+    const p = msg.payload || msg;
+    console.log(`[←] File manifest: ${p.filename} (${p.sizeBytes} bytes, hash: ${(p.hash || '').slice(0, 12)}...)`);
+
+    // Auto-accept project-related files (human→AI with projectContext)
+    const isProjectFile = p.projectContext && p.projectContext.trim().length > 0;
+
+    if (isProjectFile) {
+      // Track acceptance metadata for when file_data arrives
+      pendingFileAcceptances.set(p.transferId, {
+        filename: p.filename,
+        sizeBytes: p.sizeBytes,
+        hash: p.hash,
+        mimeType: p.mimeType,
+        purpose: p.purpose,
+        projectContext: p.projectContext,
+        taskId: p.taskId || 'file-transfer',
+      });
+
+      // Send file_request to relay — triggers file delivery
+      client.send(JSON.stringify({
+        type: 'file_request',
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        sender: IDENTITY,
+        payload: {
+          transferId: p.transferId,
+          manifestMessageId: msg.id || randomUUID(),
+        },
+      }));
+      console.log(`[→] Auto-accepted project file: ${p.filename} — file_request sent`);
+    } else {
+      console.log(`[~] File offer received but not auto-accepted (no projectContext): ${p.filename}`);
+      // Future: apply safety evaluation or send challenge to human for approval
+    }
+    return;
+  }
+
+  // ----- file_data: relay delivers file bytes after AI accepted via file_request -----
+  if (msg.type === 'file_data') {
+    const transferId = msg.transferId;
+    const fileDataB64 = msg.fileData;
+    const filename = msg.filename;
+    const declaredHash = msg.hash;
+
+    if (!fileDataB64 || !transferId) {
+      console.error('[!] file_data missing required fields (transferId or fileData)');
+      return;
+    }
+
+    const fileData = new Uint8Array(Buffer.from(fileDataB64, 'base64'));
+
+    // 3-stage custody chain — stage 3: verify hash at recipient
+    const actualHash = createHash('sha256').update(fileData).digest('hex');
+    if (actualHash !== declaredHash) {
+      console.error(`[!] BASTION-5001: Hash mismatch at receipt — expected ${declaredHash.slice(0, 12)}, got ${actualHash.slice(0, 12)}`);
+      console.error(`[!] Transfer ${transferId.slice(0, 8)} ABORTED — custody chain broken`);
+      client.send(JSON.stringify({
+        type: 'error', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+        payload: { code: 'BASTION-5001', message: `Hash verification failed at delivery: expected ${declaredHash}, got ${actualHash}` },
+      }));
+      return;
+    }
+
+    // Look up pending acceptance metadata
+    const acceptance = pendingFileAcceptances.get(transferId);
+    const taskId = acceptance?.taskId || 'file-transfer';
+    const mimeType = acceptance?.mimeType || 'application/octet-stream';
+    pendingFileAcceptances.delete(transferId);
+
+    // Register task with purge manager if not already tracked
+    if (!registeredPurgeTasks.has(taskId)) {
+      try {
+        filePurgeManager.registerTask(taskId);
+        registeredPurgeTasks.add(taskId);
+      } catch { /* already tracked */ }
+    }
+
+    // Store in intake directory (read-only from this point)
+    const result = intakeDirectory.receive(transferId, taskId, filename, fileData, mimeType, actualHash);
+
+    if (result.status === 'received') {
+      console.log(`[✓] File received and verified: ${filename} (${fileData.length} bytes, SHA-256: ${actualHash.slice(0, 12)}...)`);
+      console.log(`[✓] Custody chain complete: [submitted] → [quarantined] → [delivered] — all hashes match`);
+
+      // Auto-save project files to ProjectStore
+      const projectExts = ['.md', '.json', '.yaml', '.yml', '.txt'];
+      const ext = filename.lastIndexOf('.') >= 0 ? filename.slice(filename.lastIndexOf('.')) : '';
+      if (projectExts.includes(ext.toLowerCase())) {
+        try {
+          const content = new TextDecoder().decode(fileData);
+          const saveResult = projectStore.saveFile(filename, content, mimeType);
+          if (saveResult.ok) {
+            console.log(`[✓] Project file auto-saved: ${filename} (${saveResult.size} bytes)`);
+          } else {
+            console.log(`[!] Project file save failed: ${filename} — ${saveResult.error}`);
+          }
+        } catch {
+          // Binary content with text extension — skip project save
+        }
+      }
+    } else if (result.status === 'duplicate') {
+      console.log(`[~] Duplicate file delivery ignored: ${transferId.slice(0, 8)}`);
+    } else if (result.status === 'full') {
+      console.log(`[!] Intake directory full (${result.maxFiles} files) — cannot receive ${filename}`);
+    }
+    return;
+  }
+
+  // ----- file_offer: AI should not receive this (it's for human clients) -----
+  if (msg.type === 'file_offer') {
+    console.log(`[~] Unexpected file_offer received — this message type is for human clients`);
+    return;
+  }
+
+  // ----- file_request: response to AI-initiated file offer (future outbound) -----
+  if (msg.type === 'file_request') {
+    console.log(`[←] file_request received: ${(msg.payload?.transferId || '').slice(0, 8)} — relay handles delivery`);
     return;
   }
 
