@@ -37,6 +37,7 @@ let e2eAvailable = $state(false);
 let toasts: session.ToastNotification[] = $state([]);
 let providerName = $state('');
 let providerActive = $state(false);
+let providerModel = $state('');
 let activeConv: ConversationEntry | null = $state(null);
 let convMessages: ConversationMessage[] = $state([]);
 let hasMoreHistory = $state(false);
@@ -59,7 +60,7 @@ $effect(() => {
 	unsubs.push(session.autoConnecting.subscribe((v) => (isAutoConnecting = v)));
 	unsubs.push(session.e2eStatus.subscribe((v) => { e2eActive = v.active; e2eAvailable = v.available; }));
 	unsubs.push(session.notifications.subscribe((v) => { toasts = [...v]; }));
-	unsubs.push(session.provider.store.subscribe((v) => { providerName = v.provider?.providerName ?? ''; providerActive = v.provider?.status === 'active'; }));
+	unsubs.push(session.provider.store.subscribe((v) => { providerName = v.provider?.providerName ?? ''; providerActive = v.provider?.status === 'active'; providerModel = v.provider?.model ?? ''; }));
 	unsubs.push(session.conversations.activeConversation.subscribe((v) => { activeConv = v; }));
 	unsubs.push(session.conversations.store.subscribe((v) => { convMessages = [...v.activeMessages]; hasMoreHistory = v.hasMoreHistory; loadingHistory = v.loadingHistory; }));
 
@@ -291,6 +292,7 @@ function handleChallengeCancel(): void {
 			{e2eAvailable}
 			{providerName}
 			{providerActive}
+			{providerModel}
 			onRetry={handleConnect}
 		/>
 

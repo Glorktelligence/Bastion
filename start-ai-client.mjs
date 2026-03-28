@@ -37,6 +37,12 @@ const PROVIDER_ID = process.env.BASTION_PROVIDER_ID || 'anthropic-bastion';
 const PROVIDER_NAME = process.env.BASTION_PROVIDER_NAME || 'Anthropic (Bastion Official)';
 const MODEL = process.env.BASTION_MODEL || 'claude-sonnet-4-20250514';
 const MAX_TOKENS = parseInt(process.env.BASTION_MAX_TOKENS || '4096', 10);
+const TEMPERATURE = parseFloat(process.env.BASTION_TEMPERATURE || '1.0');
+const API_ENDPOINT = process.env.BASTION_API_ENDPOINT || 'https://api.anthropic.com';
+const API_VERSION = process.env.BASTION_API_VERSION || '2023-06-01';
+const API_TIMEOUT = parseInt(process.env.BASTION_TIMEOUT || '120000', 10);
+const PRICING_INPUT = parseFloat(process.env.BASTION_PRICING_INPUT || '3');
+const PRICING_OUTPUT = parseFloat(process.env.BASTION_PRICING_OUTPUT || '15');
 const REJECT_UNAUTHORIZED = process.env.BASTION_TLS_REJECT_UNAUTHORIZED !== 'false' ? false : true;
 // Note: defaults to false (accept self-signed) — set BASTION_TLS_REJECT_UNAUTHORIZED=true for strict
 
@@ -66,8 +72,17 @@ const keyManager = createApiKeyManager(API_KEY);
 const adapterToolRegistry = createToolRegistry();
 
 const adapter = createAnthropicAdapter(keyManager, adapterToolRegistry, {
+  providerId: PROVIDER_ID,
+  providerName: PROVIDER_NAME,
   model: MODEL,
   maxTokens: MAX_TOKENS,
+  temperature: TEMPERATURE,
+  apiBaseUrl: API_ENDPOINT,
+  apiVersion: API_VERSION,
+  requestTimeoutMs: API_TIMEOUT,
+  pricingInputPerMTok: PRICING_INPUT,
+  pricingOutputPerMTok: PRICING_OUTPUT,
+  supportedModels: [MODEL],
   // System prompt is assembled by ConversationManager (role context + user context).
   // The adapter's systemPrompt is used as fallback for executeTask calls.
   systemPrompt: ConversationManager.getRoleContext(),
@@ -602,17 +617,14 @@ client.on('message', async (data) => {
     console.log(`[←] Session established (session: ${(msg.sessionId || '').slice(0, 8)})`);
     client.setToken(msg.jwt, msg.expiresAt);
 
-    // Register as a governed provider
+    // Register as a governed provider with model info and capabilities
     const registerMsg = JSON.stringify({
       type: 'provider_register',
       payload: {
         providerId: PROVIDER_ID,
         providerName: PROVIDER_NAME,
-        capabilities: {
-          conversation: true,
-          taskExecution: true,
-          fileTransfer: true,
-        },
+        model: MODEL,
+        capabilities: adapter.capabilities,
       },
       timestamp: new Date().toISOString(),
     });

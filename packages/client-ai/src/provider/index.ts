@@ -32,8 +32,6 @@ export type {
   AnthropicTextBlock,
   AnthropicToolUseBlock,
   AnthropicContentBlock,
-  AdapterResult,
-  AdapterResponse,
   ValidatedToolCall,
   RejectedToolCall,
   FetchFn,

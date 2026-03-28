@@ -934,6 +934,7 @@ function handleRelayMessage(data: string): void {
     provider.setProvider({
       providerId: String(p.providerId ?? ''),
       providerName: String(p.providerName ?? p.name ?? ''),
+      model: p.model ? String(p.model) : null,
       status: String(p.status ?? 'active') as ProviderInfo['status'],
       capabilities: {
         conversation: Boolean(caps.conversation ?? true),

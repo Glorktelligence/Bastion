@@ -138,6 +138,15 @@ export type {
 } from './types/auth.js';
 
 export type {
+  AdapterOptions,
+  AdapterCapabilities,
+  ModelPricing,
+  AdapterResponse,
+  AdapterResult,
+  ProviderAdapter,
+} from './types/adapter.js';
+
+export type {
   FileTransferState,
   FileTransferDirection,
   FileChainOfCustody,

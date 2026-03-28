@@ -26,6 +26,7 @@ export interface ProviderCapabilities {
 export interface ProviderInfo {
   readonly providerId: string;
   readonly providerName: string;
+  readonly model: string | null;
   readonly status: 'active' | 'inactive' | 'unknown';
   readonly capabilities: ProviderCapabilities;
   readonly lastUpdated: string;

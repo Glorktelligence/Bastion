@@ -10,7 +10,7 @@
  * on all tool_use responses from the API.
  */
 
-import type { CostMetadata, TaskPayload } from '@bastion/protocol';
+import type { AdapterOptions, AdapterResult, ModelPricing, ProviderAdapter, TaskPayload } from '@bastion/protocol';
 import { ERROR_CODES } from '@bastion/protocol';
 import type { ApiKeyManager } from './api-key-manager.js';
 import type { ToolDefinition, ToolRegistry } from './tool-registry.js';
@@ -70,42 +70,32 @@ export interface RejectedToolCall {
   readonly reason: string;
 }
 
-/** Successful adapter response. */
-export interface AdapterResponse {
-  readonly textContent: string;
-  readonly toolCalls: readonly ValidatedToolCall[];
-  readonly rejectedToolCalls: readonly RejectedToolCall[];
-  readonly stopReason: string;
-  readonly usage: {
-    readonly inputTokens: number;
-    readonly outputTokens: number;
-  };
-  readonly cost: CostMetadata;
-  readonly model: string;
-}
-
-/** Adapter result — success or failure. */
-export type AdapterResult =
-  | { readonly ok: true; readonly response: AdapterResponse }
-  | {
-      readonly ok: false;
-      readonly errorCode: string;
-      readonly message: string;
-      readonly retryable: boolean;
-    };
+// AdapterResponse and AdapterResult are imported from @bastion/protocol.
+// Extended response with tool call details (Anthropic-specific).
+export type { AdapterResponse, AdapterResult } from '@bastion/protocol';
 
 /** Configuration for the Anthropic adapter. */
 export interface AnthropicAdapterConfig {
+  readonly providerId?: string;
+  readonly providerName?: string;
   readonly model: string;
   readonly maxTokens: number;
+  readonly temperature?: number;
   readonly apiBaseUrl?: string;
   readonly apiVersion?: string;
   readonly requestTimeoutMs?: number;
   readonly systemPrompt?: string;
-  /** USD per input token. Defaults to Claude 3.5 Sonnet pricing ($3/MTok). */
+  /** USD per million input tokens. */
+  readonly pricingInputPerMTok?: number;
+  /** USD per million output tokens. */
+  readonly pricingOutputPerMTok?: number;
+  /** Backward compat aliases. */
   readonly pricingPerInputToken?: number;
-  /** USD per output token. Defaults to Claude 3.5 Sonnet pricing ($15/MTok). */
   readonly pricingPerOutputToken?: number;
+  /** Supported model IDs. */
+  readonly supportedModels?: readonly string[];
+  /** Max context window tokens. */
+  readonly maxContextTokens?: number;
 }
 
 /** Injectable fetch function type for testability. */
@@ -124,14 +114,11 @@ export type FetchFn = (
   json(): Promise<unknown>;
 }>;
 
-/** The Anthropic adapter interface. */
-export interface AnthropicAdapter {
-  /** Execute a task via the Anthropic Messages API. */
-  executeTask(task: TaskPayload): Promise<AdapterResult>;
-  /**
-   * Test API connectivity with the given key (or the current key).
-   * Used during key rotation to validate a new key before installing it.
-   */
+/** The Anthropic adapter interface — extends ProviderAdapter. */
+export interface AnthropicAdapter extends ProviderAdapter {
+  /** Execute a task with optional per-call overrides. */
+  executeTask(task: TaskPayload, options?: AdapterOptions): Promise<AdapterResult>;
+  /** Test API connectivity. */
   testConnection(apiKey?: string): Promise<boolean>;
 }
 
@@ -148,9 +135,7 @@ const DEFAULT_SYSTEM_PROMPT =
   'Execute tasks precisely as specified. Only use tools that are provided to you. ' +
   'Report results clearly and include any relevant details about actions taken.';
 
-// Default pricing: Claude 3.5 Sonnet ($3/MTok input, $15/MTok output)
-const DEFAULT_INPUT_RATE = 3 / 1_000_000;
-const DEFAULT_OUTPUT_RATE = 15 / 1_000_000;
+// Default pricing: Claude Sonnet ($3/MTok input, $15/MTok output)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -299,8 +284,17 @@ export function createAnthropicAdapter(
   const version = config.apiVersion ?? DEFAULT_API_VERSION;
   const timeoutMs = config.requestTimeoutMs ?? DEFAULT_TIMEOUT_MS;
   const systemPrompt = config.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
-  const inputRate = config.pricingPerInputToken ?? DEFAULT_INPUT_RATE;
-  const outputRate = config.pricingPerOutputToken ?? DEFAULT_OUTPUT_RATE;
+  const defaultTemperature = config.temperature ?? 1.0;
+  const inputRatePerMTok =
+    config.pricingInputPerMTok ?? (config.pricingPerInputToken ? config.pricingPerInputToken * 1_000_000 : 3);
+  const outputRatePerMTok =
+    config.pricingOutputPerMTok ?? (config.pricingPerOutputToken ? config.pricingPerOutputToken * 1_000_000 : 15);
+  const inputRate = inputRatePerMTok / 1_000_000;
+  const outputRate = outputRatePerMTok / 1_000_000;
+  const adapterProviderId = config.providerId ?? 'anthropic';
+  const adapterProviderName = config.providerName ?? 'Anthropic';
+  const models = config.supportedModels ?? [config.model];
+  const maxContext = config.maxContextTokens ?? 200_000;
 
   // Use injected fetch or global fetch
   const doFetch: FetchFn = fetchFn ?? (globalThis.fetch as unknown as FetchFn);
@@ -348,7 +342,28 @@ export function createAnthropicAdapter(
   }
 
   return {
-    async executeTask(task: TaskPayload): Promise<AdapterResult> {
+    providerId: adapterProviderId,
+    providerName: adapterProviderName,
+    supportedModels: models,
+    activeModel: config.model,
+
+    capabilities: {
+      conversation: true,
+      taskExecution: true,
+      fileTransfer: true,
+      streaming: false,
+      webSearch: true,
+      toolUse: true,
+      vision: true,
+      maxContextTokens: maxContext,
+    },
+
+    getModelPricing(_model?: string): ModelPricing {
+      // Future: per-model pricing lookup. Currently returns configured pricing.
+      return { inputPerMTok: inputRatePerMTok, outputPerMTok: outputRatePerMTok };
+    },
+
+    async executeTask(task: TaskPayload, options?: AdapterOptions): Promise<AdapterResult> {
       const apiKey = keyManager.getKey();
       if (!apiKey) {
         return {
@@ -360,6 +375,9 @@ export function createAnthropicAdapter(
       }
 
       const tools = toolRegistry.toAnthropicTools();
+      const callModel = options?.model ?? config.model;
+      const callMaxTokens = options?.maxTokens ?? config.maxTokens;
+      const callTemperature = options?.temperature ?? defaultTemperature;
 
       // Use dynamic system prompt from conversation manager if provided
       const effectiveSystemPrompt =
@@ -375,8 +393,9 @@ export function createAnthropicAdapter(
         : [{ role: 'user', content: formatTaskMessage(task) }];
 
       const requestBody: Record<string, unknown> = {
-        model: config.model,
-        max_tokens: config.maxTokens,
+        model: callModel,
+        max_tokens: callMaxTokens,
+        temperature: callTemperature,
         system: effectiveSystemPrompt,
         messages,
       };

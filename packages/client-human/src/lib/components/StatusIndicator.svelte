@@ -10,6 +10,7 @@ const {
   e2eAvailable = false,
   providerName = '',
   providerActive = false,
+  providerModel = '',
   onRetry,
 }: {
   status: HumanClientState;
@@ -20,6 +21,7 @@ const {
   e2eAvailable?: boolean;
   providerName?: string;
   providerActive?: boolean;
+  providerModel?: string;
   onRetry?: () => void;
 } = $props();
 
@@ -91,7 +93,7 @@ function formatDelay(ms: number): string {
 	<div class="peer-status">
 		{peerLabel(peerStatus)}
 		{#if status === 'authenticated' || status === 'connected'}
-			<span class="provider-label">{providerName ? `${providerName} ${providerActive ? '✓' : '✗'}` : 'No AI provider'}</span>
+			<span class="provider-label">{providerName ? `${providerName}${providerModel ? ` (${providerModel})` : ''} ${providerActive ? '✓' : '✗'}` : 'No AI provider'}</span>
 		{/if}
 	</div>
 </div>

@@ -560,6 +560,10 @@ function handleContextSave(): void {
 				<span class="value">{providerInfo.providerName}</span>
 				<span class="label">ID</span>
 				<span class="value mono">{providerInfo.providerId}</span>
+				{#if providerInfo.model}
+				<span class="label">Model</span>
+				<span class="value mono">{providerInfo.model}</span>
+				{/if}
 				<span class="label">Status</span>
 				<span class="value">{#if providerInfo.status === 'active'}<span class="prov-active">Active</span>{:else}<span class="prov-inactive">{providerInfo.status}</span>{/if}</span>
 				<span class="label">Capabilities</span>

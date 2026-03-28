@@ -70,8 +70,6 @@ export type {
   KeyRotationResult,
   AnthropicAdapter,
   AnthropicAdapterConfig,
-  AdapterResult,
-  AdapterResponse,
   ValidatedToolCall,
   RejectedToolCall,
   FetchFn,
