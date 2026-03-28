@@ -95,6 +95,7 @@ async function handleLogout() {
 				<li><a href="/blocklist" class:active={page.url.pathname === '/blocklist'}>Blocklist</a></li>
 				<li><a href="/quarantine" class:active={page.url.pathname === '/quarantine'}>Quarantine</a></li>
 				<li><a href="/connections" class:active={page.url.pathname === '/connections'}>Connections</a></li>
+				<li><a href="/audit" class:active={page.url.pathname === '/audit'}>Audit Log</a></li>
 				<li><a href="/config" class:active={page.url.pathname === '/config'}>Configuration</a></li>
 			</ul>
 			<div class="sidebar-footer">

@@ -32,7 +32,7 @@ export interface DataServiceConfig {
 // ---------------------------------------------------------------------------
 
 export class DataService {
-  private readonly client: AdminApiClient;
+  readonly client: AdminApiClient;
   private readonly statusIntervalMs: number;
   private readonly connectionsIntervalMs: number;
   private statusTimer: ReturnType<typeof setInterval> | null = null;

@@ -750,6 +750,221 @@ async function run() {
   console.log();
 
   // =========================================================================
+  // Test 11: Tool message flow (9 types)
+  // =========================================================================
+  console.log('--- Test 11: Tool message flow (9 types) ---');
+  {
+    // Helper: route from sender to peer
+    async function routeAndReceive(senderConnId, receiverClient, data) {
+      const promise = waitForEvent(receiverClient, 'message');
+      relay.on('message', function handler(d, info) {
+        if (info.id === senderConnId) {
+          router.route(d, senderConnId);
+          relay.off('message', handler);
+        }
+      });
+      relay.emit('message', data, { id: senderConnId });
+      const [received] = await promise;
+      return fromEncryptedEnvelope(received);
+    }
+
+    const toolCorrelation = uuid();
+
+    // tool_registry_sync: AI → Human (share available tools)
+    const registryPayload = { tools: [{ toolId: 'mcp:search', name: 'search', category: 'read' }], totalCount: 1 };
+    const registryEnv = toEncryptedEnvelope(makeEnvelope('tool_registry_sync', registryPayload, AI_IDENTITY, toolCorrelation));
+    const registryReceived = await routeAndReceive(aiConnInfo.id, humanClient, registryEnv);
+    check('tool_registry_sync: human received', registryReceived.type === 'tool_registry_sync');
+    check('tool_registry_sync: has tools', registryReceived.payload.totalCount === 1);
+
+    // tool_registry_ack: Human → AI
+    const ackPayload = { acknowledged: true };
+    const ackEnv = toEncryptedEnvelope(makeEnvelope('tool_registry_ack', ackPayload, HUMAN_IDENTITY, toolCorrelation));
+    const ackReceived = await routeAndReceive(humanConnInfo.id, aiClient, ackEnv);
+    check('tool_registry_ack: AI received', ackReceived.type === 'tool_registry_ack');
+
+    // tool_request: AI → Human (request permission)
+    const requestId = uuid();
+    const toolReqPayload = { requestId, toolId: 'mcp:search', action: 'web_search', parameters: { query: 'test' }, mode: 'conversation', dangerous: false, category: 'read' };
+    const reqEnv = toEncryptedEnvelope(makeEnvelope('tool_request', toolReqPayload, AI_IDENTITY, toolCorrelation));
+    const reqReceived = await routeAndReceive(aiConnInfo.id, humanClient, reqEnv);
+    check('tool_request: human received', reqReceived.type === 'tool_request');
+    check('tool_request: correct requestId', reqReceived.payload.requestId === requestId);
+
+    // tool_approved: Human → AI
+    const approvePayload = { requestId, toolId: 'mcp:search', trustLevel: 7, scope: 'session', reason: 'Trusted for search' };
+    const approveEnv = toEncryptedEnvelope(makeEnvelope('tool_approved', approvePayload, HUMAN_IDENTITY, toolCorrelation));
+    const approveReceived = await routeAndReceive(humanConnInfo.id, aiClient, approveEnv);
+    check('tool_approved: AI received', approveReceived.type === 'tool_approved');
+    check('tool_approved: correct trustLevel', approveReceived.payload.trustLevel === 7);
+
+    // tool_result: AI → Human
+    const resultPayload = { requestId, toolId: 'mcp:search', result: { items: ['result1'] }, durationMs: 150, success: true };
+    const resultEnv = toEncryptedEnvelope(makeEnvelope('tool_result', resultPayload, AI_IDENTITY, toolCorrelation));
+    const resultReceived = await routeAndReceive(aiConnInfo.id, humanClient, resultEnv);
+    check('tool_result: human received', resultReceived.type === 'tool_result');
+    check('tool_result: success flag preserved', resultReceived.payload.success === true);
+
+    // tool_denied: Human → AI (test alternate path)
+    const denyPayload = { requestId: uuid(), toolId: 'mcp:delete', reason: 'Too dangerous' };
+    const denyEnv = toEncryptedEnvelope(makeEnvelope('tool_denied', denyPayload, HUMAN_IDENTITY, toolCorrelation));
+    const denyReceived = await routeAndReceive(humanConnInfo.id, aiClient, denyEnv);
+    check('tool_denied: AI received', denyReceived.type === 'tool_denied');
+
+    // tool_revoke: Human → AI
+    const revokePayload = { toolId: 'mcp:search', reason: 'Session ended' };
+    const revokeEnv = toEncryptedEnvelope(makeEnvelope('tool_revoke', revokePayload, HUMAN_IDENTITY, toolCorrelation));
+    const revokeReceived = await routeAndReceive(humanConnInfo.id, aiClient, revokeEnv);
+    check('tool_revoke: AI received', revokeReceived.type === 'tool_revoke');
+    check('tool_revoke: correct toolId', revokeReceived.payload.toolId === 'mcp:search');
+
+    // tool_alert: AI → Human
+    const alertPayload = { alertType: 'new_tool', toolId: 'mcp:calendar', message: 'New tool discovered' };
+    const alertEnv = toEncryptedEnvelope(makeEnvelope('tool_alert', alertPayload, AI_IDENTITY, toolCorrelation));
+    const alertReceived = await routeAndReceive(aiConnInfo.id, humanClient, alertEnv);
+    check('tool_alert: human received', alertReceived.type === 'tool_alert');
+    check('tool_alert: correct alertType', alertReceived.payload.alertType === 'new_tool');
+
+    // tool_alert_response: Human → AI
+    const alertRespPayload = { toolId: 'mcp:calendar', acknowledged: true };
+    const alertRespEnv = toEncryptedEnvelope(makeEnvelope('tool_alert_response', alertRespPayload, HUMAN_IDENTITY, toolCorrelation));
+    const alertRespReceived = await routeAndReceive(humanConnInfo.id, aiClient, alertRespEnv);
+    check('tool_alert_response: AI received', alertRespReceived.type === 'tool_alert_response');
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 12: Memory message flow (6 types)
+  // =========================================================================
+  console.log('--- Test 12: Memory message flow (6 types) ---');
+  {
+    async function routeAndReceive(senderConnId, receiverClient, data) {
+      const promise = waitForEvent(receiverClient, 'message');
+      relay.on('message', function handler(d, info) {
+        if (info.id === senderConnId) {
+          router.route(d, senderConnId);
+          relay.off('message', handler);
+        }
+      });
+      relay.emit('message', data, { id: senderConnId });
+      const [received] = await promise;
+      return fromEncryptedEnvelope(received);
+    }
+
+    const memCorrelation = uuid();
+    const proposalId = uuid();
+
+    // memory_proposal: Human → AI
+    const proposalPayload = { proposalId, content: 'User prefers concise answers', category: 'preference', sourceMessageId: uuid() };
+    const proposalEnv = toEncryptedEnvelope(makeEnvelope('memory_proposal', proposalPayload, HUMAN_IDENTITY, memCorrelation));
+    const proposalReceived = await routeAndReceive(humanConnInfo.id, aiClient, proposalEnv);
+    check('memory_proposal: AI received', proposalReceived.type === 'memory_proposal');
+    check('memory_proposal: correct category', proposalReceived.payload.category === 'preference');
+
+    // memory_decision: AI → Human
+    const decisionPayload = { proposalId, decision: 'approve', memoryId: uuid() };
+    const decisionEnv = toEncryptedEnvelope(makeEnvelope('memory_decision', decisionPayload, AI_IDENTITY, memCorrelation));
+    const decisionReceived = await routeAndReceive(aiConnInfo.id, humanClient, decisionEnv);
+    check('memory_decision: human received', decisionReceived.type === 'memory_decision');
+    check('memory_decision: approved', decisionReceived.payload.decision === 'approve');
+
+    // memory_list: Human → AI
+    const listPayload = { category: 'preference' };
+    const listEnv = toEncryptedEnvelope(makeEnvelope('memory_list', listPayload, HUMAN_IDENTITY, memCorrelation));
+    const listReceived = await routeAndReceive(humanConnInfo.id, aiClient, listEnv);
+    check('memory_list: AI received', listReceived.type === 'memory_list');
+
+    // memory_list_response: AI → Human
+    const listRespPayload = { memories: [{ id: uuid(), content: 'Prefers concise', category: 'preference', createdAt: ts(), updatedAt: ts() }], totalCount: 1 };
+    const listRespEnv = toEncryptedEnvelope(makeEnvelope('memory_list_response', listRespPayload, AI_IDENTITY, memCorrelation));
+    const listRespReceived = await routeAndReceive(aiConnInfo.id, humanClient, listRespEnv);
+    check('memory_list_response: human received', listRespReceived.type === 'memory_list_response');
+    check('memory_list_response: has memories', listRespReceived.payload.totalCount === 1);
+
+    // memory_update: Human → AI
+    const updatePayload = { memoryId: uuid(), content: 'User prefers very concise answers' };
+    const updateEnv = toEncryptedEnvelope(makeEnvelope('memory_update', updatePayload, HUMAN_IDENTITY, memCorrelation));
+    const updateReceived = await routeAndReceive(humanConnInfo.id, aiClient, updateEnv);
+    check('memory_update: AI received', updateReceived.type === 'memory_update');
+
+    // memory_delete: Human → AI
+    const deletePayload = { memoryId: uuid() };
+    const deleteEnv = toEncryptedEnvelope(makeEnvelope('memory_delete', deletePayload, HUMAN_IDENTITY, memCorrelation));
+    const deleteReceived = await routeAndReceive(humanConnInfo.id, aiClient, deleteEnv);
+    check('memory_delete: AI received', deleteReceived.type === 'memory_delete');
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 13: Project message flow (7 types)
+  // =========================================================================
+  console.log('--- Test 13: Project message flow (7 types) ---');
+  {
+    async function routeAndReceive(senderConnId, receiverClient, data) {
+      const promise = waitForEvent(receiverClient, 'message');
+      relay.on('message', function handler(d, info) {
+        if (info.id === senderConnId) {
+          router.route(d, senderConnId);
+          relay.off('message', handler);
+        }
+      });
+      relay.emit('message', data, { id: senderConnId });
+      const [received] = await promise;
+      return fromEncryptedEnvelope(received);
+    }
+
+    const projCorrelation = uuid();
+
+    // project_sync: Human → AI
+    const syncPayload = { path: 'factions/iron-league.md', content: '# Iron League\nA major faction.', mimeType: 'text/markdown' };
+    const syncEnv = toEncryptedEnvelope(makeEnvelope('project_sync', syncPayload, HUMAN_IDENTITY, projCorrelation));
+    const syncReceived = await routeAndReceive(humanConnInfo.id, aiClient, syncEnv);
+    check('project_sync: AI received', syncReceived.type === 'project_sync');
+    check('project_sync: correct path', syncReceived.payload.path === 'factions/iron-league.md');
+
+    // project_sync_ack: AI → Human
+    const syncAckPayload = { path: 'factions/iron-league.md', size: 33, timestamp: ts() };
+    const syncAckEnv = toEncryptedEnvelope(makeEnvelope('project_sync_ack', syncAckPayload, AI_IDENTITY, projCorrelation));
+    const syncAckReceived = await routeAndReceive(aiConnInfo.id, humanClient, syncAckEnv);
+    check('project_sync_ack: human received', syncAckReceived.type === 'project_sync_ack');
+    check('project_sync_ack: correct path', syncAckReceived.payload.path === 'factions/iron-league.md');
+
+    // project_list: Human → AI
+    const listPayload = { directory: '/' };
+    const listEnv = toEncryptedEnvelope(makeEnvelope('project_list', listPayload, HUMAN_IDENTITY, projCorrelation));
+    const listReceived = await routeAndReceive(humanConnInfo.id, aiClient, listEnv);
+    check('project_list: AI received', listReceived.type === 'project_list');
+
+    // project_list_response: AI → Human
+    const listRespPayload = { files: [{ path: 'factions/iron-league.md', size: 33, mimeType: 'text/markdown' }], totalSize: 33, totalCount: 1 };
+    const listRespEnv = toEncryptedEnvelope(makeEnvelope('project_list_response', listRespPayload, AI_IDENTITY, projCorrelation));
+    const listRespReceived = await routeAndReceive(aiConnInfo.id, humanClient, listRespEnv);
+    check('project_list_response: human received', listRespReceived.type === 'project_list_response');
+    check('project_list_response: has files', listRespReceived.payload.totalCount === 1);
+
+    // project_delete: Human → AI
+    const deletePayload = { path: 'factions/iron-league.md' };
+    const deleteEnv = toEncryptedEnvelope(makeEnvelope('project_delete', deletePayload, HUMAN_IDENTITY, projCorrelation));
+    const deleteReceived = await routeAndReceive(humanConnInfo.id, aiClient, deleteEnv);
+    check('project_delete: AI received', deleteReceived.type === 'project_delete');
+    check('project_delete: correct path', deleteReceived.payload.path === 'factions/iron-league.md');
+
+    // project_config: Human → AI
+    const configPayload = { alwaysLoaded: ['factions/iron-league.md'], available: ['notes/session-log.md'] };
+    const configEnv = toEncryptedEnvelope(makeEnvelope('project_config', configPayload, HUMAN_IDENTITY, projCorrelation));
+    const configReceived = await routeAndReceive(humanConnInfo.id, aiClient, configEnv);
+    check('project_config: AI received', configReceived.type === 'project_config');
+    check('project_config: alwaysLoaded count', configReceived.payload.alwaysLoaded.length === 1);
+
+    // project_config_ack: AI → Human
+    const configAckPayload = { alwaysLoaded: ['factions/iron-league.md'], available: ['notes/session-log.md'], timestamp: ts() };
+    const configAckEnv = toEncryptedEnvelope(makeEnvelope('project_config_ack', configAckPayload, AI_IDENTITY, projCorrelation));
+    const configAckReceived = await routeAndReceive(aiConnInfo.id, humanClient, configAckEnv);
+    check('project_config_ack: human received', configAckReceived.type === 'project_config_ack');
+  }
+  console.log();
+
+  // =========================================================================
   // Cleanup
   // =========================================================================
   console.log('--- Cleanup ---');
