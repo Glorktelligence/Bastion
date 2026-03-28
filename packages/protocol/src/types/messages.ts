@@ -199,6 +199,8 @@ export interface MemoryProposalPayload {
   readonly content: string;
   readonly category: 'preference' | 'fact' | 'workflow' | 'project';
   readonly sourceMessageId: string;
+  /** Optional: scope memory to a specific conversation. Null/absent = global. */
+  readonly conversationId?: string;
 }
 
 /** AI → Human (via Relay): Decision on a memory proposal. */
@@ -212,6 +214,8 @@ export interface MemoryDecisionPayload {
 /** Human → AI (via Relay): Request all memories. */
 export interface MemoryListPayload {
   readonly category?: 'preference' | 'fact' | 'workflow' | 'project';
+  /** Optional: filter by conversation. Null = global only. Absent = all. */
+  readonly conversationId?: string | null;
 }
 
 /** AI → Human (via Relay): Full memory list response. */
@@ -222,6 +226,7 @@ export interface MemoryListResponsePayload {
     readonly category: 'preference' | 'fact' | 'workflow' | 'project';
     readonly createdAt: string;
     readonly updatedAt: string;
+    readonly conversationId?: string | null;
   }[];
   readonly totalCount: number;
 }

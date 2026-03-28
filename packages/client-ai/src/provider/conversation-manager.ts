@@ -108,12 +108,12 @@ export class ConversationManager {
   }
 
   /** Get the assembled system prompt (role context + memories + user context). */
-  getSystemPrompt(): string {
+  getSystemPrompt(activeConversationId?: string | null): string {
     const parts = [ROLE_CONTEXT];
 
-    // Layer 2: persistent memories (top 20 by recency)
+    // Layer 2: persistent memories — hybrid set (10 global + 10 conversation-scoped)
     if (this.memoryStore) {
-      const memBlock = this.memoryStore.getPromptMemories();
+      const memBlock = this.memoryStore.getPromptMemories(activeConversationId);
       if (memBlock) parts.push(memBlock);
     }
 

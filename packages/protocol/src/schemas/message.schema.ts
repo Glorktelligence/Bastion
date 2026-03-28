@@ -166,6 +166,7 @@ export const MemoryProposalPayloadSchema = z.object({
   content: z.string().min(1),
   category: z.enum(['preference', 'fact', 'workflow', 'project']),
   sourceMessageId: z.string().min(1),
+  conversationId: z.string().optional(),
 });
 
 export const MemoryDecisionPayloadSchema = z.object({
@@ -177,6 +178,7 @@ export const MemoryDecisionPayloadSchema = z.object({
 
 export const MemoryListPayloadSchema = z.object({
   category: z.enum(['preference', 'fact', 'workflow', 'project']).optional(),
+  conversationId: z.string().nullable().optional(),
 });
 
 export const MemoryListResponsePayloadSchema = z.object({
@@ -187,6 +189,7 @@ export const MemoryListResponsePayloadSchema = z.object({
       category: z.enum(['preference', 'fact', 'workflow', 'project']),
       createdAt: z.string(),
       updatedAt: z.string(),
+      conversationId: z.string().nullable().optional(),
     }),
   ),
   totalCount: z.number().int().nonnegative(),

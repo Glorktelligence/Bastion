@@ -671,8 +671,14 @@ function handleRelayMessage(data: string): void {
   if (type === 'memory_list_response') {
     const p = payload as Record<string, unknown>;
     const mems =
-      (p.memories as Array<{ id: string; content: string; category: string; createdAt: string; updatedAt: string }>) ??
-      [];
+      (p.memories as Array<{
+        id: string;
+        content: string;
+        category: string;
+        createdAt: string;
+        updatedAt: string;
+        conversationId?: string | null;
+      }>) ?? [];
     memories.setMemories(
       mems.map((m) => ({
         id: m.id,
@@ -680,6 +686,7 @@ function handleRelayMessage(data: string): void {
         category: m.category as MemoryEntry['category'],
         createdAt: m.createdAt,
         updatedAt: m.updatedAt,
+        conversationId: m.conversationId ?? null,
       })),
     );
     return;

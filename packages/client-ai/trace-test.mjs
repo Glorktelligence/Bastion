@@ -1431,7 +1431,7 @@ async function run() {
   // -------------------------------------------------------------------
   console.log('--- Test: MemoryStore ---');
   {
-    const store = new MemoryStore({ path: ':memory:', maxPromptMemories: 5 });
+    const store = new MemoryStore({ path: ':memory:', maxPromptMemoriesPerScope: 5 });
     check('initial count 0', store.count === 0);
 
     // Add memories
@@ -1483,7 +1483,7 @@ async function run() {
 
     // Prompt injection
     const promptText = store.getPromptMemories();
-    check('prompt has memories', promptText.includes('Remembered Context'));
+    check('prompt has memories', promptText.includes('Global Memories'));
     check('prompt has preference', promptText.includes('[preference]'));
     check('prompt has content', promptText.includes('concise answers'));
 
@@ -1503,9 +1503,9 @@ async function run() {
       memoryStore: store,
     });
     const sysPrompt = cm.getSystemPrompt();
-    check('system prompt has memories', sysPrompt.includes('Remembered Context'));
+    check('system prompt has memories', sysPrompt.includes('Global Memories'));
     check('system prompt has role context', sysPrompt.includes('Project Bastion'));
-    check('memories after role context', sysPrompt.indexOf('Project Bastion') < sysPrompt.indexOf('Remembered Context'));
+    check('memories after role context', sysPrompt.indexOf('Project Bastion') < sysPrompt.indexOf('Global Memories'));
 
     store.close();
   }

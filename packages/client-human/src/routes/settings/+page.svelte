@@ -127,6 +127,7 @@ let memoryNotification: string | null = $state(null);
 let editingMemoryId: string | null = $state(null);
 let editingContent = $state('');
 let deleteConfirmId: string | null = $state(null);
+let memoryFilter = $state('all'); // 'all' | 'global' | conversationId
 
 const categoryColors: Record<string, string> = {
   preference: '#4a9eff',
@@ -138,12 +139,18 @@ const categoryColors: Record<string, string> = {
 function requestMemoryList(): void {
   const client = session.getClient();
   if (!client || !client.isConnected) return;
+  const payload = {};
+  if (memoryFilter === 'global') {
+    payload.conversationId = null;
+  } else if (memoryFilter !== 'all') {
+    payload.conversationId = memoryFilter;
+  }
   client.send(JSON.stringify({
     type: 'memory_list',
     id: crypto.randomUUID(),
     timestamp: new Date().toISOString(),
     sender: session.IDENTITY,
-    payload: {},
+    payload,
   }));
 }
 
@@ -387,10 +394,20 @@ function handleContextSave(): void {
 	</section>
 
 	<section class="section">
-		<h3>Memories <span class="mem-count">{memoryCount} memories (top 20 included in AI context)</span></h3>
+		<h3>Memories <span class="mem-count">{memoryCount} memories (10 global + 10 conversation in AI context)</span></h3>
 		{#if memoryNotification}
 			<div class="toast">{memoryNotification}</div>
 		{/if}
+		<div class="mem-filter-row">
+			<span class="filter-label">Show:</span>
+			<select class="mem-filter-select" bind:value={memoryFilter} onchange={() => requestMemoryList()}>
+				<option value="all">All memories</option>
+				<option value="global">Global only</option>
+				{#each convList as conv}
+					<option value={conv.id}>{conv.name}</option>
+				{/each}
+			</select>
+		</div>
 		{#if memoryList.length > 0}
 			<div class="memory-list">
 				{#each memoryList as mem}
@@ -404,6 +421,11 @@ function handleContextSave(): void {
 						{:else}
 							<div class="mem-content">
 								<span class="mem-badge" style="background: {categoryColors[mem.category] ?? '#666'}20; color: {categoryColors[mem.category] ?? '#666'}">{mem.category}</span>
+								{#if mem.conversationId}
+									<span class="mem-scope-badge mem-scope-conv">conv</span>
+								{:else}
+									<span class="mem-scope-badge mem-scope-global">global</span>
+								{/if}
 								<span class="mem-text">{mem.content}</span>
 							</div>
 							<div class="mem-meta">
@@ -848,6 +870,21 @@ function handleContextSave(): void {
 		color: #f59e0b;
 		white-space: nowrap;
 	}
+
+	/* Memory filter + scope badges */
+	.mem-filter-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; font-size: 0.8rem; }
+	.mem-filter-select {
+		padding: 0.25rem 0.375rem; font-size: 0.8rem;
+		border: 1px solid var(--color-border, #2a2a4a); border-radius: 0.25rem;
+		background: var(--color-bg, #0f0f23); color: var(--color-text);
+	}
+	.mem-scope-badge {
+		font-size: 0.6rem; font-weight: 600;
+		padding: 0.0625rem 0.3rem; border-radius: 999px;
+		white-space: nowrap; flex-shrink: 0;
+	}
+	.mem-scope-global { background: color-mix(in srgb, #a855f7 15%, transparent); color: #a855f7; }
+	.mem-scope-conv { background: color-mix(in srgb, #4a9eff 15%, transparent); color: #4a9eff; }
 
 	/* Provider */
 	.prov-active { color: #22c55e; font-weight: 600; }

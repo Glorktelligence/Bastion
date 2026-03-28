@@ -742,12 +742,13 @@ client.on('message', async (data) => {
   // Handle memory_proposal — human wants to save a memory (via "Remember" button)
   if (msg.type === 'memory_proposal') {
     const p = msg.payload || msg;
-    const { proposalId, content, category, sourceMessageId } = p;
-    console.log(`[←] Memory proposal: "${content.substring(0, 60)}..." (${category})`);
+    const { proposalId, content, category, sourceMessageId, conversationId } = p;
+    const scope = conversationId ? `conv:${String(conversationId).slice(0, 8)}` : 'global';
+    console.log(`[←] Memory proposal: "${content.substring(0, 60)}..." (${category}, ${scope})`);
 
-    // Store as pending — the AI confirms by saving and sending memory_decision back
-    const memoryId = memoryStore.addMemory(content, category, sourceMessageId || 'unknown');
-    console.log(`[✓] Memory saved: ${memoryId}`);
+    // Store with conversation scope (null = global)
+    const memoryId = memoryStore.addMemory(content, category, sourceMessageId || 'unknown', conversationId || null);
+    console.log(`[✓] Memory saved: ${memoryId} (${scope})`);
 
     // Send approval confirmation back to human
     client.send(JSON.stringify({
@@ -765,21 +766,31 @@ client.on('message', async (data) => {
     return;
   }
 
-  // Handle memory_list — return all memories to human client
+  // Handle memory_list — return memories with optional conversationId/category filter
   if (msg.type === 'memory_list') {
-    const category = msg.payload?.category;
-    const memories = category ? memoryStore.getMemoriesByCategory(category) : memoryStore.getMemories();
+    const p = msg.payload || {};
+    const category = p.category;
+    const convIdFilter = p.conversationId;
+    let memories;
+    if (category) {
+      memories = memoryStore.getMemoriesByCategory(category);
+    } else if (convIdFilter !== undefined) {
+      // convIdFilter can be null (global only) or a string (specific conversation)
+      memories = memoryStore.getMemories(undefined, convIdFilter);
+    } else {
+      memories = memoryStore.getMemories();
+    }
     client.send(JSON.stringify({
       type: 'memory_list_response',
       id: randomUUID(),
       timestamp: new Date().toISOString(),
       sender: IDENTITY,
       payload: {
-        memories: memories.map(m => ({ id: m.id, content: m.content, category: m.category, createdAt: m.createdAt, updatedAt: m.updatedAt })),
+        memories: memories.map(m => ({ id: m.id, content: m.content, category: m.category, createdAt: m.createdAt, updatedAt: m.updatedAt, conversationId: m.conversationId })),
         totalCount: memories.length,
       },
     }));
-    console.log(`[→] Memory list: ${memories.length} memories`);
+    console.log(`[→] Memory list: ${memories.length} memories (filter: ${convIdFilter !== undefined ? (convIdFilter ?? 'global') : 'all'})`);
     return;
   }
 
@@ -1198,7 +1209,7 @@ client.on('message', async (data) => {
         target: content,
         priority: msg.type === 'task' ? ((msg.payload || msg).priority || 'normal') : 'normal',
         parameters: {
-          _systemPrompt: conversationManager.getSystemPrompt(),
+          _systemPrompt: conversationManager.getSystemPrompt(activeConversationId),
           _conversationHistory: conversationManager.getMessages(),
         },
         constraints: [],

@@ -22,6 +22,7 @@ export interface MemoryEntry {
   readonly category: 'preference' | 'fact' | 'workflow' | 'project';
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly conversationId?: string | null;
 }
 
 export interface MemoriesState {
