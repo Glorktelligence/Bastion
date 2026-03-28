@@ -6,12 +6,16 @@ const {
   peerStatus,
   reconnectAttempt,
   reconnectDelay = 0,
+  e2eActive = false,
+  e2eAvailable = false,
   onRetry,
 }: {
   status: HumanClientState;
   peerStatus: string;
   reconnectAttempt: number;
   reconnectDelay?: number;
+  e2eActive?: boolean;
+  e2eAvailable?: boolean;
   onRetry?: () => void;
 } = $props();
 
@@ -73,6 +77,13 @@ function formatDelay(ms: number): string {
 			<button class="retry-btn" onclick={onRetry}>Connect</button>
 		{/if}
 	</div>
+	{#if status === 'authenticated' || status === 'connected'}
+		{#if e2eActive}
+			<span class="e2e-badge e2e-active">🔒 Encrypted</span>
+		{:else if e2eAvailable}
+			<span class="e2e-badge e2e-warn">⚠️ Unencrypted</span>
+		{/if}
+	{/if}
 	<div class="peer-status">
 		{peerLabel(peerStatus)}
 	</div>
@@ -128,5 +139,23 @@ function formatDelay(ms: number): string {
 	.retry-btn:hover {
 		background: var(--color-accent);
 		color: #fff;
+	}
+
+	.e2e-badge {
+		font-size: 0.65rem;
+		font-weight: 600;
+		padding: 0.0625rem 0.375rem;
+		border-radius: 999px;
+		white-space: nowrap;
+	}
+
+	.e2e-active {
+		background: color-mix(in srgb, #22c55e 15%, transparent);
+		color: #22c55e;
+	}
+
+	.e2e-warn {
+		background: color-mix(in srgb, #f59e0b 15%, transparent);
+		color: #f59e0b;
 	}
 </style>

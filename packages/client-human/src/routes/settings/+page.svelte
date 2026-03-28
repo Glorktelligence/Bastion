@@ -313,6 +313,7 @@ function handleContextSave(): void {
 	session.settings.setUserContext(userContext);
 	contextSaving = false;
 	contextSaved = true;
+	session.addNotification('Personal context updated', 'success');
 	setTimeout(() => { contextSaved = false; }, 2000);
 }
 </script>

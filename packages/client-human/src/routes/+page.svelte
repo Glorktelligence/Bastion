@@ -31,6 +31,9 @@ let budgetStatus: BudgetStatusData | null = $state(null);
 let lastBudgetAlert: BudgetAlert | null = $state(null);
 let connecting = $state(false);
 let isAutoConnecting = $state(false);
+let e2eActive = $state(false);
+let e2eAvailable = $state(false);
+let toasts: session.ToastNotification[] = $state([]);
 
 const isConnected = $derived(
 	conn.status === 'connected' || conn.status === 'authenticated',
@@ -45,6 +48,8 @@ $effect(() => {
 	unsubs.push(session.tools.store.subscribe((v) => (pendingToolRequest = v.pendingRequest)));
 	unsubs.push(session.budget.store.subscribe((v) => { budgetStatus = v.status; lastBudgetAlert = v.lastAlert; }));
 	unsubs.push(session.autoConnecting.subscribe((v) => (isAutoConnecting = v)));
+	unsubs.push(session.e2eStatus.subscribe((v) => { e2eActive = v.active; e2eAvailable = v.available; }));
+	unsubs.push(session.notifications.subscribe((v) => { toasts = [...v]; }));
 
 	return () => {
 		for (const u of unsubs) u();
@@ -201,6 +206,8 @@ function handleChallengeCancel(): void {
 			status={conn.status}
 			peerStatus={conn.peerStatus}
 			reconnectAttempt={conn.reconnectAttempt}
+			{e2eActive}
+			{e2eAvailable}
 			onRetry={handleConnect}
 		/>
 
@@ -213,6 +220,13 @@ function handleChallengeCancel(): void {
 		{#if conn.lastError}
 			<div class="error-bar">{conn.lastError}</div>
 		{/if}
+
+		{#each toasts as toast (toast.id)}
+			<div class="toast-bar toast-{toast.level}">
+				<span>{toast.message}</span>
+				<button class="toast-x" onclick={() => session.dismissNotification(toast.id)}>×</button>
+			</div>
+		{/each}
 
 		{#if activeChallenge}
 			<ChallengeBanner
@@ -317,4 +331,29 @@ function handleChallengeCancel(): void {
 		border-color: var(--color-error);
 		color: var(--color-error);
 	}
+
+	/* ---------- toast notifications ---------- */
+	.toast-bar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.375rem 1rem;
+		font-size: 0.8rem;
+		border-bottom: 1px solid var(--color-border);
+	}
+	.toast-success { background: color-mix(in srgb, #22c55e 10%, transparent); color: #22c55e; }
+	.toast-error   { background: color-mix(in srgb, #ef4444 10%, transparent); color: #ef4444; }
+	.toast-warning { background: color-mix(in srgb, #f59e0b 10%, transparent); color: #f59e0b; }
+	.toast-info    { background: color-mix(in srgb, #4a9eff 10%, transparent); color: #4a9eff; }
+	.toast-x {
+		background: none;
+		border: none;
+		color: inherit;
+		cursor: pointer;
+		font-size: 1rem;
+		padding: 0;
+		line-height: 1;
+		opacity: 0.7;
+	}
+	.toast-x:hover { opacity: 1; }
 </style>

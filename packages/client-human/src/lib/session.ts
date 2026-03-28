@@ -82,6 +82,24 @@ export const tools = createToolsStore();
 export const budget = createBudgetStore();
 export const projects = createProjectsStore();
 
+/** General-purpose toast notifications (cross-cutting — not owned by a single store). */
+export interface ToastNotification {
+  readonly id: string;
+  readonly message: string;
+  readonly level: 'info' | 'success' | 'warning' | 'error';
+  readonly timestamp: string;
+}
+export const notifications: Writable<readonly ToastNotification[]> = writable([]);
+
+export function addNotification(message: string, level: ToastNotification['level'] = 'info'): void {
+  const n: ToastNotification = { id: crypto.randomUUID(), message, level, timestamp: new Date().toISOString() };
+  notifications.update((list) => [n, ...list].slice(0, 10));
+}
+
+export function dismissNotification(id: string): void {
+  notifications.update((list) => list.filter((n) => n.id !== id));
+}
+
 /** Challenge Me More status — driven by AI VM server clock. */
 export const challengeStatus: Writable<{
   active: boolean;
@@ -179,6 +197,7 @@ export async function disconnect(): Promise<void> {
     sessionCipher.destroy();
     sessionCipher = null;
   }
+  e2eStatus.set({ available: e2eAvailable, active: false });
 }
 
 // ---------------------------------------------------------------------------
@@ -188,6 +207,12 @@ export async function disconnect(): Promise<void> {
 let ownKeyPair: BrowserKeyPair | null = null;
 let sessionCipher: BrowserSessionCipher | null = null;
 let e2eAvailable = false;
+
+/** Whether E2E encryption is active (session cipher established). */
+export const e2eStatus: Writable<{ available: boolean; active: boolean }> = writable({
+  available: false,
+  active: false,
+});
 
 /** Messages that must stay plaintext — relay control or pre-key-exchange. */
 const PLAINTEXT_TYPES = new Set([
@@ -212,10 +237,12 @@ async function initE2E(): Promise<void> {
   try {
     ownKeyPair = generateKeyPair();
     e2eAvailable = true;
+    e2eStatus.set({ available: true, active: false });
     console.log('[Bastion] X25519 keypair generated (tweetnacl) — E2E available');
   } catch (err) {
     e2eAvailable = false;
     ownKeyPair = null;
+    e2eStatus.set({ available: false, active: false });
     console.warn('[Bastion] E2E unavailable:', err instanceof Error ? err.message : String(err));
   }
 }
@@ -245,6 +272,7 @@ function handlePeerKeyExchange(peerPublicKeyB64: string): void {
   // Human client is the 'initiator' role (AI is 'responder')
   const sessionKeys = deriveSessionKeys('initiator', ownKeyPair, peerPublicKey);
   sessionCipher = createSessionCipher(sessionKeys);
+  e2eStatus.set({ available: true, active: true });
   console.log('[Bastion] E2E session established — interoperable ratchet active');
 }
 
@@ -707,16 +735,58 @@ function handleRelayMessage(data: string): void {
     return;
   }
 
+  // Config ack → success toast
+  if (type === 'config_ack') {
+    addNotification('Settings saved', 'success');
+    return;
+  }
+
+  // Config nack → error toast with reason
+  if (type === 'config_nack') {
+    const p = payload as Record<string, unknown>;
+    const reason = String(p.reason ?? 'Unknown reason');
+    addNotification(`Settings rejected: ${reason}`, 'error');
+    return;
+  }
+
+  // Session conflict — another client connecting with same identity
+  if (type === 'session_conflict') {
+    addNotification('Session conflict — another client is connecting with your identity', 'warning');
+    return;
+  }
+
+  // Session superseded — disconnected by another client
+  if (type === 'session_superseded') {
+    addNotification('Your session was superseded by another client. You have been disconnected.', 'error');
+    // Auto-disconnect since our session is no longer valid
+    disconnect();
+    return;
+  }
+
+  // Tool alert — new/lost/changed tool notifications
+  if (type === 'tool_alert') {
+    const p = payload as Record<string, unknown>;
+    const alertType = String(p.alertType ?? p.type ?? 'info');
+    const toolId = String(p.toolId ?? '');
+    if (alertType === 'new_tool') {
+      addNotification(`New tool detected: ${toolId}. Accept or decline in Settings.`, 'info');
+    } else if (alertType === 'lost_tool') {
+      addNotification(`Tool unavailable: ${toolId}. Previously registered but no longer reported.`, 'warning');
+    } else if (alertType === 'changed_tool') {
+      addNotification(`Tool changed: ${toolId}. Capabilities have been updated.`, 'info');
+    } else {
+      addNotification(`Tool alert: ${toolId} — ${String(p.message ?? alertType)}`, 'info');
+    }
+    return;
+  }
+
   // System/store-only messages — consume silently, never show in chat
   if (
     type === 'extension_list_response' ||
-    type === 'config_ack' ||
-    type === 'config_nack' ||
     type === 'tool_registry_sync' ||
     type === 'tool_registry_ack' ||
     type === 'tool_denied' ||
     type === 'tool_revoke' ||
-    type === 'tool_alert' ||
     type === 'tool_alert_response' ||
     type === 'provider_status' ||
     type === 'heartbeat' ||
