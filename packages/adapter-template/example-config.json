@@ -1,0 +1,27 @@
+{
+  "_description": "Example adapter configuration. Copy and modify for your provider.",
+  "adapterId": "my-custom-adapter",
+  "adapterName": "My Custom AI Provider",
+  "type": "custom",
+  "model": "my-model-v1",
+  "apiKeyEnvVar": "MY_PROVIDER_API_KEY",
+  "apiBaseUrl": "https://api.my-provider.com/v1",
+  "maxTokens": 4096,
+  "temperature": 1.0,
+  "timeout": 120000,
+  "pricing": {
+    "inputPerMTok": 2,
+    "outputPerMTok": 10
+  },
+  "capabilities": {
+    "conversation": true,
+    "taskExecution": true,
+    "fileTransfer": false,
+    "streaming": false,
+    "webSearch": false,
+    "toolUse": false,
+    "vision": false,
+    "maxContextTokens": 128000
+  },
+  "roles": ["default", "conversation", "task"]
+}
