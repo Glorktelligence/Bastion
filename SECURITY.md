@@ -80,11 +80,17 @@ Zero-knowledge relay is now **enforced**, not just designed. The relay forwards 
 
 These cannot be disabled or configured away:
 
-1. **MaliClaw Clause**: Blocklist of known-dangerous identifiers, checked before any allowlist. Cannot be removed.
+1. **MaliClaw Clause**: Blocklist of known-dangerous identifiers (13 patterns + `/claw/i` catch-all), checked before any allowlist. Cannot be removed.
 2. **Safety floors**: Minimum thresholds for safety parameters. Can be tightened, never lowered below factory defaults.
-3. **File quarantine**: All file transfers pass through quarantine with hash verification. No bypass path exists.
+3. **File quarantine**: All file transfers pass through quarantine with 3-stage hash verification (submission, quarantine, delivery). No bypass path exists.
 4. **AI self-modification prohibition**: The AI client cannot modify its own tool registry, safety configuration, or API keys.
 5. **Admin panel locality**: The admin server binds to localhost only. Public binding attempts are logged as security violations and refused.
+6. **Budget Guard**: Web search cost caps with SQLite persistence, tighten-only mid-month, 7-day cooldown on loosening, blocked during Challenge Me More active periods.
+7. **Per-conversation tool trust isolation**: Tool approvals earned in one conversation do not carry to another. Prevents cross-conversation trust escalation.
+
+### Streaming Security
+
+Streaming responses (`conversation_stream` messages) are E2E encrypted — each chunk is encrypted with the current KDF ratchet key, same as any other message. The relay forwards encrypted chunks without decryption. The compaction summary is generated on the AI VM from decrypted content and stored locally in SQLite — it never leaves the AI VM as plaintext.
 
 ### Admin Dashboard Access Model
 

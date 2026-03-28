@@ -1,9 +1,9 @@
 # Project Bastion
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-2%2C675_passing-brightgreen.svg)](#run-tests)
-[![Packages](https://img.shields.io/badge/Packages-7-purple.svg)](#packages)
-[![Protocol](https://img.shields.io/badge/Protocol-57_message_types-orange.svg)](#protocol)
+[![Tests](https://img.shields.io/badge/Tests-2%2C724_passing-brightgreen.svg)](#run-tests)
+[![Packages](https://img.shields.io/badge/Packages-8-purple.svg)](#packages)
+[![Protocol](https://img.shields.io/badge/Protocol-70_message_types-orange.svg)](#protocol)
 [![Node](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-339933.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-3178C6.svg)](https://www.typescriptlang.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -98,6 +98,7 @@ Most Human-AI interaction today happens through chat interfaces with no structur
 | `@bastion/client-human-mobile` | React Native mobile app — same protocol, mobile-native UI                           |
 | `@bastion/client-ai`           | Headless AI client for isolated VM — safety engine, provider adapter, file handling |
 | `@bastion/relay-admin-ui`      | SvelteKit admin panel — provider management, blocklist, quarantine viewer           |
+| `@bastion/adapter-template`   | Community adapter reference template — build adapters for any AI provider           |
 
 ## The Three-Layer Safety Engine
 
@@ -171,21 +172,22 @@ pnpm --filter @bastion/relay-admin-ui dev
 
 ## Protocol
 
-Bastion defines 57 message types across structured categories:
+Bastion defines 70 message types across structured categories:
 
-- **Core**: `task`, `conversation`, `challenge`, `confirmation`, `denial`, `status`, `result`, `error`, `audit`, `heartbeat`
-- **File Transfer**: `file_manifest`, `file_offer`, `file_request`
-- **Session**: `session_end`, `session_conflict`, `session_superseded`, `reconnect`, `token_refresh`
-- **Admin/Config**: `config_update`, `config_ack`, `config_nack`, `provider_status`, `budget_alert`
-- **Audit**: `audit_query`, `audit_response`
-- **Provider/Context**: `provider_register`, `context_update`
-- **Memory**: `memory_proposal`, `memory_decision`, `memory_list`, `memory_list_response`, `memory_update`, `memory_delete`
-- **Extensions**: `extension_query`, `extension_list_response`
-- **Project Context**: `project_sync`, `project_sync_ack`, `project_list`, `project_list_response`, `project_delete`, `project_config`, `project_config_ack`
-- **Tool Integration**: `tool_registry_sync`, `tool_registry_ack`, `tool_request`, `tool_approved`, `tool_denied`, `tool_result`, `tool_revoke`, `tool_alert`, `tool_alert_response`
-- **Challenge Me More**: `challenge_status`, `challenge_config`, `challenge_config_ack`
-- **Budget Guard**: `budget_status`, `budget_config`
-- **E2E Encryption**: `key_exchange`
+- **Core** (10): `task`, `conversation`, `challenge`, `confirmation`, `denial`, `status`, `result`, `error`, `audit`, `heartbeat`
+- **File Transfer** (3): `file_manifest`, `file_offer`, `file_request`
+- **Session** (5): `session_end`, `session_conflict`, `session_superseded`, `reconnect`, `token_refresh`
+- **Admin/Config** (5): `config_update`, `config_ack`, `config_nack`, `provider_status`, `budget_alert`
+- **Audit** (2): `audit_query`, `audit_response`
+- **Provider/Context** (2): `provider_register`, `context_update`
+- **Memory** (6): `memory_proposal`, `memory_decision`, `memory_list`, `memory_list_response`, `memory_update`, `memory_delete`
+- **Extensions** (2): `extension_query`, `extension_list_response`
+- **Project Context** (7): `project_sync`, `project_sync_ack`, `project_list`, `project_list_response`, `project_delete`, `project_config`, `project_config_ack`
+- **Tool Integration** (9): `tool_registry_sync`, `tool_registry_ack`, `tool_request`, `tool_approved`, `tool_denied`, `tool_result`, `tool_revoke`, `tool_alert`, `tool_alert_response`
+- **Challenge Me More** (3): `challenge_status`, `challenge_config`, `challenge_config_ack`
+- **Budget Guard** (2): `budget_status`, `budget_config`
+- **E2E Encryption** (1): `key_exchange`
+- **Multi-Conversation** (13): `conversation_list`, `conversation_list_response`, `conversation_create`, `conversation_create_ack`, `conversation_switch`, `conversation_switch_ack`, `conversation_history`, `conversation_history_response`, `conversation_archive`, `conversation_delete`, `conversation_compact`, `conversation_compact_ack`, `conversation_stream`
 
 All messages are validated against Zod schemas at every boundary. Unknown message types are rejected. The protocol version is checked on session establishment.
 
@@ -210,7 +212,7 @@ Bastion includes deployment templates for self-hosted environments:
 
 - [Getting Started Guide](docs/guides/getting-started.md) — Clone to running local instance walkthrough
 - [Deployment Guide](docs/guides/deployment.md) — Self-hosting with TLS, VLANs, and AI VM isolation
-- [Protocol Specification](docs/protocol/bastion-protocol-v0.1.0.md) — All 57 message types, envelope structure, E2E encryption, safety evaluation
+- [Protocol Specification](docs/protocol/bastion-protocol-v0.1.0.md) — All 70 message types, envelope structure, E2E encryption, safety evaluation
 - [Core Specification](docs/spec/Project-Bastion-Spec-v0.1.0.docx) — The full product specification
 - [Supplementary Specification](docs/spec/bastion-supplementary-spec.md) — Architectural decisions, session lifecycle, error codes, GDPR considerations
 - [Project Structure](docs/spec/bastion-project-structure.md) — Package layout and task breakdown
@@ -223,14 +225,25 @@ Bastion includes deployment templates for self-hosted environments:
 | Layer | Feature | Status |
 |-------|---------|--------|
 | 1 | E2E encrypted messaging (X25519 + XSalsa20-Poly1305 Double Ratchet) | Deployed |
-| 2 | Persistent memory with "Remember" button + category system | Deployed |
+| 2 | Persistent memory with "Remember" button + conversation-scoped (10 global + 10 scoped) | Deployed |
 | 3 | Project context file sharing with nested directory support | Deployed |
 | 4 | MCP tool integration with governed approval flow (JSON-RPC 2.0) | Deployed |
-| — | Protocol extension system with namespaced message types | Deployed |
+| — | Multi-conversation persistence with hash-chained messages (SQLite) | Deployed |
+| — | Conversation compaction (AI summarises older messages, originals preserved) | Deployed |
+| — | Per-conversation model selection (Sonnet for chat, Haiku for compaction) | Deployed |
+| — | Per-conversation tool trust isolation | Deployed |
+| — | Streaming responses (real-time AI typing with SSE) | Deployed |
+| — | Multi-adapter routing with AdapterRegistry (role-based selection) | Deployed |
+| — | Community adapter template (@bastion/adapter-template) | Deployed |
+| — | File transfer pipeline with 3-stage custody chain (fully wired) | Deployed |
+| — | Protocol extension system with sandboxed UI iframes + message bridge | Deployed |
 | — | Challenge Me More temporal governance (server-clock enforced) | Deployed |
+| — | Advanced audit filtering (43 event types, date range, export) | Deployed |
+| — | Toast notification system (cross-cutting, color-coded) | Deployed |
 | — | First-launch setup wizard with connection testing | Deployed |
 | — | Tamper-evident audit trail with chain integrity verification | Deployed |
 | — | Admin panel with TOTP auth, live monitoring, setup wizard | Deployed |
+| — | Unified test runner (auto-discovers all test files) | Deployed |
 | — | MaliClaw Clause: 13 patterns + `/claw/i` catch-all | Hardcoded |
 
 ### 5 Immutable Boundaries
@@ -245,11 +258,15 @@ These cannot be disabled, bypassed, or configured away:
 
 ## Status
 
-**Pre-Release.** The protocol, crypto layer, relay, AI client, desktop client, admin UI, and infrastructure templates are all implemented and tested across 2,675 passing tests.
+**Pre-Release.** The protocol, crypto layer, relay, AI client, desktop client, admin UI, adapter template, and infrastructure templates are all implemented and tested across 2,724 passing tests.
 
-The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. E2E encryption is active with interoperable tweetnacl (browser) and libsodium (Node.js) implementations. The protocol is stable at 57 message types with 48 error codes. The reference implementation works.
+The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. E2E encryption is active with interoperable tweetnacl (browser) and libsodium (Node.js) implementations. The protocol is stable at 70 message types with 48 error codes across 8 categories. The reference implementation works.
 
 > **Mobile client note:** The React Native mobile client (`packages/client-human-mobile`) was built during the initial development phases and builds successfully, but has not been updated with Layer 2-4 features, the setup wizard, or Challenge Me More. Mobile client modernisation is on the roadmap.
+
+### Known Issues
+
+**Human Client Navigation:** The SvelteKit-based human client currently experiences WebSocket disconnection on page navigation in some environments. Each route change can trigger a full reconnect cycle. This is a known SvelteKit lifecycle issue being actively investigated (globalThis persistence for HMR has been applied). The connection is stable within any single page — the issue only occurs when navigating between pages (Messages, Settings, Audit, etc.). This does not affect the relay, AI client, or protocol layer.
 
 This is a framework and protocol — not a consumer product. The hard parts are done. Fork it, adapt it, build on it.
 

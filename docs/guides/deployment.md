@@ -316,6 +316,27 @@ BASTION_BUDGET_CONFIG=/var/lib/bastion-ai/budget-config.json
 # Conversation manager
 BASTION_TOKEN_BUDGET=100000
 BASTION_USER_CONTEXT_PATH=/var/lib/bastion-ai/user-context.md
+
+# Multi-conversation persistence (SQLite)
+BASTION_CONVERSATIONS_DB=/var/lib/bastion-ai/conversations.db
+
+# Streaming responses (set to 'false' to disable)
+BASTION_STREAMING=true
+
+# Adapter configuration
+BASTION_MODEL=claude-sonnet-4-20250514
+BASTION_TEMPERATURE=1.0
+BASTION_API_ENDPOINT=https://api.anthropic.com
+BASTION_API_VERSION=2023-06-01
+BASTION_TIMEOUT=120000
+BASTION_PRICING_INPUT=3
+BASTION_PRICING_OUTPUT=15
+
+# Compaction adapter (optional — uses cheaper model for conversation summarisation)
+# Set to a different model to enable cost-optimised compaction
+# BASTION_COMPACTION_MODEL=claude-haiku-4-5-20251001
+# BASTION_COMPACTION_PRICING_INPUT=0.25
+# BASTION_COMPACTION_PRICING_OUTPUT=1.25
 ```
 
 ```bash

@@ -344,7 +344,7 @@ Tokens expire every 15 minutes. Clients should refresh at 13 minutes (2 minutes 
 
 ## 7. Message Types
 
-The Bastion protocol defines 57 message types across twelve categories: core (13), supplementary (10), audit (2), provider/context (2), memory (6), extensions (2), project context (7), tool integration (9), challenge governance (3), budget guard (2), and E2E encryption (1).
+The Bastion protocol defines 70 message types across thirteen categories: core (13), supplementary (10), audit (2), provider/context (2), memory (6), extensions (2), project context (7), tool integration (9), challenge governance (3), budget guard (2), E2E encryption (1), and multi-conversation persistence (13: conversation_list, conversation_list_response, conversation_create, conversation_create_ack, conversation_switch, conversation_switch_ack, conversation_history, conversation_history_response, conversation_archive, conversation_delete, conversation_compact, conversation_compact_ack, conversation_stream).
 
 ### 7.1 Core Message Types
 
