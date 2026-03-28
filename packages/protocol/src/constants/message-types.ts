@@ -3,7 +3,7 @@
 // See LICENSE file for full terms
 
 /**
- * All 57 message types in the Bastion protocol.
+ * All 67 message types in the Bastion protocol.
  *
  * Core spec (13): task, conversation, challenge, confirmation, denial,
  *   status, result, error, audit, file_manifest, file_offer, file_request, heartbeat
@@ -95,6 +95,18 @@ export const MESSAGE_TYPES = {
 
   // --- E2E Key Exchange ---
   KEY_EXCHANGE: 'key_exchange',
+
+  // --- Multi-Conversation Persistence ---
+  CONVERSATION_LIST: 'conversation_list',
+  CONVERSATION_LIST_RESPONSE: 'conversation_list_response',
+  CONVERSATION_CREATE: 'conversation_create',
+  CONVERSATION_CREATE_ACK: 'conversation_create_ack',
+  CONVERSATION_SWITCH: 'conversation_switch',
+  CONVERSATION_SWITCH_ACK: 'conversation_switch_ack',
+  CONVERSATION_HISTORY: 'conversation_history',
+  CONVERSATION_HISTORY_RESPONSE: 'conversation_history_response',
+  CONVERSATION_ARCHIVE: 'conversation_archive',
+  CONVERSATION_DELETE: 'conversation_delete',
 } as const;
 
 /** Union type of all valid message type strings. */

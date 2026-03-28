@@ -295,6 +295,16 @@ function validPayloads() {
     challenge_status: { active: true, timezone: 'Europe/London', currentTime: '2026-03-26T23:00:00Z', periodEnd: '2026-03-27T06:00:00', restrictions: ['budget_change'] },
     challenge_config: { schedule: { weekdays: { start: '22:00', end: '06:00' }, weekends: { start: '23:00', end: '08:00' } }, cooldowns: { budgetChangeDays: 7, scheduleChangeDays: 7, toolRegistrationDays: 1 } },
     challenge_config_ack: { accepted: true, reason: 'Schedule updated', cooldownExpires: null },
+    conversation_list: { includeArchived: false },
+    conversation_list_response: { conversations: [{ id: crypto.randomUUID(), name: 'Default', type: 'normal', updatedAt: '2026-03-26T10:00:00.000Z', messageCount: 5, lastMessagePreview: 'Hello', archived: false }], totalCount: 1 },
+    conversation_create: { name: 'New Game', type: 'game' },
+    conversation_create_ack: { conversationId: crypto.randomUUID(), name: 'New Game', type: 'game', createdAt: '2026-03-26T10:00:00.000Z' },
+    conversation_switch: { conversationId: crypto.randomUUID() },
+    conversation_switch_ack: { conversationId: crypto.randomUUID(), name: 'Default', recentMessages: [{ id: crypto.randomUUID(), conversationId: crypto.randomUUID(), role: 'user', type: 'conversation', content: 'Hello', timestamp: '2026-03-26T10:00:00.000Z', hash: 'abc123', previousHash: null, pinned: false }], memories: [{ id: crypto.randomUUID(), content: 'Prefers concise answers', category: 'preference' }] },
+    conversation_history: { conversationId: crypto.randomUUID(), limit: 50, offset: 0, direction: 'older' },
+    conversation_history_response: { conversationId: crypto.randomUUID(), messages: [{ id: crypto.randomUUID(), conversationId: crypto.randomUUID(), role: 'assistant', type: 'conversation', content: 'Hi there', timestamp: '2026-03-26T10:00:00.000Z', hash: 'def456', previousHash: 'abc123', pinned: false }], hasMore: false, totalCount: 1 },
+    conversation_archive: { conversationId: crypto.randomUUID() },
+    conversation_delete: { conversationId: crypto.randomUUID() },
   };
 }
 
@@ -384,8 +394,8 @@ async function run() {
         break;
       }
     }
-    check('all 57 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 57 entries', ALL_MESSAGE_TYPES.length === 57);
+    check('all 67 message types accepted in envelope', allTypesValid);
+    check('ALL_MESSAGE_TYPES has 67 entries', ALL_MESSAGE_TYPES.length === 67);
   }
   console.log();
 
@@ -421,8 +431,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 57 entries', typeKeys.length === 57);
-    check('PAYLOAD_SCHEMAS has 57 entries', Object.keys(PAYLOAD_SCHEMAS).length === 57);
+    check('MESSAGE_TYPES has 67 entries', typeKeys.length === 67);
+    check('PAYLOAD_SCHEMAS has 67 entries', Object.keys(PAYLOAD_SCHEMAS).length === 67);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -834,7 +844,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 57 message types survive serialisation round-trip', allPassed);
+    check('all 67 message types survive serialisation round-trip', allPassed);
   }
   console.log();
 

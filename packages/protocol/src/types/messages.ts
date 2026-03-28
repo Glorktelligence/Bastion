@@ -577,6 +577,99 @@ export interface KeyExchangePayload {
 }
 
 // ---------------------------------------------------------------------------
+// Multi-Conversation Persistence
+// ---------------------------------------------------------------------------
+
+/** Conversation summary for list display. */
+export interface ConversationSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly type: 'normal' | 'game';
+  readonly updatedAt: string;
+  readonly messageCount: number;
+  readonly lastMessagePreview: string;
+  readonly archived: boolean;
+}
+
+/** Stored message with hash chain data. */
+export interface StoredMessage {
+  readonly id: string;
+  readonly conversationId: string;
+  readonly role: 'user' | 'assistant';
+  readonly type: string;
+  readonly content: string;
+  readonly timestamp: string;
+  readonly hash: string;
+  readonly previousHash: string | null;
+  readonly pinned: boolean;
+  readonly metadata?: Record<string, unknown>;
+}
+
+/** Human → AI: Request all conversations. */
+export interface ConversationListPayload {
+  readonly includeArchived?: boolean;
+}
+
+/** AI → Human: Array of conversation summaries. */
+export interface ConversationListResponsePayload {
+  readonly conversations: readonly ConversationSummary[];
+  readonly totalCount: number;
+}
+
+/** Human → AI: Create a new conversation. */
+export interface ConversationCreatePayload {
+  readonly name?: string;
+  readonly type?: 'normal' | 'game';
+}
+
+/** AI → Human: Confirm creation with assigned ID. */
+export interface ConversationCreateAckPayload {
+  readonly conversationId: string;
+  readonly name: string;
+  readonly type: 'normal' | 'game';
+  readonly createdAt: string;
+}
+
+/** Human → AI: Switch active conversation. */
+export interface ConversationSwitchPayload {
+  readonly conversationId: string;
+}
+
+/** AI → Human: Confirm switch + recent messages + scoped memories. */
+export interface ConversationSwitchAckPayload {
+  readonly conversationId: string;
+  readonly name: string;
+  readonly recentMessages: readonly StoredMessage[];
+  readonly memories: readonly { id: string; content: string; category: string }[];
+}
+
+/** Human → AI: Request message page for a conversation. */
+export interface ConversationHistoryPayload {
+  readonly conversationId: string;
+  readonly limit?: number;
+  readonly offset?: number;
+  readonly direction?: 'older' | 'newer';
+}
+
+/** AI → Human: Paginated messages with hash chain data. */
+export interface ConversationHistoryResponsePayload {
+  readonly conversationId: string;
+  readonly messages: readonly StoredMessage[];
+  readonly hasMore: boolean;
+  readonly totalCount: number;
+}
+
+/** Human → AI: Archive a conversation (read-only). */
+export interface ConversationArchivePayload {
+  readonly conversationId: string;
+}
+
+/** Human → AI: Delete a conversation and all its messages. */
+export interface ConversationDeletePayload {
+  readonly conversationId: string;
+}
+
+// ---------------------------------------------------------------------------
 // Discriminated union of all payload types
 // ---------------------------------------------------------------------------
 
@@ -637,4 +730,14 @@ export type MessagePayload =
   | { type: 'challenge_config_ack'; payload: ChallengeConfigAckPayload }
   | { type: 'budget_status'; payload: BudgetStatusPayload }
   | { type: 'budget_config'; payload: BudgetConfigPayload }
-  | { type: 'key_exchange'; payload: KeyExchangePayload };
+  | { type: 'key_exchange'; payload: KeyExchangePayload }
+  | { type: 'conversation_list'; payload: ConversationListPayload }
+  | { type: 'conversation_list_response'; payload: ConversationListResponsePayload }
+  | { type: 'conversation_create'; payload: ConversationCreatePayload }
+  | { type: 'conversation_create_ack'; payload: ConversationCreateAckPayload }
+  | { type: 'conversation_switch'; payload: ConversationSwitchPayload }
+  | { type: 'conversation_switch_ack'; payload: ConversationSwitchAckPayload }
+  | { type: 'conversation_history'; payload: ConversationHistoryPayload }
+  | { type: 'conversation_history_response'; payload: ConversationHistoryResponsePayload }
+  | { type: 'conversation_archive'; payload: ConversationArchivePayload }
+  | { type: 'conversation_delete'; payload: ConversationDeletePayload };

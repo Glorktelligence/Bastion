@@ -43,6 +43,15 @@ export type {
 export { ConversationManager } from './conversation-manager.js';
 export type { ConversationMessage, ConversationManagerConfig } from './conversation-manager.js';
 
+// Conversation Store (multi-conversation persistence)
+export { ConversationStore } from './conversation-store.js';
+export type {
+  ConversationRecord,
+  MessageRecord,
+  ChainVerification,
+  ConversationStoreConfig,
+} from './conversation-store.js';
+
 // Memory Store
 export { MemoryStore } from './memory-store.js';
 export type { Memory, MemoryStoreConfig } from './memory-store.js';

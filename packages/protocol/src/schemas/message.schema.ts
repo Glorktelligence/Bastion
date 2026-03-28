@@ -503,6 +503,87 @@ export const KeyExchangePayloadSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Multi-Conversation Persistence schemas
+// ---------------------------------------------------------------------------
+
+const ConversationSummarySchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  type: z.enum(['normal', 'game']),
+  updatedAt: z.string().min(1),
+  messageCount: z.number().int().nonnegative(),
+  lastMessagePreview: z.string(),
+  archived: z.boolean(),
+});
+
+const StoredMessageSchema = z.object({
+  id: z.string().min(1),
+  conversationId: z.string().min(1),
+  role: z.enum(['user', 'assistant']),
+  type: z.string().min(1),
+  content: z.string(),
+  timestamp: z.string().min(1),
+  hash: z.string().min(1),
+  previousHash: z.string().nullable(),
+  pinned: z.boolean(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+export const ConversationListPayloadSchema = z.object({
+  includeArchived: z.boolean().optional(),
+});
+
+export const ConversationListResponsePayloadSchema = z.object({
+  conversations: z.array(ConversationSummarySchema).readonly(),
+  totalCount: z.number().int().nonnegative(),
+});
+
+export const ConversationCreatePayloadSchema = z.object({
+  name: z.string().optional(),
+  type: z.enum(['normal', 'game']).optional(),
+});
+
+export const ConversationCreateAckPayloadSchema = z.object({
+  conversationId: z.string().min(1),
+  name: z.string().min(1),
+  type: z.enum(['normal', 'game']),
+  createdAt: z.string().min(1),
+});
+
+export const ConversationSwitchPayloadSchema = z.object({
+  conversationId: z.string().min(1),
+});
+
+export const ConversationSwitchAckPayloadSchema = z.object({
+  conversationId: z.string().min(1),
+  name: z.string().min(1),
+  recentMessages: z.array(StoredMessageSchema).readonly(),
+  memories: z.array(z.object({ id: z.string(), content: z.string(), category: z.string() })).readonly(),
+});
+
+export const ConversationHistoryPayloadSchema = z.object({
+  conversationId: z.string().min(1),
+  limit: z.number().int().positive().optional(),
+  offset: z.number().int().nonnegative().optional(),
+  direction: z.enum(['older', 'newer']).optional(),
+});
+
+export const ConversationHistoryResponsePayloadSchema = z.object({
+  conversationId: z.string().min(1),
+  messages: z.array(StoredMessageSchema).readonly(),
+  hasMore: z.boolean(),
+  totalCount: z.number().int().nonnegative(),
+});
+
+export const ConversationArchivePayloadSchema = z.object({
+  conversationId: z.string().min(1),
+});
+
+export const ConversationDeletePayloadSchema = z.object({
+  conversationId: z.string().min(1),
+});
+
+// ---------------------------------------------------------------------------
 // Payload schema lookup map (message type → Zod schema)
 // ---------------------------------------------------------------------------
 
@@ -570,4 +651,14 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.BUDGET_STATUS]: BudgetStatusPayloadSchema,
   [MESSAGE_TYPES.BUDGET_CONFIG]: BudgetConfigPayloadSchema,
   [MESSAGE_TYPES.KEY_EXCHANGE]: KeyExchangePayloadSchema,
+  [MESSAGE_TYPES.CONVERSATION_LIST]: ConversationListPayloadSchema,
+  [MESSAGE_TYPES.CONVERSATION_LIST_RESPONSE]: ConversationListResponsePayloadSchema,
+  [MESSAGE_TYPES.CONVERSATION_CREATE]: ConversationCreatePayloadSchema,
+  [MESSAGE_TYPES.CONVERSATION_CREATE_ACK]: ConversationCreateAckPayloadSchema,
+  [MESSAGE_TYPES.CONVERSATION_SWITCH]: ConversationSwitchPayloadSchema,
+  [MESSAGE_TYPES.CONVERSATION_SWITCH_ACK]: ConversationSwitchAckPayloadSchema,
+  [MESSAGE_TYPES.CONVERSATION_HISTORY]: ConversationHistoryPayloadSchema,
+  [MESSAGE_TYPES.CONVERSATION_HISTORY_RESPONSE]: ConversationHistoryResponsePayloadSchema,
+  [MESSAGE_TYPES.CONVERSATION_ARCHIVE]: ConversationArchivePayloadSchema,
+  [MESSAGE_TYPES.CONVERSATION_DELETE]: ConversationDeletePayloadSchema,
 } as const;

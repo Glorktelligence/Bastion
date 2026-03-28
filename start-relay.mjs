@@ -654,6 +654,29 @@ relay.on('message', async (data, info) => {
     return;
   }
 
+  // ----- conversation_* messages: forward between paired clients with audit -----
+  if (msg.type === 'conversation_list' || msg.type === 'conversation_list_response' || msg.type === 'conversation_create' || msg.type === 'conversation_create_ack' || msg.type === 'conversation_switch' || msg.type === 'conversation_switch_ack' || msg.type === 'conversation_history' || msg.type === 'conversation_history_response' || msg.type === 'conversation_archive' || msg.type === 'conversation_delete') {
+    const peerId = router.getPeer(connId);
+    if (peerId) {
+      relay.send(peerId, data);
+      console.log(`[→] ${msg.type} forwarded to peer ${peerId.slice(0, 8)}`);
+      const sid = sessionIds.get(connId);
+      if (sid) {
+        // Audit metadata only — not message content
+        const auditType = msg.type === 'conversation_create' ? 'conversation_created'
+          : msg.type === 'conversation_switch' ? 'conversation_switched'
+          : msg.type === 'conversation_archive' ? 'conversation_archived'
+          : msg.type === 'conversation_delete' ? 'conversation_deleted'
+          : msg.type;
+        auditLogger.logEvent(auditType, sid, {
+          conversationId: msg.payload?.conversationId,
+          messageType: msg.type,
+        });
+      }
+    }
+    return;
+  }
+
   // ----- context_update: forward to AI client -----
   if (msg.type === 'context_update') {
     const peerId = router.getPeer(connId);

@@ -21,6 +21,7 @@ import {
   IntakeDirectory,
   OutboundStaging,
   FilePurgeManager,
+  ConversationStore,
 } from './packages/client-ai/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -105,6 +106,54 @@ const conversationManager = new ConversationManager({
 console.log(`[✓] Conversation manager initialised (budget: ${conversationManager.estimateTokenCount() || 0} base tokens)`);
 if (conversationManager.getUserContext()) {
   console.log(`[✓] User context loaded (${conversationManager.getUserContext().length} chars)`);
+}
+
+// ---------------------------------------------------------------------------
+// Conversation store — multi-conversation persistence (SQLite)
+// ---------------------------------------------------------------------------
+
+const CONVERSATIONS_DB = process.env.BASTION_CONVERSATIONS_DB || '/var/lib/bastion-ai/conversations.db';
+const conversationStore = new ConversationStore({ path: CONVERSATIONS_DB });
+
+// Migration: if no conversations exist, create default + migrate buffer
+if (conversationStore.conversationCount === 0) {
+  const existingMessages = conversationManager.getMessages();
+  if (existingMessages.length > 0) {
+    const convId = conversationStore.migrateFromBuffer(existingMessages);
+    console.log(`[✓] Migrated ${existingMessages.length} messages to Default conversation (${convId.slice(0, 8)})`);
+  } else {
+    const defaultConv = conversationStore.createConversation('Default', 'normal');
+    conversationStore.setActiveConversation(defaultConv.id);
+    console.log(`[✓] Created Default conversation (${defaultConv.id.slice(0, 8)})`);
+  }
+} else {
+  console.log(`[✓] Conversation store loaded (${conversationStore.conversationCount} conversations, db: ${CONVERSATIONS_DB})`);
+}
+
+// Ensure an active conversation is set
+let activeConversationId = conversationStore.getActiveConversationId();
+if (!activeConversationId) {
+  const convs = conversationStore.listConversations();
+  if (convs.length > 0) {
+    activeConversationId = convs[0].id;
+    conversationStore.setActiveConversation(activeConversationId);
+  }
+}
+if (activeConversationId) {
+  // Load recent messages into conversation buffer for API calls
+  const recent = conversationStore.getRecentMessages(activeConversationId, 50);
+  for (const msg of recent) {
+    if (msg.role === 'user') conversationManager.addUserMessage(msg.content);
+    else conversationManager.addAssistantMessage(msg.content);
+  }
+  console.log(`[✓] Active conversation: ${activeConversationId.slice(0, 8)} (${recent.length} messages loaded)`);
+}
+
+/** Persist a message to the active conversation. */
+function persistMessage(role, type, content) {
+  if (activeConversationId) {
+    conversationStore.addMessage(activeConversationId, role, type, content);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -800,6 +849,148 @@ client.on('message', async (data) => {
     return;
   }
 
+  // ----- conversation_list: return all conversations -----
+  if (msg.type === 'conversation_list') {
+    const p = msg.payload || msg;
+    const convs = conversationStore.listConversations(Boolean(p.includeArchived));
+    client.send(JSON.stringify({
+      type: 'conversation_list_response', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+      payload: {
+        conversations: convs.map(c => ({ id: c.id, name: c.name, type: c.type, updatedAt: c.updatedAt, messageCount: c.messageCount, lastMessagePreview: c.lastMessagePreview, archived: c.archived })),
+        totalCount: convs.length,
+      },
+    }));
+    console.log(`[→] Conversation list: ${convs.length} conversations`);
+    return;
+  }
+
+  // ----- conversation_create: create new conversation -----
+  if (msg.type === 'conversation_create') {
+    const p = msg.payload || msg;
+    const conv = conversationStore.createConversation(p.name, p.type);
+    // Switch to the new conversation
+    activeConversationId = conv.id;
+    conversationStore.setActiveConversation(conv.id);
+    conversationManager.clear();
+    client.send(JSON.stringify({
+      type: 'conversation_create_ack', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+      payload: { conversationId: conv.id, name: conv.name, type: conv.type, createdAt: conv.createdAt },
+    }));
+    console.log(`[✓] Conversation created: "${conv.name}" (${conv.id.slice(0, 8)})`);
+    return;
+  }
+
+  // ----- conversation_switch: switch active conversation -----
+  if (msg.type === 'conversation_switch') {
+    const p = msg.payload || msg;
+    const targetId = p.conversationId;
+    const conv = conversationStore.getConversation(targetId);
+    if (!conv) {
+      client.send(JSON.stringify({ type: 'error', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY, payload: { code: 'BASTION-3001', message: `Conversation not found: ${targetId}` } }));
+      return;
+    }
+    // Switch: clear buffer, load target's recent messages
+    activeConversationId = targetId;
+    conversationStore.setActiveConversation(targetId);
+    conversationManager.clear();
+    const recent = conversationStore.getRecentMessages(targetId, 50);
+    for (const m of recent) {
+      if (m.role === 'user') conversationManager.addUserMessage(m.content);
+      else conversationManager.addAssistantMessage(m.content);
+    }
+    // Get scoped memories (all memories — future: per-conversation filtering)
+    const memories = memoryStore.getMemories().slice(0, 20).map(m => ({ id: m.id, content: m.content, category: m.category }));
+    client.send(JSON.stringify({
+      type: 'conversation_switch_ack', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+      payload: {
+        conversationId: targetId, name: conv.name,
+        recentMessages: recent.map(m => ({ id: m.id, conversationId: m.conversationId, role: m.role, type: m.type, content: m.content, timestamp: m.timestamp, hash: m.hash, previousHash: m.previousHash, pinned: m.pinned })),
+        memories,
+      },
+    }));
+    console.log(`[✓] Switched to conversation: "${conv.name}" (${targetId.slice(0, 8)}, ${recent.length} messages loaded)`);
+    return;
+  }
+
+  // ----- conversation_history: paginated message retrieval -----
+  if (msg.type === 'conversation_history') {
+    const p = msg.payload || msg;
+    const convId = p.conversationId;
+    const limit = p.limit || 50;
+    const offset = p.offset || 0;
+    const messages = conversationStore.getMessages(convId, limit, offset);
+    const total = conversationStore.getMessageCount(convId);
+    client.send(JSON.stringify({
+      type: 'conversation_history_response', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+      payload: {
+        conversationId: convId,
+        messages: messages.map(m => ({ id: m.id, conversationId: m.conversationId, role: m.role, type: m.type, content: m.content, timestamp: m.timestamp, hash: m.hash, previousHash: m.previousHash, pinned: m.pinned })),
+        hasMore: offset + limit < total,
+        totalCount: total,
+      },
+    }));
+    console.log(`[→] Conversation history: ${messages.length} messages (offset ${offset}, total ${total})`);
+    return;
+  }
+
+  // ----- conversation_archive: mark conversation as archived -----
+  if (msg.type === 'conversation_archive') {
+    const p = msg.payload || msg;
+    const ok = conversationStore.archiveConversation(p.conversationId);
+    if (ok) {
+      console.log(`[✓] Conversation archived: ${p.conversationId.slice(0, 8)}`);
+      // If archived the active conversation, switch to another
+      if (activeConversationId === p.conversationId) {
+        const remaining = conversationStore.listConversations();
+        if (remaining.length > 0) {
+          activeConversationId = remaining[0].id;
+          conversationStore.setActiveConversation(activeConversationId);
+          conversationManager.clear();
+        }
+      }
+    }
+    // Send updated list as ack
+    const convs = conversationStore.listConversations(true);
+    client.send(JSON.stringify({
+      type: 'conversation_list_response', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+      payload: { conversations: convs.map(c => ({ id: c.id, name: c.name, type: c.type, updatedAt: c.updatedAt, messageCount: c.messageCount, lastMessagePreview: c.lastMessagePreview, archived: c.archived })), totalCount: convs.length },
+    }));
+    return;
+  }
+
+  // ----- conversation_delete: delete conversation + all messages -----
+  if (msg.type === 'conversation_delete') {
+    const p = msg.payload || msg;
+    // Challenge hours check for destructive action
+    const challengeCheck = challengeManager.checkAction('conversation_delete');
+    if ('blocked' in challengeCheck && challengeCheck.blocked) {
+      client.send(JSON.stringify({ type: 'error', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY, payload: { code: 'BASTION-4006', message: challengeCheck.reason } }));
+      return;
+    }
+    const ok = conversationStore.deleteConversation(p.conversationId);
+    if (ok) {
+      console.log(`[✓] Conversation deleted: ${p.conversationId.slice(0, 8)}`);
+      if (activeConversationId === p.conversationId) {
+        const remaining = conversationStore.listConversations();
+        if (remaining.length > 0) {
+          activeConversationId = remaining[0].id;
+          conversationStore.setActiveConversation(activeConversationId);
+        } else {
+          const def = conversationStore.createConversation('Default', 'normal');
+          activeConversationId = def.id;
+          conversationStore.setActiveConversation(def.id);
+        }
+        conversationManager.clear();
+      }
+    }
+    const convs = conversationStore.listConversations(true);
+    client.send(JSON.stringify({
+      type: 'conversation_list_response', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+      payload: { conversations: convs.map(c => ({ id: c.id, name: c.name, type: c.type, updatedAt: c.updatedAt, messageCount: c.messageCount, lastMessagePreview: c.lastMessagePreview, archived: c.archived })), totalCount: convs.length },
+    }));
+    return;
+  }
+
   // ----- file_manifest: relay notifies AI of incoming file from human -----
   if (msg.type === 'file_manifest') {
     const p = msg.payload || msg;
@@ -971,8 +1162,9 @@ client.on('message', async (data) => {
 
     console.log(`[←] ${senderName}: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`);
 
-    // Add to conversation buffer
+    // Add to conversation buffer and persist
     conversationManager.addUserMessage(content);
+    persistMessage('user', msg.type, content);
 
     if (processing) {
       console.log('[~] Already processing a message — queueing not implemented, sending busy notice');
@@ -1016,8 +1208,9 @@ client.on('message', async (data) => {
         const responseText = result.response.textContent;
         const cost = result.response.cost;
 
-        // Add to conversation buffer
+        // Add to conversation buffer and persist
         conversationManager.addAssistantMessage(responseText);
+        persistMessage('assistant', 'conversation', responseText);
 
         console.log(`[✓] API response (${result.response.usage.inputTokens}in/${result.response.usage.outputTokens}out, $${cost.estimatedCostUsd.toFixed(4)})`);
         console.log(`[→] Claude: ${responseText.substring(0, 100)}${responseText.length > 100 ? '...' : ''}`);
