@@ -10,6 +10,20 @@ Every task is guilty until proven safe. Default: deny.
 
 ---
 
+## Five Immutable Boundaries
+
+These operate at the same enforcement tier. None can be configured, weakened, or bypassed.
+
+| Boundary | Enforcement | Cannot Be... |
+|----------|------------|--------------|
+| **MaliClaw Clause** | 13 identifiers + `/claw/i` regex, checked before allowlist | Removed, configured, or bypassed |
+| **Safety Floors** | Floor values for all safety parameters | Lowered below factory defaults |
+| **Budget Guard** | SQLite-persisted budget limits, tighten-only mid-month | Raised mid-month, loosened within 7-day cooldown |
+| **Challenge Me More** | Temporal governance with server-side timezone | Loosened during active periods or within cooldown |
+| **Dangerous Tool Blindness** | Destructive tools always per-call approval | Changed to session-scope, auto-approved, or parameter-visible before approval |
+
+---
+
 ## The Three Layers
 
 ### Layer 1: Absolute Boundaries
@@ -32,12 +46,14 @@ Always deny:
 **Result**: `challenge` message. Blocks execution until human confirms.
 
 Check these factors:
-- **Reversibility**: Irreversible → always challenge
+- **Reversibility**: Irreversible → always challenge (locked true, cannot be disabled)
 - **Scope vs intent**: "tidy a folder" affecting entire filesystem → challenge
 - **Pattern deviation**: Unusual target, time, or operation type → challenge
-- **Time-of-day**: High-risk hours (00:00–06:00) → elevated scrutiny (1.5x weight, floor 1.2x)
+- **Time-of-day**: High-risk hours (00:00–06:00) → elevated scrutiny (1.5× weight, floor 1.2×)
 - **Resource impact**: High CPU/memory/disk consumption → challenge with assessment
 - **Cascading effects**: Deleting a dependency, modifying shared config → challenge
+
+**Challenge Me More integration**: When temporal governance is active, Layer 2 thresholds are automatically tightened. Budget changes and schedule modifications are blocked entirely during active challenge periods.
 
 ```typescript
 // Layer 2 returns: { challenge: true, factors: string[], risk: RiskLevel }
@@ -65,25 +81,26 @@ Check:
 
 **CRITICAL**: Floors are immutable minimums. Code that allows lowering below the floor is a BUG.
 
-| Parameter | Default | Floor (Minimum) |
-|-----------|---------|-----------------|
-| High-risk hours | 00:00–06:00 | Cannot be disabled |
-| Time scrutiny weight | 1.5× | 1.2× minimum |
-| Irreversible action | Always challenge | Locked |
-| Pattern deviation sensitivity | Medium | Low (not Off) |
-| File transfer quarantine | Enabled | Locked |
-| Budget thresholds | 50/75/90/100% | Cannot be disabled |
+| Parameter | Default | Floor (Minimum) | Locked? |
+|-----------|---------|-----------------|---------|
+| Challenge threshold | 0.6 | 0.6 | No (can tighten) |
+| Denial threshold | 0.9 | 0.9 | No (can tighten) |
+| Time scrutiny weight | 1.5× | 1.2× | No (can tighten) |
+| Irreversible action | Always challenge | true | **Yes** |
+| Pattern deviation sensitivity | Medium | Low (not Off) | No (can tighten) |
+| File quarantine | Enabled | true | **Yes** |
+| Grace period | 300s (5 min) | 120s (2 min) | No (can tighten) |
+| Audit retention | 365 days | 90 days | No (can tighten) |
+| High-risk hours | 00:00–06:00 | Cannot be disabled | — |
 
 ### Implementation Pattern
 
 ```typescript
-function applySetting(param: string, value: number, floor: number): number {
+function validateSettingChange(key, value, floor): SettingUpdateResult {
   if (value < floor) {
-    // Log BASTION-7002 error
-    // Return floor value, not requested value
-    return floor;
+    return { ok: false, reason: 'Below safety floor' };
   }
-  return value;
+  return { ok: true };
 }
 ```
 
@@ -91,30 +108,54 @@ function applySetting(param: string, value: number, floor: number): number {
 
 ---
 
-## Budget as Safety
+## Budget Guard (Immutable Enforcement)
 
-API costs are a safety concern (Harry is on a fixed income).
+Budget Guard operates at the same tier as MaliClaw — it cannot be weakened easily.
 
+| Feature | Behaviour |
+|---------|-----------|
+| Tighten limits | Immediate effect |
+| Loosen limits | Requires 7-day cooldown + takes effect next month |
+| During challenge hours | Budget config changes BLOCKED entirely |
+| Exhausted budget | AI denies new tasks (BASTION-8001) |
+| Session/daily/monthly limits | All tracked independently in SQLite |
+
+### Integration with ChallengeManager
+- `challengeManager.checkAction('budget_change')` — blocked during active challenge periods
+- `budgetGuard.checkCooldown()` — enforces 7-day cooldown on loosening
+- `challengeManager.recordAction('budget_change')` — logs for cooldown tracking
+
+### Budget Thresholds → Safety Actions
 | Threshold | Action |
 |-----------|--------|
-| 50% | Informational status message |
-| 75% | Persistent budget indicator in client |
-| 90% | Automatic challenge on all new tasks |
-| 100% | Automatic denial of new tasks |
+| 50% | `budget_alert` (warning level) |
+| 80% | `budget_alert` (urgent level) |
+| 100% | `budget_alert` (exhausted) + automatic denial of new tasks |
 
-Budget adjustment is admin-only. The human client CANNOT raise the budget. This prevents 3am hyperfocus spending.
+---
+
+## Challenge Me More (Temporal Governance)
+
+Server-side timezone enforcement. AI VM clock is authoritative.
+
+| Feature | Behaviour |
+|---------|-----------|
+| Active period | Budget/schedule changes BLOCKED, safety thresholds tightened |
+| Cooldown (loosening) | 7-day cooldown on loosening any restriction |
+| Tightening | Immediate effect, no cooldown |
+| Status broadcast | `challenge_status` sent to human on connect and on change |
+| Config updates | `challenge_config` (Human→AI) → `challenge_config_ack` (AI→Human) |
 
 ---
 
 ## Tool Registry
 
 The AI can only invoke tools explicitly listed in its registry. The registry is:
-- A config file on the AI VM
-- Loaded at startup
-- Immutable by the AI itself (`registry-guard.ts` enforces this)
-- Modifiable only by direct SSH or admin config message
-
-Each tool entry defines: permitted hosts, blocked commands, challenge requirements, max execution time.
+- Managed by `ToolRegistryManager` on the AI VM
+- Tools discovered from MCP providers via `McpClientAdapter`
+- Trust levels: read-only (auto-approvable at session scope), write (per-call), destructive (per-call, parameter-blind)
+- Session trust revocable at any time via `tool_revoke`
+- Self-modification blocked
 
 ---
 
@@ -127,8 +168,10 @@ Test categories:
 - Layer 2: Verify challenge triggers for each factor
 - Layer 3: Verify clarification requests
 - Floors: Verify floors cannot be breached
-- Budget: Verify threshold actions
+- Budget: Verify threshold actions and cooldowns
+- Challenge Me More: Verify temporal blocking
 - Registry: Verify self-modification is blocked
+- Immutable boundaries: Verify all 5 cannot be weakened
 
 ---
 
@@ -138,9 +181,12 @@ Test categories:
 □ Layer identified (1, 2, or 3)
 □ Implementation follows layer's pattern
 □ Floor constraints respected
+□ Five immutable boundaries not violated
+□ ChallengeManager integration checked (if governance feature)
+□ Budget Guard integration checked (if cost-related)
 □ Tests written for new behaviour
 □ Tests verify floor cannot be lowered
 □ Audit events logged
-□ Error codes used correctly (BASTION-4XXX)
+□ Error codes used correctly (BASTION-4XXX for safety, BASTION-8XXX for budget)
 □ Documented in safety-engine.md
 ```

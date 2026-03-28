@@ -6,7 +6,7 @@
 
 ## The Principle
 
-Work isn't done until it's committed and pushed.
+Work isn't done until it's committed, attributed, and pushed.
 
 ---
 
@@ -24,11 +24,80 @@ Branch: main
 
 ### After completing work:
 
+1. **Run lint** (mandatory before commit):
+
 ```bash
 cd G:\Glorktelligence\Projects\Bastion
+pnpm lint --write    # Auto-fix formatting and import ordering
+pnpm lint            # Verify clean — must show 0 issues
+```
+
+2. **Run full test suite** (mandatory — all 13 files must pass):
+
+```bash
+pnpm test            # Runs all test files
+# Or run individually:
+node packages/tests/trace-test.mjs
+node packages/tests/integration-test.mjs
+node packages/tests/file-transfer-integration-test.mjs
+node packages/crypto/trace-test.mjs
+node packages/relay/trace-test.mjs
+node packages/relay/admin-trace-test.mjs
+node packages/relay/quarantine-trace-test.mjs
+node packages/relay/file-transfer-trace-test.mjs
+node packages/client-ai/trace-test.mjs
+node packages/client-ai/file-handling-trace-test.mjs
+node packages/client-human/trace-test.mjs
+node packages/client-human-mobile/trace-test.mjs
+node packages/relay-admin-ui/trace-test.mjs
+```
+
+Expected: 2,675+ tests, 0 failures.
+
+3. **Update docs if needed** (see Doc Updates below)
+
+4. **Stage, commit with attribution, and push:**
+
+```bash
 git add .
-git commit -m "[type]: [description]"
+git commit -m "[type]([scope]): [description]
+
+Co-authored-by: Claude <noreply@anthropic.com>"
 git push origin main
+```
+
+---
+
+## Co-Contributor Attribution (MANDATORY)
+
+Every commit MUST include the co-author trailer. This is non-negotiable — Claude is a credited collaborator on this project.
+
+```
+Co-authored-by: Claude <noreply@anthropic.com>
+```
+
+**Rules:**
+- The trailer goes after a blank line following the commit description
+- Multi-line commit bodies go between the subject and the trailer
+- GitHub recognises this and lists both contributors on the commit
+
+**Single-line example:**
+```
+feat(relay): Add session timeout handling
+
+Co-authored-by: Claude <noreply@anthropic.com>
+```
+
+**Multi-line example:**
+```
+feat(relay): Wire AdminServer into relay startup
+
+- Add AdminServer, AdminAuth, AdminRoutes imports
+- Auto-generate admin credentials if not in env
+- Bind admin API to 127.0.0.1 only (SSH tunnel access)
+- Add provider registry for future provider management
+
+Co-authored-by: Claude <noreply@anthropic.com>
 ```
 
 ---
@@ -46,7 +115,7 @@ git push origin main
 | `wip:`      | Work in progress checkpoint          |
 | `chore:`    | Build/config changes                 |
 
-### Scope (optional)
+### Scope (optional but preferred)
 
 Use package name as scope for clarity:
 
@@ -73,12 +142,41 @@ wip(client-human): Checkpoint — challenge UI in progress
 
 ---
 
+## Doc Updates Checklist
+
+Before committing, check if the work affects any of these and update accordingly:
+
+### README.md Badges & Counts
+- [ ] **Test count badge** — if tests were added or removed (currently 2,675)
+- [ ] **Message type count** — if protocol types were added (currently 57)
+- [ ] **Error code count** — if error codes were added (currently 45)
+- [ ] **Package count** — if a new package was added
+- [ ] **Feature list** — if a user-visible feature was added
+
+### Other Docs
+- [ ] **SECURITY.md** — if the change affects threat model or security boundaries
+- [ ] **CONTRIBUTING.md** — if the change affects development workflow
+- [ ] **docs/spec/** — if protocol message types or schemas changed
+- [ ] **docs/protocol/** — if the protocol specification needs updating
+- [ ] **docs/guides/deployment.md** — if deployment steps or config changed
+- [ ] **CHANGELOG** — for any user-facing change (maintain if present)
+
+### When to Skip
+- Pure refactors with no behaviour change: skip doc updates
+- Test-only changes: update test count badge only
+- WIP commits: skip doc updates until work is complete
+
+---
+
 ## Before Reporting "Task Complete"
 
 ```
 □ Feature works as expected
-□ Tests pass
-□ Code committed
+□ pnpm lint --write applied (Biome auto-fix)
+□ pnpm lint clean (0 issues)
+□ Full test suite passes (all 13 files, 2,675+ tests)
+□ Docs updated (badges, counts, guides as needed)
+□ Code committed with Co-authored-by trailer
 □ Pushed to origin
 □ Commit message follows conventions
 ```

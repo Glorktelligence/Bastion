@@ -6,18 +6,40 @@
 
 ## Testing Framework
 
-Vitest for all packages. Run from monorepo root or individual packages.
+Tests use the `node:test` built-in module with a custom trace-test.mjs pattern. NOT Vitest.
 
 ```bash
-# All tests
+# All tests (from monorepo root)
 pnpm test
 
-# Specific package
-pnpm --filter @bastion/protocol test
+# Specific test file
+node packages/relay/trace-test.mjs
 
-# Watch mode
-pnpm --filter @bastion/relay test -- --watch
+# Build before testing (tests run against compiled output)
+pnpm build && pnpm test
 ```
+
+---
+
+## Test Suite — 13 Files, 2,675 Tests
+
+| # | File | Tests | Package | Scope |
+|---|------|-------|---------|-------|
+| 1 | packages/tests/trace-test.mjs | 233 | @bastion/protocol | Schema validation for all 57 message types |
+| 2 | packages/tests/integration-test.mjs | 82 | Cross-package | Full message round-trip (human→relay→AI→relay→human) |
+| 3 | packages/tests/file-transfer-integration-test.mjs | 105 | Cross-package | File transfer pipeline with quarantine + hash verification |
+| 4 | packages/crypto/trace-test.mjs | 134 | @bastion/crypto | E2E encryption, key exchange, hashing, audit chain |
+| 5 | packages/relay/trace-test.mjs | 353 | @bastion/relay | WebSocket server, routing, JWT, heartbeat, rate limiting |
+| 6 | packages/relay/admin-trace-test.mjs | 312 | @bastion/relay | Admin API, auth, provider CRUD, live status |
+| 7 | packages/relay/quarantine-trace-test.mjs | 105 | @bastion/relay | File quarantine, hash verifier, purge scheduler |
+| 8 | packages/relay/file-transfer-trace-test.mjs | 96 | @bastion/relay | FileTransferRouter workflow (manifest/offer/request) |
+| 9 | packages/client-ai/trace-test.mjs | 416 | @bastion/client-ai | Safety engine (3 layers), provider adapter, budget guard, challenge manager |
+| 10 | packages/client-ai/file-handling-trace-test.mjs | 155 | @bastion/client-ai | IntakeDirectory, OutboundStaging, FilePurgeManager |
+| 11 | packages/client-human/trace-test.mjs | 321 | @bastion/client-human | Connection, stores, services, crypto |
+| 12 | packages/client-human-mobile/trace-test.mjs | 123 | @bastion/client-human-mobile | Mobile stores, connection, components |
+| 13 | packages/relay-admin-ui/trace-test.mjs | 239 | @bastion/relay-admin-ui | Admin UI stores, data service, API client |
+
+**All 13 files must pass before committing.** Expected: 2,675+ tests, 0 failures.
 
 ---
 
@@ -27,148 +49,126 @@ pnpm --filter @bastion/relay test -- --watch
 - Every Zod schema validates correct input
 - Every Zod schema rejects invalid input
 - Serialisation round-trips preserve data
-- Envelope structure is correct
-- Error codes are unique and correctly formatted
+- Integrity hashes detect tampering
+- All 45 error codes have valid BASTION-CXXX format
+- All 57 message types have schemas
 
 ### Safety Engine (Critical)
 - Layer 1 denies every blocked category
 - Layer 2 challenges every trigger factor
 - Layer 3 catches every ambiguity type
 - Safety floors CANNOT be lowered (test this explicitly)
-- Budget thresholds trigger correct actions
+- Budget thresholds trigger correct actions and cooldowns
 - Tool registry blocks self-modification
+- Challenge Me More blocks budget changes during active periods
 
 ### Relay (Critical)
 - Message routing delivers to correct recipient
 - Schema validation rejects malformed messages
 - JWT validation rejects expired/invalid tokens
 - Allowlist rejects unapproved providers
-- MaliClaw Clause rejects blocked identifiers
-- Audit log is append-only
-- File quarantine hashes match at every stage
+- MaliClaw Clause rejects all 13 blocked identifiers + /claw/i regex
+- Audit log is append-only with hash chain integrity
+- File quarantine hashes match at every stage (3-stage custody chain)
+- Content scanning blocks all 13 dangerous patterns in project_sync
+- Admin API endpoints require authentication
 
 ### Clients
-- WebSocket connection handles reconnection
+- WebSocket connection handles reconnection with exponential backoff
 - Challenge UI blocks until response
-- Offline drafts are NOT auto-sent
 - Budget indicators appear at correct thresholds
+- E2E key exchange produces interoperable ciphers (browser ↔ Node.js)
+- Stores follow writable + factory pattern correctly
 
 ---
 
-## Test Structure
+## Test Structure (trace-test.mjs pattern)
 
-```typescript
-import { describe, it, expect } from 'vitest';
-import { TaskPayloadSchema } from '@bastion/protocol';
+```javascript
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
 
-describe('TaskPayloadSchema', () => {
-  it('validates correct task payload', () => {
-    const valid = {
-      action: 'Check SSL certificates',
-      target: 'naval-app-01',
-      priority: 'normal',
-    };
-    expect(TaskPayloadSchema.safeParse(valid).success).toBe(true);
-  });
+let pass = 0, fail = 0;
+function check(name, condition, detail) {
+  if (condition) { pass++; console.log('  PASS', name); }
+  else { fail++; console.log('  FAIL', name, detail || ''); }
+}
 
-  it('rejects missing action', () => {
-    const invalid = { target: 'naval-app-01', priority: 'normal' };
-    expect(TaskPayloadSchema.safeParse(invalid).success).toBe(false);
-  });
+// --- Test Group ---
+console.log('--- Test: Schema validation ---');
+check('valid task accepted', validateMessage(validTask).valid);
+check('invalid task rejected', !validateMessage(invalidTask).valid);
 
-  it('rejects invalid priority', () => {
-    const invalid = {
-      action: 'Check SSL',
-      target: 'naval-app-01',
-      priority: 'ULTRA',
-    };
-    expect(TaskPayloadSchema.safeParse(invalid).success).toBe(false);
-  });
-});
+// --- Summary ---
+console.log(`\nResults: ${pass} passed, ${fail} failed`);
+if (fail > 0) process.exit(1);
 ```
 
 ---
 
 ## Safety Floor Tests (Mandatory Pattern)
 
-```typescript
-describe('Safety Floors', () => {
-  it('prevents lowering time scrutiny below 1.2x', () => {
-    const config = createSafetyConfig();
-    
-    // Attempt to lower below floor
-    const result = config.setTimeScrutiny(1.0);
-    
-    // Must remain at floor
-    expect(result.value).toBe(1.2);
-    expect(result.error).toBe('BASTION-7002');
-  });
+```javascript
+check('prevents lowering challenge threshold below floor',
+  settings.tryUpdate('challengeThreshold', 0.3).ok === false
+);
 
-  it('allows tightening above default', () => {
-    const config = createSafetyConfig();
-    const result = config.setTimeScrutiny(2.0);
-    expect(result.value).toBe(2.0);
-  });
+check('allows tightening challenge threshold',
+  settings.tryUpdate('challengeThreshold', 0.8).ok === true
+);
 
-  it('prevents disabling high-risk hours entirely', () => {
-    const config = createSafetyConfig();
-    const result = config.setHighRiskHours(null);
-    expect(result.error).toBe('BASTION-7002');
-  });
-});
+check('irreversibleAlwaysChallenge is locked',
+  settings.tryUpdate('irreversibleAlwaysChallenge', false).ok === false
+);
 ```
 
 ---
 
 ## MaliClaw Clause Tests (Mandatory)
 
-```typescript
-describe('MaliClaw Clause', () => {
-  it.each([
-    'openclaw-client-v2',
-    'ClawdBot',
-    'MOLTBOT',
-    'clawrouter-lite',
-  ])('rejects %s', (clientId) => {
-    expect(checkMaliClawClause(clientId)).toBe(false);
-  });
+```javascript
+// Must reject all 13 identifiers + any string containing 'claw'
+for (const id of ['openclaw', 'ClawdBot', 'MOLTBOT', 'hiclaw', 'my-claw-bot']) {
+  check(`rejects ${id}`, !allowlist.isAllowed(id));
+}
 
-  it('accepts legitimate clients', () => {
-    expect(checkMaliClawClause('anthropic-claude-opus')).toBe(true);
-    expect(checkMaliClawClause('bastion-human-client')).toBe(true);
-  });
-
-  it('cannot be disabled via configuration', () => {
-    // This test verifies the clause is hardcoded
-    // There should be no config option to disable it
-    expect(typeof checkMaliClawClause).toBe('function');
-    // No config parameter accepted
-    expect(checkMaliClawClause.length).toBe(1); // Only clientId param
-  });
-});
+// Must accept legitimate clients
+check('accepts anthropic-claude', allowlist.isAllowed('anthropic-claude'));
 ```
 
 ---
 
-## Integration Tests
+## Budget Guard Tests
 
-Located in `tests/integration/`. Test full flows:
+```javascript
+check('budget exhausted blocks tasks', budgetGuard.checkBudget().blocked === true);
+check('cooldown prevents loosening', budgetGuard.checkCooldown().allowed === false);
+check('tightening takes immediate effect', budgetGuard.updateLimits({maxPerMonth: 100}).accepted === true);
+check('challenge hours block budget changes', challengeManager.checkAction('budget_change').blocked === true);
+```
 
-1. **Full message round-trip**: Human sends task → relay routes → AI receives
-2. **Challenge cycle**: Task → challenge → confirmation → execution
-3. **File transfer**: Upload → quarantine → manifest → request → deliver → verify hash
-4. **Connection rejection**: Unapproved client → TLS rejection → audit log entry
+---
+
+## Content Scanning Tests
+
+```javascript
+// Must reject all dangerous patterns in project_sync content
+check('rejects script tags', validateProjectSync({path: 'a.md', content: '<script>alert(1)</script>'}) !== null);
+check('rejects __proto__ pollution', validateProjectSync({path: 'a.json', content: '{"__proto__": {}}'}) !== null);
+check('accepts clean markdown', validateProjectSync({path: 'a.md', content: '# Hello'}) === null);
+```
 
 ---
 
 ## Before Marking "Tested"
 
 ```
-□ Unit tests pass
+□ All 13 test files pass (2,675+ tests, 0 failures)
 □ Safety floor tests included
-□ MaliClaw tests included
-□ Error codes tested
+□ MaliClaw tests included (all 13 identifiers + regex)
+□ Error codes tested (BASTION-CXXX format)
 □ Audit events verified
 □ Edge cases covered
 □ No skipped tests
+□ pnpm lint clean
 ```

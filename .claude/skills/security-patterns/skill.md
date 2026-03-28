@@ -19,24 +19,43 @@
 ### Architecture
 - Human client encrypts → relay transports encrypted blob → AI client decrypts
 - Relay NEVER sees plaintext. Relay transports opaque blobs.
-- Key exchange during session establishment (Double Ratchet adapted)
-- Library: libsodium via `sodium-native`
-- Keys stored encrypted at rest on each client
+- Key exchange via `key_exchange` protocol message (X25519 public keys)
+- Symmetric encryption: XSalsa20-Poly1305 (crypto_secretbox)
+- KDF ratchet: SHA-512 truncated to 32 bytes, directional keys, chain stepping
 
-### Implementation
+### Implementation (two interoperable stacks)
+
+**Browser (client-human)**: tweetnacl
 ```typescript
-// Encrypt before sending to relay
-const encrypted = await encrypt(plaintext, sessionKey);
-const envelope = { ...message, payload: encrypted };
-
-// Relay routes without reading
-relay.route(envelope); // Cannot decrypt payload
-
-// Recipient decrypts
-const plaintext = await decrypt(envelope.payload, sessionKey);
+// browser-crypto.ts — uses tweetnacl's nacl.box.before + nacl.secretbox
+const keyPair = generateKeyPair();              // nacl.box.keyPair()
+const sessionKeys = deriveSessionKeys('initiator', keyPair, peerPublicKey);
+const cipher = createSessionCipher(sessionKeys); // KDF ratchet
+const { encryptedPayload, nonce } = encryptPayload(json, cipher);
 ```
 
-**Never** log plaintext message content at the relay level. Only metadata.
+**Node.js (client-ai, relay)**: libsodium-wrappers-sumo
+```typescript
+// Uses sodium.crypto_box_keypair(), crypto_box_beforenm(), crypto_secretbox_easy()
+// Interoperable — identical shared secret and KDF chain as tweetnacl
+const sodium = await ensureSodium();
+const sharedSecret = sodium.crypto_box_beforenm(peerPublicKey, ownKeyPair.privateKey);
+```
+
+### Key Exchange Flow
+1. Both clients generate X25519 keypairs on connect
+2. When peer_status='active', initiator sends `key_exchange` with public key
+3. Responder derives shared secret and creates session cipher
+4. Directional keys prevent replay: initiator send=keyA, receive=keyB; responder swaps
+5. KDF chain steps on every message — forward secrecy within session
+
+### Plaintext Exceptions
+These message types are NEVER encrypted (relay needs to read them):
+`session_init`, `session_established`, `key_exchange`, `token_refresh`, `provider_register`, `ping`, `pong`, `peer_status`, `error`, `config_ack`, `config_nack`, `file_manifest`, `file_offer`, `file_request`, `file_data`
+
+### E2E Status Indicator
+- Session.ts exposes `e2eStatus` writable: `{ available: boolean, active: boolean }`
+- StatusIndicator shows green "Encrypted" badge or yellow "Unencrypted" warning
 
 ---
 
@@ -44,23 +63,23 @@ const plaintext = await decrypt(envelope.payload, sessionKey);
 
 ### JWT Flow
 1. Client connects via WSS
-2. Client sends credentials in session initiation
-3. Relay validates, issues JWT (15-min expiry)
-4. Client includes JWT in all subsequent messages
+2. Client sends `session_init` with identity
+3. Relay validates, issues JWT (jose library, HS256, 15-min expiry, jti uniqueness)
+4. Client includes JWT in subsequent messages
 5. Client refreshes via `token_refresh` before expiry
 6. Expired JWT → session terminated
 
 ### Provider Approval (AI clients)
-- Explicit allowlist — no self-registration
-- Each provider registered with identity, capabilities, credentials
-- Unapproved connections rejected at TLS handshake level
-- Logged as `BASTION-2004`
+- Self-registration via `provider_register` message (approved through AdminRoutes)
+- MaliClaw Clause checked at approval time
+- Each provider has capability matrix (allowed message types, file transfer perms, max concurrent tasks)
 
 ### Admin Auth
-- Primary: Client certificates (self-signed CA on relay)
-- Fallback: Username + TOTP (Argon2id hashed password)
+- Primary: Client certificates (SHA-256 fingerprint matching)
+- Fallback: Username + TOTP (scrypt N=16384 password hash)
 - Rate limited: 5 attempts / 15 min, then 1-hour lockout
-- Admin panel ONLY on local network / WireGuard — never public
+- Admin panel ONLY on 127.0.0.1:9444 — use SSH tunnel for remote access
+- Setup wizard for first-time credential creation (TOTP secret display + verification)
 
 ---
 
@@ -68,73 +87,91 @@ const plaintext = await decrypt(envelope.payload, sessionKey);
 
 **Non-negotiable. Non-bypassable. Hardcoded.**
 
-```typescript
-// packages/relay/src/auth/maliclaw-clause.ts
-const BLOCKED_IDENTIFIERS = [
-  'openclaw',
-  'clawdbot', 
-  'moltbot',
-  'clawrouter',
-] as const;
+**13 blocked identifiers** (case-insensitive partial matching):
+`openclaw`, `clawdbot`, `moltbot`, `copaw`, `nanoclaw`, `zeroclaw`, `clawhub`, `hiclaw`, `tuwunel`, `lobster`, `ai.openclaw.client`, `openclaw.ai`, `docs.openclaw.ai`
 
-// This function is called at TLS handshake level
-// It cannot be disabled via configuration
-// It operates independently of the allowlist
-export function checkMaliClawClause(clientId: string): boolean {
-  const normalised = clientId.toLowerCase();
-  return !BLOCKED_IDENTIFIERS.some(blocked => 
-    normalised.includes(blocked)
-  );
-}
-```
+**Plus catch-all regex**: `/claw/i` — blocks ANY identifier containing 'claw'
+
+Located in: `packages/relay/src/auth/allowlist.ts` (also mirrored in `packages/relay-admin-ui/src/lib/stores/blocklist.ts`)
 
 **Rules:**
 - This check is HARDCODED — no config file, no environment variable, no flag
 - Adding to the list: allowed (via code change + PR)
 - Removing from the list: NOT allowed
 - Making it configurable: NOT allowed
+- Checked BEFORE the allowlist — MaliClaw overrides all approvals
 - Tests must verify it cannot be bypassed
+
+---
+
+## Content Scanning
+
+### Relay-side (project_sync validation in start-relay.mjs)
+13 dangerous content patterns scanned before forwarding project files:
+
+| Pattern | Threat |
+|---------|--------|
+| `<script>` tags | XSS |
+| `javascript:` URIs | XSS |
+| HTML event handlers (onload, onerror, etc.) | XSS |
+| `<iframe>`, `<object>`, `<embed>` tags | Embedding attacks |
+| HTML import links | Resource injection |
+| `data:text/html` URIs | XSS via data URIs |
+| YAML language-specific type tags | Deserialization attacks |
+| `__proto__` / `constructor` / `prototype` | JSON prototype pollution |
+
+Also enforced: path traversal prevention, hidden file blocking, extension allowlist (.md/.json/.yaml/.yml/.txt only), 1MB content limit.
+
+### AI Client-side (ProjectStore in client-ai)
+Same path validation and content scanning applied independently.
+
+---
+
+## Tool Governance
+
+### Trust Model
+- **Read-only tools**: Can be auto-approved at session scope (low risk)
+- **Write tools**: Always require per-call human approval
+- **Destructive tools**: Always per-call, AI cannot see parameters until approved (Dangerous Tool Blindness)
+
+### MCP Integration
+- ToolRegistryManager tracks available tools and session trust
+- McpClientAdapter: JSON-RPC 2.0 over WebSocket to MCP providers
+- Tool discovery: `listTools()` on connect, registered in AI client's tool registry
+- Execution: human approves → AI validates parameters → MCP call → result displayed
+
+### Message Flow
+`tool_request` (AI→Human) → `tool_approved`/`tool_denied` (Human→AI) → `tool_result` (AI→Human)
+`tool_revoke` (Human→AI) — revoke session trust at any time
 
 ---
 
 ## File Transfer Airlock
 
-### Human → AI
-1. Human encrypts file client-side
-2. Encrypted blob → relay quarantine
-3. Relay hashes blob, sends `file-manifest` (metadata only) to AI
-4. AI reviews manifest, sends `file-request` if wanted
-5. Relay delivers to read-only intake directory on AI VM
-6. Hash verified at delivery (must match receipt)
-7. File purged on completion or timeout
+### 3-Stage Custody Chain (now fully wired in runtime)
 
-### AI → Human
-1. AI encrypts file, submits to relay outbound quarantine
-2. Relay hashes, sends `file-offer` to human
-3. Human reviews offer, explicitly accepts or rejects
-4. On accept: relay delivers encrypted blob to human
-5. Human decrypts locally, hash verified
+**Human → AI:**
+1. Human sends `file_manifest` (with embedded `fileData`) → relay intercepts
+2. **[Stage 1: Submission]** — Relay verifies SHA-256 hash, quarantines file
+3. Relay sends `file_manifest` (metadata only, NO file content) to AI
+4. AI auto-accepts project files (has `projectContext`), sends `file_request`
+5. **[Stage 2: Quarantine]** — Relay re-verifies hash in quarantine
+6. **[Stage 3: Delivery]** — Relay verifies hash, releases `file_data` to AI
+7. AI verifies hash at receipt, stores in IntakeDirectory (read-only)
 
-### Hash Verification
-```typescript
-// Every stage gets a hash
-const hashAtSubmission = sha256(blob);
-const hashAtQuarantine = sha256(storedBlob);
-const hashAtDelivery = sha256(deliveredBlob);
+**AI → Human:**
+Same flow but with `file_offer` instead of `file_manifest`.
 
-// Any mismatch = BASTION-5001, transfer rejected, alert fired
-if (hashAtDelivery !== hashAtSubmission) {
-  throw new BastionError('BASTION-5001', 'File hash mismatch');
-}
-```
+### Hash Mismatch at Any Stage → BASTION-5001, Transfer Aborted
 
-### Chain of Custody
-Every file transfer generates audit entries:
-- Who sent it, when
-- Hash at each stage
-- Who accepted/rejected
-- When purged
-- Any hash mismatches
+### Components
+- **FileTransferRouter** (relay): Orchestrates manifest/offer/request workflow
+- **FileQuarantine** (relay): In-memory store with custody chain
+- **HashVerifier** (relay): 3-stage SHA-256 integrity verification
+- **PurgeScheduler** (relay): Automatic timeout cleanup (default 1 hour)
+- **IntakeDirectory** (client-ai): Read-only received files (50 file max)
+- **OutboundStaging** (client-ai): Write-only produced files (50 file max)
+- **FilePurgeManager** (client-ai): Task lifecycle cleanup
 
 ---
 
@@ -142,15 +179,14 @@ Every file transfer generates audit entries:
 
 ### Single Device
 - Only one human client at a time
-- New device triggers `session_conflict`
-- Takeover requires explicit confirmation
-- No implicit session stealing
+- `session_conflict` notifies on duplicate connection attempt
+- `session_superseded` auto-disconnects the old session
+- StatusIndicator shows toast notification for both
 
 ### Reconnection
-- 5-minute grace period on disconnect
-- Relay holds up to 100 messages during suspension
-- Reconnection requires last-received message ID
-- Grace timer minimum floor: 2 minutes
+- Exponential backoff (1s → 2s → 4s → 8s → 16s → 30s)
+- State re-hydrated via `sendHydrationQueries()` on reconnect
+- JWT refreshed on `tokenRefreshNeeded` event
 
 ---
 
@@ -161,10 +197,12 @@ Every file transfer generates audit entries:
 □ Relay never sees plaintext
 □ JWT validated on every message
 □ Allowlist checked before routing
-□ MaliClaw Clause fires at TLS level
-□ File transfers go through quarantine
-□ Hashes verified at every stage
+□ MaliClaw Clause fires before allowlist
+□ File transfers go through quarantine with 3-stage hash verification
+□ Content scanning applied to project files
+□ Tool governance respects trust model (read/write/destructive)
 □ Audit events logged for all security actions
 □ No hardcoded secrets (except MaliClaw blocklist)
-□ Admin panel not exposed publicly
+□ Admin panel not exposed publicly (127.0.0.1 only)
+□ Five immutable boundaries not violated
 ```

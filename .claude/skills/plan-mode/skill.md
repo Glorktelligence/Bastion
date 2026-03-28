@@ -9,8 +9,9 @@
 Planning prevents:
 - Breaking the protocol package contract
 - Missing safety implications
+- Violating the five immutable boundaries
 - Duplicating existing utilities
-- Incomplete implementations
+- Incomplete implementations (library code without startup script wiring)
 - Wasted time fixing rushed security code
 
 Planning takes 5 minutes. Fixing a security bug takes hours.
@@ -26,6 +27,8 @@ Before ANY implementation:
 - File transfer changes
 - Authentication changes
 - UI components
+- Tool governance changes
+- Budget or challenge configuration changes
 - Anything touching `@bastion/protocol`
 
 ---
@@ -36,11 +39,13 @@ Before ANY implementation:
 
 ```
 □ Read relevant spec section (docs/)
-□ Check @bastion/protocol for existing types
+□ Check @bastion/protocol for existing types (57 message types, 45 error codes)
 □ Find existing utilities in @bastion/crypto
-□ Check for similar implementations
+□ Check for similar implementations in existing stores/handlers
 □ Identify which packages are affected
-□ Review safety implications
+□ Review safety implications against all 5 immutable boundaries
+□ Check ChallengeManager integration (does this feature need governance?)
+□ Check Budget Guard integration (does this feature have cost?)
 ```
 
 ### 2. Create Plan
@@ -53,6 +58,11 @@ Before ANY implementation:
 - @bastion/relay — [what changes]
 - @bastion/client-ai — [what changes]
 
+### Startup Script Wiring
+- start-relay.mjs — [handler to add]
+- start-ai-client.mjs — [handler to add]
+- session.ts — [handler to add, store to update]
+
 ### Protocol Changes (if any)
 - New type: [interface definition]
 - New schema: [Zod schema]
@@ -61,14 +71,19 @@ Before ANY implementation:
 ### Safety Implications
 - Layer affected: [1/2/3/none]
 - Floor implications: [any]
+- Immutable boundaries: [which of the 5 are relevant]
 - Challenge required: [yes/no/conditional]
+- ChallengeManager integration: [needed/not needed]
+- Budget Guard integration: [needed/not needed]
 
 ### Files to Modify
 - packages/protocol/src/types/messages.ts — add new type
-- packages/relay/src/routing/message-router.ts — add routing case
+- start-relay.mjs — add routing handler
+- start-ai-client.mjs — add message handler
+- packages/client-human/src/lib/session.ts — add store handler
 
 ### Files to Create
-- packages/protocol/src/schemas/new-type.schema.ts
+- packages/client-human/src/lib/stores/new-feature.ts
 
 ### Edge Cases
 - What if X? → Handle by Y
@@ -86,6 +101,8 @@ Before ANY implementation:
 - Confirm types match existing patterns
 - Confirm no conflicts with protocol contract
 - Confirm safety floors are respected
+- Confirm immutable boundaries are not violated
+- Confirm startup script wiring is planned (not just library code)
 
 ### 4. Get Approval
 
@@ -93,7 +110,7 @@ Present plan to Harry. Wait for approval.
 
 ### 5. Implement
 
-Follow the plan. Protocol first, then relay, then clients.
+Follow the plan. Protocol first, then startup scripts, then client UI.
 
 ---
 
@@ -102,7 +119,9 @@ Follow the plan. Protocol first, then relay, then clients.
 Ready when:
 - [ ] Packages identified in dependency order
 - [ ] Protocol changes defined first
-- [ ] Safety implications assessed
+- [ ] Startup script wiring planned for all affected scripts
+- [ ] Safety implications assessed against all 5 immutable boundaries
+- [ ] ChallengeManager integration checked
 - [ ] Code snippets are real (not pseudocode)
 - [ ] Edge cases listed
 - [ ] Tests defined
@@ -112,6 +131,7 @@ NOT ready if:
 - Safety implications not assessed
 - Protocol changes not leading
 - Missing error code assignments
+- Startup script wiring not planned
 
 ---
 
@@ -119,4 +139,4 @@ NOT ready if:
 
 **Explore → Plan → Verify → Approve → Implement**
 
-Protocol first. Safety always. Never skip planning.
+Protocol first. Safety always. Wire in startup scripts. Never skip planning.

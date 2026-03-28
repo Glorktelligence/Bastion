@@ -15,30 +15,50 @@ Every piece of code is production-ready. Complete implementations only. Security
 ### Protocol Package
 - [ ] Type interface with JSDoc comments
 - [ ] Zod schema for validation
+- [ ] Schema added to PAYLOAD_SCHEMAS mapping
+- [ ] Added to MessagePayload discriminated union
 - [ ] Constants in correct location
 - [ ] Export from package index
-- [ ] Unit tests for schemas
+- [ ] Validation tests for schema
 
 ### Relay Feature
-- [ ] Message handler with full validation
+- [ ] Message handler in `start-relay.mjs` (not just library code)
+- [ ] Full validation with correct BASTION-XXXX codes
 - [ ] Audit logging for all actions
-- [ ] Error handling with correct BASTION-XXXX codes
+- [ ] Content scanning if accepting user content
 - [ ] Rate limiting consideration
 - [ ] Integration with existing routing
 
 ### AI Client Feature
+- [ ] Message handler in `start-ai-client.mjs` (not just library code)
 - [ ] Safety engine integration (correct layer)
-- [ ] Tool registry check
+- [ ] ChallengeManager check (if governance feature)
+- [ ] Budget Guard check (if cost-related)
+- [ ] Tool registry check (if tool-related)
 - [ ] Transparency metadata included
-- [ ] Budget tracking updated
 - [ ] Error reporting to relay
 
 ### Human Client Feature
-- [ ] SvelteKit component with full UI
-- [ ] Loading, error, and empty states
-- [ ] WebSocket integration
+- [ ] Handler in `session.ts` (populate store, not silent consumption)
+- [ ] Svelte store following factory pattern (writable + methods)
+- [ ] UI component with loading, error, and empty states
+- [ ] Subscription in Settings page or relevant route
+- [ ] Toast notification for confirmations/errors
 - [ ] Offline behaviour handled
-- [ ] Accessibility considered
+
+---
+
+## Startup Script Wiring (CRITICAL)
+
+**Library code that isn't wired in a startup script doesn't run.** This was a recurring pattern during initial development — all instances are now resolved, but new features must follow this rule:
+
+| Library Package | Wired In | What Must Be Done |
+|----------------|----------|-------------------|
+| @bastion/relay | `start-relay.mjs` | Instantiate class, add message handler, wire to router |
+| @bastion/client-ai | `start-ai-client.mjs` | Instantiate class, add message handler, wire to client events |
+| @bastion/client-human | `session.ts` | Add handler in `handleRelayMessage()`, update store, remove from silent block |
+
+If you implement a feature as a class in a library package, you MUST also wire it in the appropriate startup script. Verify by tracing the code path: does a message arriving on the WebSocket actually reach your handler?
 
 ---
 
@@ -48,22 +68,15 @@ Every piece of code is production-ready. Complete implementations only. Security
 
 ```typescript
 // ✅ Complete — uses Bastion error codes
-async function routeMessage(envelope: MessageEnvelope): Promise<void> {
-  const validation = MessageSchema.safeParse(envelope);
-  
-  if (!validation.success) {
-    await auditLog.append({
-      event: 'SCHEMA_VALIDATION_FAILED',
-      detail: validation.error.message,
-      level: 'warning',
-    });
-    throw new BastionError('BASTION-3001', 'Schema validation failed', {
-      detail: validation.error.message,
-      recoverable: false,
-    });
-  }
-  
-  // Route message...
+if (!hashCheck.valid) {
+  relay.send(connId, JSON.stringify({
+    type: 'error',
+    code: 'BASTION-5001',
+    message: `Hash verification failed: expected ${expected}, got ${actual}`,
+    timestamp: new Date().toISOString(),
+  }));
+  auditLogger.logEvent('file_hash_mismatch', sid, { transferId, stage: 'submission' });
+  return;
 }
 ```
 
@@ -72,6 +85,7 @@ async function routeMessage(envelope: MessageEnvelope): Promise<void> {
 ```typescript
 // ✅ Every input validated with Zod
 const TaskPayloadSchema = z.object({
+  taskId: TaskIdSchema,
   action: z.string().min(1).max(500),
   target: z.string().min(1).max(200),
   priority: z.enum(['low', 'normal', 'high', 'critical']),
@@ -82,12 +96,9 @@ const TaskPayloadSchema = z.object({
 
 ```typescript
 // ✅ Every significant action logged
-await auditLog.append({
-  event: 'CHALLENGE_ISSUED',
-  detail: `Layer 2: ${factors.join(', ')}`,
-  level: 'warning',
-  messageId: envelope.id,
-  correlationId: envelope.correlationId,
+auditLogger.logEvent('file_submitted', sid, {
+  transferId, filename, direction, sizeBytes,
+  sender_hash: declaredHash, stage: 'submitted', actor: identity.id,
 });
 ```
 
@@ -100,10 +111,11 @@ await auditLog.append({
 | Packages | `@bastion/kebab-case` | `@bastion/client-human` |
 | Files | `kebab-case.ts` | `message-router.ts` |
 | Svelte components | `PascalCase.svelte` | `ChallengeBanner.svelte` |
-| Types | `PascalCase` | `TaskMessage`, `SafetyEvaluation` |
+| Svelte stores | `kebab-case.ts` | `projects.ts`, `budget.ts` |
+| Types | `PascalCase` | `TaskPayload`, `SafetyEvaluation` |
 | Constants | `SCREAMING_SNAKE_CASE` | `MESSAGE_TYPES`, `SAFETY_FLOORS` |
 | Functions | `camelCase` | `validateMessage()`, `encryptPayload()` |
-| Database tables | `snake_case` | `audit_entries` |
+| Store factories | `createXxxStore()` | `createProjectsStore()` |
 | Environment vars | `BASTION_SCREAMING_SNAKE` | `BASTION_RELAY_PORT` |
 
 ---
@@ -120,30 +132,30 @@ Every source file requires the Apache 2.0 header:
 
 ---
 
-## Import Order
+## Import Order (enforced by Biome)
 
-1. Node.js built-ins
-2. External packages
+1. Node.js built-ins (`node:crypto`, `node:fs`)
+2. External packages (`zod`, `jose`)
 3. `@bastion/*` workspace packages
-4. Relative imports
+4. Relative imports (`../store.js`, `./config/config-store.js`)
 
-```typescript
-import { createServer } from 'node:http';
-import { z } from 'zod';
-import { MessageEnvelope } from '@bastion/protocol';
-import { encrypt } from '@bastion/crypto';
-import { auditLog } from '../audit/audit-logger';
-```
+Biome auto-fixes import ordering with `pnpm lint --write`.
 
 ---
 
 ## Before Marking Complete
 
-- [ ] Feature works end-to-end
-- [ ] Error cases handled with correct BASTION codes
-- [ ] Audit events logged
-- [ ] Safety implications considered
-- [ ] Tests written
-- [ ] No placeholder code or TODO comments
-- [ ] Follows existing patterns
-- [ ] Apache 2.0 header present
+```
+□ Feature works end-to-end
+□ Wired in startup script (not just library code)
+□ Error cases handled with correct BASTION codes
+□ Audit events logged
+□ Safety implications considered (5 immutable boundaries checked)
+□ Tests written and passing
+□ pnpm lint --write applied
+□ pnpm lint clean (0 issues)
+□ Full 13-file test suite passes (2,675+ tests)
+□ No placeholder code or TODO comments
+□ Follows existing patterns
+□ Apache 2.0 header present
+```
