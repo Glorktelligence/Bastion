@@ -302,6 +302,21 @@ let aiConnectionId = null;
 /** Session IDs keyed by connection ID (for audit logging). */
 const sessionIds = new Map();
 
+/** Last registered provider info — sent to human client on pairing and registration. */
+let registeredProvider = null;
+
+/** Send provider_status to a connection. */
+function sendProviderStatus(targetConnectionId) {
+  if (!registeredProvider) return;
+  relay.send(targetConnectionId, JSON.stringify({
+    type: 'provider_status',
+    id: randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: { id: 'relay', type: 'relay', displayName: 'Bastion Relay' },
+    payload: registeredProvider,
+  }));
+}
+
 function tryPairClients() {
   if (!humanConnectionId || !aiConnectionId) return;
 
@@ -321,6 +336,12 @@ function tryPairClients() {
     });
     relay.send(humanConnectionId, peerActiveMsg);
     relay.send(aiConnectionId, peerActiveMsg);
+
+    // Send provider info to human client (if AI already registered)
+    if (registeredProvider) {
+      sendProviderStatus(humanConnectionId);
+      console.log(`[→] provider_status sent to human: ${registeredProvider.providerName}`);
+    }
   } catch (err) {
     console.error(`[!] Pairing failed: ${err.message}`);
   }
@@ -443,6 +464,18 @@ relay.on('message', async (data, info) => {
             configType: 'provider_register',
             appliedAt: new Date().toISOString(),
           }));
+
+          // Track provider info and notify the paired human client
+          registeredProvider = {
+            providerId,
+            providerName,
+            status: 'active',
+            capabilities: capabilities || { conversation: true, taskExecution: true, fileTransfer: false },
+          };
+          if (humanConnectionId && router.getPeer(humanConnectionId)) {
+            sendProviderStatus(humanConnectionId);
+            console.log(`[→] provider_status sent to human: ${providerName}`);
+          }
         } else {
           console.log(`[!] Provider registration rejected: ${result.body.error}`);
           relay.send(connId, JSON.stringify({
@@ -961,6 +994,7 @@ relay.on('disconnection', (info, code, reason) => {
     }
   } else if (connId === aiConnectionId) {
     aiConnectionId = null;
+    registeredProvider = null;
     if (humanConnectionId) {
       relay.send(humanConnectionId, JSON.stringify({
         type: 'peer_status',
