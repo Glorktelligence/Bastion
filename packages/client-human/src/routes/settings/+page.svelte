@@ -1,4 +1,5 @@
 <script lang="ts">
+import { browser } from '$app/environment';
 import * as session from '$lib/session.js';
 import type { SafetySettings, SettingUpdateResult } from '$lib/stores/settings.js';
 import type { MemoryEntry } from '$lib/stores/memories.js';
@@ -61,6 +62,7 @@ function handleResetSetup(): void {
 }
 
 $effect(() => {
+	if (!browser) return () => {};
 	const unsubs = [
 		session.settings.store.subscribe((v) => {
 			currentSettings = v.settings;

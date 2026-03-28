@@ -1,22 +1,28 @@
 <script>
 import '../app.css';
+import { browser } from '$app/environment';
 import { page } from '$app/state';
 import * as session from '$lib/session.js';
 import SetupWizard from '$lib/components/SetupWizard.svelte';
 
 const { children } = $props();
 
-const configStore = session.getConfigStore();
-let setupComplete = $state(configStore.get('setupComplete'));
+// During SSR: assume setup is complete (prevents wizard flash).
+// Client hydration reads the real value from ConfigStore (localStorage).
+let setupComplete = $state(browser ? session.getConfigStore().get('setupComplete') : true);
 
 function handleSetupComplete() {
 	setupComplete = true;
-	session.tryAutoConnect();
+	if (browser) session.tryAutoConnect();
 }
 
 $effect(() => {
-	if (setupComplete) {
-		session.tryAutoConnect();
+	// Re-check config on client hydration (SSR may have assumed true)
+	if (browser) {
+		setupComplete = session.getConfigStore().get('setupComplete');
+		if (setupComplete) {
+			session.tryAutoConnect();
+		}
 	}
 });
 
@@ -35,6 +41,7 @@ let extensionPages = $state([]);
 let unsubs = [];
 
 $effect(() => {
+	if (!browser) return () => {};
 	unsubs.push(session.conversations.store.subscribe((s) => {
 		convList = s.conversations.filter((c) => !c.archived);
 		activeConvId = s.activeConversationId;

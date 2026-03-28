@@ -1,4 +1,5 @@
 <script lang="ts">
+import { browser } from '$app/environment';
 import * as session from '$lib/session.js';
 import type { TrackedTask } from '$lib/stores/tasks.js';
 import TaskTracker from '$lib/components/TaskTracker.svelte';
@@ -11,6 +12,7 @@ let allTasks: readonly TrackedTask[] = $state([]);
 let selectedTask: TrackedTask | null = $state(null);
 
 $effect(() => {
+	if (!browser) return () => {};
 	const unsubs = [
 		session.tasks.store.subscribe((v) => (allTasks = v.tasks)),
 		session.tasks.selectedTask.subscribe((v) => (selectedTask = v)),

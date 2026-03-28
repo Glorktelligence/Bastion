@@ -1,4 +1,5 @@
 <script>
+import { browser } from '$app/environment';
 import { page } from '$app/state';
 import * as session from '$lib/session.js';
 import ExtensionUIHost from '$lib/components/ExtensionUIHost.svelte';
@@ -7,6 +8,7 @@ let extensions = $state([]);
 let unsub = null;
 
 $effect(() => {
+	if (!browser) return () => {};
 	unsub = session.extensions.store.subscribe((s) => { extensions = s.extensions; });
 	return () => { if (unsub) unsub(); };
 });

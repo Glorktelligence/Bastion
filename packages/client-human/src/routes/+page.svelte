@@ -1,4 +1,5 @@
 <script lang="ts">
+import { browser } from '$app/environment';
 import * as session from '$lib/session.js';
 import type { ConnectionStoreState } from '$lib/stores/connection.js';
 import type { DisplayMessage } from '$lib/stores/messages.js';
@@ -54,6 +55,7 @@ const isConnected = $derived(
 let unsubs: (() => void)[] = [];
 
 $effect(() => {
+	if (!browser) return () => {};
 	unsubs.push(session.connection.subscribe((v) => (conn = v)));
 	unsubs.push(session.messages.store.subscribe((v) => (messages = [...v.messages])));
 	unsubs.push(session.challenges.store.subscribe((v) => (activeChallenge = v.active)));

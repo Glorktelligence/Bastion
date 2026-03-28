@@ -1,4 +1,5 @@
 <script lang="ts">
+import { browser } from '$app/environment';
 import * as session from '$lib/session.js';
 import type { AuditLogEntry, ChainIntegrityStatus } from '$lib/stores/audit-log.js';
 import type { AuditLogFilter } from '$lib/stores/audit-log.js';
@@ -17,6 +18,7 @@ let loading = $state(false);
 let integrity: ChainIntegrityStatus | null = $state(null);
 
 $effect(() => {
+	if (!browser) return () => {};
 	const unsubs = [
 		session.auditLog.currentPageEntries.subscribe((v) => (entries = v)),
 		session.auditLog.store.subscribe((v) => {
