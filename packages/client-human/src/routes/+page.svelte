@@ -2,6 +2,7 @@
 import * as session from '$lib/session.js';
 import type { ConnectionStoreState } from '$lib/stores/connection.js';
 import type { DisplayMessage } from '$lib/stores/messages.js';
+import type { ConversationEntry, ConversationMessage } from '$lib/stores/conversations.js';
 import type { ActiveChallenge } from '$lib/stores/challenges.js';
 import type { PendingToolRequest } from '$lib/stores/tools.js';
 import StatusIndicator from '$lib/components/StatusIndicator.svelte';
@@ -36,6 +37,12 @@ let e2eAvailable = $state(false);
 let toasts: session.ToastNotification[] = $state([]);
 let providerName = $state('');
 let providerActive = $state(false);
+let activeConv: ConversationEntry | null = $state(null);
+let convMessages: ConversationMessage[] = $state([]);
+let hasMoreHistory = $state(false);
+let loadingHistory = $state(false);
+let showConvActions = $state(false);
+let deleteConfirm = $state(false);
 
 const isConnected = $derived(
 	conn.status === 'connected' || conn.status === 'authenticated',
@@ -53,6 +60,8 @@ $effect(() => {
 	unsubs.push(session.e2eStatus.subscribe((v) => { e2eActive = v.active; e2eAvailable = v.available; }));
 	unsubs.push(session.notifications.subscribe((v) => { toasts = [...v]; }));
 	unsubs.push(session.provider.store.subscribe((v) => { providerName = v.provider?.providerName ?? ''; providerActive = v.provider?.status === 'active'; }));
+	unsubs.push(session.conversations.activeConversation.subscribe((v) => { activeConv = v; }));
+	unsubs.push(session.conversations.store.subscribe((v) => { convMessages = [...v.activeMessages]; hasMoreHistory = v.hasMoreHistory; loadingHistory = v.loadingHistory; }));
 
 	return () => {
 		for (const u of unsubs) u();
@@ -112,6 +121,16 @@ function handleSendConversation(text: string): void {
 		payload: envelope.payload,
 		direction: 'outgoing',
 	});
+
+	// Add to active conversation
+	const convId = session.conversations.store.get().activeConversationId;
+	if (convId) {
+		session.conversations.addMessage({
+			id, conversationId: convId, role: 'user', type: 'conversation',
+			content: text, timestamp, hash: '', previousHash: null, pinned: false,
+			senderName: session.IDENTITY.displayName, direction: 'outgoing', payload: envelope.payload,
+		});
+	}
 }
 
 function handleSendTask(task: {
@@ -156,6 +175,50 @@ function handleSendTask(task: {
 // ---------------------------------------------------------------------------
 // Challenge responses
 // ---------------------------------------------------------------------------
+
+function handleLoadOlderMessages(): void {
+	const client = session.getClient();
+	const convId = session.conversations.store.get().activeConversationId;
+	if (!client || !convId) return;
+	session.conversations.setLoadingHistory(true);
+	const currentCount = session.conversations.store.get().activeMessages.length;
+	client.send(JSON.stringify({
+		type: 'conversation_history',
+		id: crypto.randomUUID(),
+		timestamp: new Date().toISOString(),
+		sender: session.getIdentity(),
+		payload: { conversationId: convId, limit: 50, offset: currentCount, direction: 'older' },
+	}));
+}
+
+function handleArchiveConversation(): void {
+	const client = session.getClient();
+	const convId = session.conversations.store.get().activeConversationId;
+	if (!client || !convId) return;
+	client.send(JSON.stringify({
+		type: 'conversation_archive',
+		id: crypto.randomUUID(),
+		timestamp: new Date().toISOString(),
+		sender: session.getIdentity(),
+		payload: { conversationId: convId },
+	}));
+	showConvActions = false;
+}
+
+function handleDeleteConversation(): void {
+	const client = session.getClient();
+	const convId = session.conversations.store.get().activeConversationId;
+	if (!client || !convId) return;
+	client.send(JSON.stringify({
+		type: 'conversation_delete',
+		id: crypto.randomUUID(),
+		timestamp: new Date().toISOString(),
+		sender: session.getIdentity(),
+		payload: { conversationId: convId },
+	}));
+	deleteConfirm = false;
+	showConvActions = false;
+}
 
 function handleChallengeApprove(): void {
 	const client = session.getClient();
@@ -244,6 +307,36 @@ function handleChallengeCancel(): void {
 
 		{#if pendingToolRequest}
 			<ToolApprovalDialog request={pendingToolRequest} />
+		{/if}
+
+		{#if activeConv}
+			<div class="conv-header-bar">
+				<span class="conv-header-icon">{activeConv.type === 'game' ? '🎮' : '💬'}</span>
+				<span class="conv-header-name">{activeConv.name}</span>
+				<span class="conv-header-count">{activeConv.messageCount} messages</span>
+				<div class="conv-header-actions">
+					<button class="conv-action-btn" onclick={() => { showConvActions = !showConvActions; }}>···</button>
+					{#if showConvActions}
+						<div class="conv-action-menu">
+							<button onclick={handleArchiveConversation}>Archive</button>
+							{#if deleteConfirm}
+								<button class="conv-delete-confirm" onclick={handleDeleteConversation}>Confirm Delete</button>
+								<button onclick={() => { deleteConfirm = false; }}>Cancel</button>
+							{:else}
+								<button class="conv-delete-btn" onclick={() => { deleteConfirm = true; }}>Delete</button>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			</div>
+		{/if}
+
+		{#if hasMoreHistory}
+			<div class="load-more-bar">
+				<button class="load-more-btn" onclick={handleLoadOlderMessages} disabled={loadingHistory}>
+					{loadingHistory ? 'Loading...' : 'Load older messages'}
+				</button>
+			</div>
 		{/if}
 
 		<MessageList {messages} />
@@ -336,6 +429,45 @@ function handleChallengeCancel(): void {
 		border-color: var(--color-error);
 		color: var(--color-error);
 	}
+
+	/* ---------- conversation header ---------- */
+	.conv-header-bar {
+		display: flex; align-items: center; gap: 0.5rem;
+		padding: 0.375rem 1rem; border-bottom: 1px solid var(--color-border);
+		background: var(--color-surface); font-size: 0.85rem;
+	}
+	.conv-header-icon { font-size: 0.9rem; }
+	.conv-header-name { font-weight: 500; color: var(--color-text); }
+	.conv-header-count { color: var(--color-text-muted); font-size: 0.75rem; margin-left: auto; }
+	.conv-header-actions { position: relative; }
+	.conv-action-btn {
+		padding: 0.125rem 0.375rem; border: 1px solid var(--color-border);
+		border-radius: 4px; background: transparent; color: var(--color-text-muted);
+		cursor: pointer; font-size: 0.8rem;
+	}
+	.conv-action-menu {
+		position: absolute; right: 0; top: 100%; margin-top: 0.25rem;
+		background: var(--color-surface); border: 1px solid var(--color-border);
+		border-radius: 6px; padding: 0.25rem; display: flex; flex-direction: column; gap: 0.125rem;
+		z-index: 10; min-width: 120px;
+	}
+	.conv-action-menu button {
+		display: block; width: 100%; padding: 0.375rem 0.5rem; border: none;
+		background: transparent; color: var(--color-text); font-size: 0.8rem;
+		text-align: left; cursor: pointer; border-radius: 4px;
+	}
+	.conv-action-menu button:hover { background: var(--color-border); }
+	.conv-delete-btn { color: var(--color-error) !important; }
+	.conv-delete-confirm { color: #fff !important; background: var(--color-error) !important; }
+
+	.load-more-bar { display: flex; justify-content: center; padding: 0.375rem; }
+	.load-more-btn {
+		padding: 0.25rem 0.75rem; border: 1px solid var(--color-border);
+		border-radius: 4px; background: transparent; color: var(--color-text-muted);
+		font-size: 0.75rem; cursor: pointer;
+	}
+	.load-more-btn:hover { background: var(--color-border); color: var(--color-text); }
+	.load-more-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 	/* ---------- toast notifications ---------- */
 	.toast-bar {

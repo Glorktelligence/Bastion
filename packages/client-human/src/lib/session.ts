@@ -24,6 +24,7 @@ import { type BudgetStatusData, createBudgetStore } from './stores/budget.js';
 import { type ChallengeStats, createChallengeStatsStore } from './stores/challenge-stats.js';
 import { type ActiveChallenge, createChallengesStore } from './stores/challenges.js';
 import { type ConnectionStoreState, createConnectionStore } from './stores/connection.js';
+import { type ConversationEntry, type ConversationMessage, createConversationsStore } from './stores/conversations.js';
 import { type ExtensionInfo, createExtensionsStore } from './stores/extensions.js';
 import { type MemoryEntry, createMemoriesStore } from './stores/memories.js';
 import { type DisplayMessage, createMessagesStore } from './stores/messages.js';
@@ -85,6 +86,7 @@ export const budget = createBudgetStore();
 export const projects = createProjectsStore();
 export const provider = createProviderStore();
 export const extensions = createExtensionsStore();
+export const conversations = createConversationsStore();
 
 /** General-purpose toast notifications (cross-cutting — not owned by a single store). */
 export interface ToastNotification {
@@ -430,6 +432,17 @@ function sendHydrationQueries(): void {
       timestamp: ts,
       sender: identity,
       payload: {},
+    }),
+  );
+
+  // Request conversation list (multi-conversation persistence)
+  client.send(
+    JSON.stringify({
+      type: 'conversation_list',
+      id: crypto.randomUUID(),
+      timestamp: ts,
+      sender: identity,
+      payload: { includeArchived: true },
     }),
   );
 }
@@ -791,6 +804,111 @@ function handleRelayMessage(data: string): void {
     return;
   }
 
+  // Conversation list response → populate conversations store
+  if (type === 'conversation_list_response') {
+    const p = payload as Record<string, unknown>;
+    const convs =
+      (p.conversations as Array<{
+        id: string;
+        name: string;
+        type: 'normal' | 'game';
+        updatedAt: string;
+        messageCount: number;
+        lastMessagePreview: string;
+        archived: boolean;
+      }>) ?? [];
+    conversations.setConversations(convs);
+    // Auto-switch to most recent non-archived if no active conversation
+    const state = conversations.store.get();
+    if (!state.activeConversationId && convs.length > 0) {
+      const firstActive = convs.find((c) => !c.archived);
+      if (firstActive && client) {
+        client.send(
+          JSON.stringify({
+            type: 'conversation_switch',
+            id: crypto.randomUUID(),
+            timestamp: new Date().toISOString(),
+            sender: getIdentity(),
+            payload: { conversationId: firstActive.id },
+          }),
+        );
+      }
+    }
+    return;
+  }
+
+  // Conversation create ack → add to list and switch
+  if (type === 'conversation_create_ack') {
+    const p = payload as Record<string, unknown>;
+    conversations.createConversation({
+      id: String(p.conversationId ?? ''),
+      name: String(p.name ?? 'New Conversation'),
+      type: (p.type as 'normal' | 'game') ?? 'normal',
+      updatedAt: String(p.createdAt ?? new Date().toISOString()),
+      messageCount: 0,
+      lastMessagePreview: '',
+      archived: false,
+    });
+    conversations.setActiveConversation(String(p.conversationId ?? ''), []);
+    addNotification(`Conversation created: ${String(p.name ?? 'New Conversation')}`, 'success');
+    return;
+  }
+
+  // Conversation switch ack → load messages
+  if (type === 'conversation_switch_ack') {
+    const p = payload as Record<string, unknown>;
+    const convId = String(p.conversationId ?? '');
+    const msgs =
+      (p.recentMessages as Array<{
+        id: string;
+        conversationId: string;
+        role: 'user' | 'assistant';
+        type: string;
+        content: string;
+        timestamp: string;
+        hash: string;
+        previousHash: string | null;
+        pinned: boolean;
+      }>) ?? [];
+    conversations.setActiveConversation(
+      convId,
+      msgs.map((m) => ({
+        ...m,
+        senderName: m.role === 'user' ? getIdentity().displayName : 'Claude',
+        direction: m.role === 'user' ? ('outgoing' as const) : ('incoming' as const),
+      })),
+    );
+    return;
+  }
+
+  // Conversation history response → prepend older messages
+  if (type === 'conversation_history_response') {
+    const p = payload as Record<string, unknown>;
+    const msgs =
+      (p.messages as Array<{
+        id: string;
+        conversationId: string;
+        role: 'user' | 'assistant';
+        type: string;
+        content: string;
+        timestamp: string;
+        hash: string;
+        previousHash: string | null;
+        pinned: boolean;
+      }>) ?? [];
+    // History comes newest-first — reverse for display order
+    const ordered = [...msgs].reverse();
+    conversations.prependMessages(
+      ordered.map((m) => ({
+        ...m,
+        senderName: m.role === 'user' ? getIdentity().displayName : 'Claude',
+        direction: m.role === 'user' ? ('outgoing' as const) : ('incoming' as const),
+      })),
+      Boolean(p.hasMore),
+    );
+    return;
+  }
+
   // Provider status → provider store
   if (type === 'provider_status') {
     const p = payload as Record<string, unknown>;
@@ -846,8 +964,36 @@ function handleRelayMessage(data: string): void {
     return;
   }
 
-  // Default: conversation, task_submission, and other user-facing messages → messages store
+  // Default: conversation, task_submission, and other user-facing messages → messages store + conversations store
   messages.addIncoming(type, payload, sender, id, timestamp);
+
+  // Also add to active conversation (multi-conversation persistence)
+  const activeConvId = conversations.store.get().activeConversationId;
+  if (activeConvId) {
+    const p = payload as Record<string, unknown>;
+    const content =
+      typeof p.content === 'string'
+        ? p.content
+        : typeof p.summary === 'string'
+          ? p.summary
+          : typeof p.reason === 'string'
+            ? p.reason
+            : JSON.stringify(p);
+    conversations.addMessage({
+      id,
+      conversationId: activeConvId,
+      role: sender.type === 'human' ? 'user' : 'assistant',
+      type,
+      content,
+      timestamp,
+      hash: '',
+      previousHash: null,
+      pinned: false,
+      senderName: sender.displayName,
+      direction: 'incoming',
+      payload,
+    });
+  }
 }
 
 // Re-export types that routes commonly need
@@ -867,6 +1013,8 @@ export type {
   ProviderInfo,
   ProviderCapabilities,
   ExtensionInfo,
+  ConversationEntry,
+  ConversationMessage,
 };
 export { SAFETY_FLOOR_VALUES };
 export { getConfigStore, generateUserId } from './config/config-store.js';
