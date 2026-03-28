@@ -465,14 +465,15 @@ relay.on('message', async (data, info) => {
             appliedAt: new Date().toISOString(),
           }));
 
-          // Track provider info (including model) and notify the paired human client
-          const model = (msg.payload || msg).model;
+          // Track provider info (including model + adapters) and notify the paired human client
+          const payload = msg.payload || msg;
           registeredProvider = {
             providerId,
             providerName,
-            model: model || null,
+            model: payload.model || null,
             status: 'active',
             capabilities: capabilities || { conversation: true, taskExecution: true, fileTransfer: false },
+            adapters: payload.adapters || null,
           };
           if (humanConnectionId && router.getPeer(humanConnectionId)) {
             sendProviderStatus(humanConnectionId);

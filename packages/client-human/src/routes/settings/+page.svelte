@@ -575,6 +575,19 @@ function handleContextSave(): void {
 						{#if providerInfo.capabilities.streaming}<span class="cap-tag cap-yes">streaming</span>{:else}<span class="cap-tag cap-no">streaming</span>{/if}
 					{/if}
 				</span>
+				{#if providerInfo.adapters && providerInfo.adapters.length > 0}
+				<span class="label">Adapters</span>
+				<span class="value">
+					<div class="adapter-list">
+						{#each providerInfo.adapters as ad}
+							<div class="adapter-entry">
+								<span class="adapter-model mono">{ad.model}</span>
+								<span class="adapter-roles">{ad.roles.join(', ')}</span>
+							</div>
+						{/each}
+					</div>
+				</span>
+				{/if}
 			</div>
 		{:else}
 			<p class="empty-mem">No AI provider connected. Connect to the relay to see provider info.</p>
@@ -904,6 +917,12 @@ function handleContextSave(): void {
 	}
 	.cap-yes { background: color-mix(in srgb, #22c55e 15%, transparent); color: #22c55e; }
 	.cap-no { background: color-mix(in srgb, #ef4444 15%, transparent); color: #ef4444; text-decoration: line-through; }
+
+	/* Adapters */
+	.adapter-list { display: flex; flex-direction: column; gap: 0.25rem; }
+	.adapter-entry { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; }
+	.adapter-model { font-size: 0.75rem; }
+	.adapter-roles { font-size: 0.7rem; color: var(--color-text-muted); }
 
 	/* Extensions */
 	.ext-header, .ext-row {

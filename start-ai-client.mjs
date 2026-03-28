@@ -23,6 +23,7 @@ import {
   FilePurgeManager,
   ConversationStore,
   CompactionManager,
+  AdapterRegistry,
 } from './packages/client-ai/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -43,6 +44,9 @@ const API_VERSION = process.env.BASTION_API_VERSION || '2023-06-01';
 const API_TIMEOUT = parseInt(process.env.BASTION_TIMEOUT || '120000', 10);
 const PRICING_INPUT = parseFloat(process.env.BASTION_PRICING_INPUT || '3');
 const PRICING_OUTPUT = parseFloat(process.env.BASTION_PRICING_OUTPUT || '15');
+const COMPACTION_MODEL = process.env.BASTION_COMPACTION_MODEL || MODEL;
+const COMPACTION_PRICING_INPUT = parseFloat(process.env.BASTION_COMPACTION_PRICING_INPUT || String(PRICING_INPUT));
+const COMPACTION_PRICING_OUTPUT = parseFloat(process.env.BASTION_COMPACTION_PRICING_OUTPUT || String(PRICING_OUTPUT));
 const REJECT_UNAUTHORIZED = process.env.BASTION_TLS_REJECT_UNAUTHORIZED !== 'false' ? false : true;
 // Note: defaults to false (accept self-signed) — set BASTION_TLS_REJECT_UNAUTHORIZED=true for strict
 
@@ -83,12 +87,42 @@ const adapter = createAnthropicAdapter(keyManager, adapterToolRegistry, {
   pricingInputPerMTok: PRICING_INPUT,
   pricingOutputPerMTok: PRICING_OUTPUT,
   supportedModels: [MODEL],
-  // System prompt is assembled by ConversationManager (role context + user context).
-  // The adapter's systemPrompt is used as fallback for executeTask calls.
   systemPrompt: ConversationManager.getRoleContext(),
 });
 
-console.log('[✓] Anthropic adapter initialised');
+// Compaction adapter — uses cheaper model if configured
+const usesSeparateCompaction = COMPACTION_MODEL !== MODEL;
+const compactionAdapter = usesSeparateCompaction
+  ? createAnthropicAdapter(keyManager, adapterToolRegistry, {
+      providerId: `${PROVIDER_ID}-compaction`,
+      providerName: `${PROVIDER_NAME} (Compaction)`,
+      model: COMPACTION_MODEL,
+      maxTokens: MAX_TOKENS,
+      temperature: 0.3,
+      apiBaseUrl: API_ENDPOINT,
+      apiVersion: API_VERSION,
+      requestTimeoutMs: API_TIMEOUT,
+      pricingInputPerMTok: COMPACTION_PRICING_INPUT,
+      pricingOutputPerMTok: COMPACTION_PRICING_OUTPUT,
+      supportedModels: [COMPACTION_MODEL],
+      systemPrompt: 'You are a conversation summariser. Produce concise, structured notes.',
+    })
+  : adapter;
+
+// Adapter registry — routes operations to the appropriate adapter
+const adapterRegistry = new AdapterRegistry();
+adapterRegistry.registerAdapter(adapter, ['default', 'conversation', 'task']);
+if (usesSeparateCompaction) {
+  adapterRegistry.registerAdapter(compactionAdapter, ['compaction']);
+}
+adapterRegistry.lock();
+
+const registeredAdapters = adapterRegistry.list();
+console.log(`[✓] Adapter registry: ${registeredAdapters.length} adapter${registeredAdapters.length !== 1 ? 's' : ''} registered`);
+for (const ra of registeredAdapters) {
+  console.log(`    → ${ra.adapter.providerId} [${ra.adapter.activeModel}] (${ra.roles.join(', ')})`);
+}
+console.log('[✓] Adapter registry locked');
 
 // ---------------------------------------------------------------------------
 // Memory store — persistent Layer 2 memory
@@ -179,7 +213,9 @@ console.log('[✓] Compaction manager initialised (budget: 80k tokens, trigger: 
 /** Summarise function — calls Anthropic API for compaction. */
 async function summariseForCompaction(prompt) {
   try {
-    const result = await adapter.executeTask({
+    const { adapter: compAdapter, reason } = adapterRegistry.selectAdapter('compaction');
+    console.log(`[~] Compaction using ${compAdapter.activeModel} (${reason})`);
+    const result = await compAdapter.executeTask({
       taskId: randomUUID(),
       action: 'summarise',
       target: 'conversation-compaction',
@@ -617,14 +653,20 @@ client.on('message', async (data) => {
     console.log(`[←] Session established (session: ${(msg.sessionId || '').slice(0, 8)})`);
     client.setToken(msg.jwt, msg.expiresAt);
 
-    // Register as a governed provider with model info and capabilities
+    // Register as a governed provider with adapter list and capabilities
     const registerMsg = JSON.stringify({
       type: 'provider_register',
       payload: {
         providerId: PROVIDER_ID,
         providerName: PROVIDER_NAME,
-        model: MODEL,
+        model: adapter.activeModel,
         capabilities: adapter.capabilities,
+        adapters: adapterRegistry.list().map(ra => ({
+          id: ra.adapter.providerId,
+          name: ra.adapter.providerName,
+          model: ra.adapter.activeModel,
+          roles: ra.roles,
+        })),
       },
       timestamp: new Date().toISOString(),
     });
@@ -1304,11 +1346,13 @@ client.on('message', async (data) => {
       // Still allow the API call but without web_search tool
     }
 
-    console.log('[~] Calling Anthropic API...');
+    const operation = msg.type === 'task' ? 'task' : 'conversation';
+    const { adapter: selectedAdapter, reason: adapterReason } = adapterRegistry.selectAdapter(operation);
+    console.log(`[~] Calling ${selectedAdapter.activeModel} (${adapterReason})...`);
 
     try {
-      // Use the adapter's executeTask with conversation context
-      const result = await adapter.executeTask({
+      // Use the registry-selected adapter with conversation context
+      const result = await selectedAdapter.executeTask({
         taskId: msg.id || randomUUID(),
         action: 'respond',
         target: content,

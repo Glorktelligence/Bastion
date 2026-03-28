@@ -931,6 +931,7 @@ function handleRelayMessage(data: string): void {
   if (type === 'provider_status') {
     const p = payload as Record<string, unknown>;
     const caps = (p.capabilities ?? {}) as Record<string, unknown>;
+    const adapterList = (p.adapters as Array<{ id: string; name: string; model: string; roles: string[] }>) ?? [];
     provider.setProvider({
       providerId: String(p.providerId ?? ''),
       providerName: String(p.providerName ?? p.name ?? ''),
@@ -941,7 +942,12 @@ function handleRelayMessage(data: string): void {
         taskExecution: Boolean(caps.taskExecution ?? true),
         fileTransfer: Boolean(caps.fileTransfer ?? false),
         streaming: caps.streaming != null ? Boolean(caps.streaming) : undefined,
+        webSearch: caps.webSearch != null ? Boolean(caps.webSearch) : undefined,
+        toolUse: caps.toolUse != null ? Boolean(caps.toolUse) : undefined,
+        vision: caps.vision != null ? Boolean(caps.vision) : undefined,
+        maxContextTokens: caps.maxContextTokens != null ? Number(caps.maxContextTokens) : undefined,
       },
+      adapters: adapterList.map((a) => ({ id: a.id, name: a.name, model: a.model, roles: a.roles })),
       lastUpdated: new Date().toISOString(),
     });
     return;

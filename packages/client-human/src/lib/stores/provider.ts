@@ -21,6 +21,17 @@ export interface ProviderCapabilities {
   readonly taskExecution: boolean;
   readonly fileTransfer: boolean;
   readonly streaming?: boolean;
+  readonly webSearch?: boolean;
+  readonly toolUse?: boolean;
+  readonly vision?: boolean;
+  readonly maxContextTokens?: number;
+}
+
+export interface ProviderAdapterInfo {
+  readonly id: string;
+  readonly name: string;
+  readonly model: string;
+  readonly roles: readonly string[];
 }
 
 export interface ProviderInfo {
@@ -29,6 +40,7 @@ export interface ProviderInfo {
   readonly model: string | null;
   readonly status: 'active' | 'inactive' | 'unknown';
   readonly capabilities: ProviderCapabilities;
+  readonly adapters: readonly ProviderAdapterInfo[];
   readonly lastUpdated: string;
 }
 

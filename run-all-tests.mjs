@@ -84,13 +84,28 @@ for (const file of files) {
       console.log(`  (could not parse results — last line: ${lines[lines.length - 1]})`);
     }
   } catch (err) {
-    totalFail++;
-    failedFiles.push(rel);
-    console.log(`  FAIL: ${err.message?.split('\n')[0] || 'unknown error'}`);
-    // Show stderr if available
-    if (err.stderr) {
-      const stderrLines = err.stderr.trim().split('\n').slice(-3);
-      for (const line of stderrLines) console.log(`    ${line}`);
+    // execSync throws on non-zero exit — but check if stdout has pass results
+    const stdout = err.stdout?.toString() ?? '';
+    const stderrOutput = err.stderr?.toString() ?? '';
+    const recoveredMatch = stdout.match(/(\d+)\s+passed,\s*(\d+)\s+failed/i)
+      || stdout.match(/ALL\s+\d+\s+GROUPS?\s+PASSED\s+\((\d+)\s+checks?\)/i);
+
+    if (recoveredMatch) {
+      let p, f;
+      if (recoveredMatch[0].includes('PASSED')) { p = parseInt(recoveredMatch[1], 10); f = 0; }
+      else { p = parseInt(recoveredMatch[1], 10); f = parseInt(recoveredMatch[2], 10); }
+      totalPass += p;
+      totalFail += f;
+      console.log(`  ${f > 0 ? 'FAIL' : 'PASS'}: ${p} passed, ${f} failed`);
+      if (f > 0) failedFiles.push(rel);
+    } else {
+      totalFail++;
+      failedFiles.push(rel);
+      console.log(`  FAIL: ${err.message?.split('\n')[0] || 'unknown error'}`);
+      if (stderrOutput) {
+        const stderrLines = stderrOutput.trim().split('\n').slice(-3);
+        for (const line of stderrLines) console.log(`    ${line}`);
+      }
     }
   }
   console.log();

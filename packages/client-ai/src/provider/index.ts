@@ -51,6 +51,10 @@ export type {
   ConversationStoreConfig,
 } from './conversation-store.js';
 
+// Adapter Registry
+export { AdapterRegistry } from './adapter-registry.js';
+export type { AdapterRole, OperationType, RegisteredAdapter, AdapterSelection } from './adapter-registry.js';
+
 // Compaction Manager
 export { CompactionManager } from './compaction-manager.js';
 export type { CompactionCheck, CompactionResult, CompactionManagerConfig, SummariseFn } from './compaction-manager.js';
