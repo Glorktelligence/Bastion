@@ -24,6 +24,7 @@ $effect(() => {
 	// Fire auto-connect ONCE on client hydration — not on every navigation
 	if (browser && !autoConnectFired) {
 		autoConnectFired = true;
+		console.log('[Bastion] Layout: first hydration — checking auto-connect');
 		const cfg = session.getConfigStore();
 		setupComplete = cfg.get('setupComplete');
 		if (setupComplete) {
@@ -66,7 +67,10 @@ $effect(() => {
 			extensionPages = exts.flatMap((e) => (e.ui?.pages ?? []).map((p) => ({ namespace: e.namespace, pageId: p.id, name: p.name, icon: p.icon })));
 		}),
 	];
-	return () => { for (const u of subs) u(); };
+	return () => {
+		console.log('[Bastion] Layout: subscription effect cleanup — unsubscribing stores (NOT disconnecting)');
+		for (const u of subs) u();
+	};
 });
 
 function handleSwitchConversation(id) {

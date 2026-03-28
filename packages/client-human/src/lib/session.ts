@@ -128,15 +128,22 @@ export const connection: Writable<ConnectionStoreState> = writable<ConnectionSto
 // Client management
 // ---------------------------------------------------------------------------
 
-let client: BastionHumanClient | null = null;
-let connSub: (() => void) | null = null;
+// Store client on globalThis to survive HMR module re-evaluation in dev mode.
+// Without this, SvelteKit HMR re-creates session.ts module scope, orphaning the WebSocket.
+const _g = globalThis as unknown as Record<string, unknown>;
+let client: BastionHumanClient | null = (_g.__bastionClient as BastionHumanClient) ?? null;
+let connSub: (() => void) | null = (_g.__bastionConnSub as () => void) ?? null;
 
 export function getClient(): BastionHumanClient | null {
   return client;
 }
 
 export async function connect(): Promise<void> {
-  if (client) return;
+  if (client) {
+    console.log('[Bastion] connect() called but client already exists — skipping');
+    return;
+  }
+  console.log('[Bastion] connect() — creating new WebSocket client');
 
   // Initialise crypto subsystem and generate X25519 keypair
   await initE2E();
@@ -173,12 +180,21 @@ export async function connect(): Promise<void> {
     }
   });
 
+  // Log disconnection reasons for debugging
+  client.on('disconnected', (code, reason) => {
+    console.log(`[Bastion] WebSocket disconnected: code=${code}, reason=${reason}`);
+  });
+
   // Re-hydrate state after reconnection
   client.on('reconnected', () => {
     hydrateState();
   });
 
   await client.connect();
+
+  // Persist client reference on globalThis for HMR survival
+  _g.__bastionClient = client;
+  _g.__bastionConnSub = connSub;
 
   // Send session_init to start the handshake
   if (client) {
@@ -194,10 +210,14 @@ export async function connect(): Promise<void> {
 
 export async function disconnect(): Promise<void> {
   if (!client) return;
+  console.log('[Bastion] disconnect() called — closing WebSocket');
+  console.trace('[Bastion] disconnect() call stack');
   await client.disconnect();
   if (connSub) connSub();
   connSub = null;
   client = null;
+  _g.__bastionClient = null;
+  _g.__bastionConnSub = null;
   // Destroy cipher on disconnect — new session needs new key exchange
   if (sessionCipher) {
     sessionCipher.destroy();
@@ -210,9 +230,9 @@ export async function disconnect(): Promise<void> {
 // E2E Encryption — X25519 key exchange + KDF ratchet
 // ---------------------------------------------------------------------------
 
-let ownKeyPair: BrowserKeyPair | null = null;
-let sessionCipher: BrowserSessionCipher | null = null;
-let e2eAvailable = false;
+let ownKeyPair: BrowserKeyPair | null = (_g.__bastionKeyPair as BrowserKeyPair) ?? null;
+let sessionCipher: BrowserSessionCipher | null = (_g.__bastionCipher as BrowserSessionCipher) ?? null;
+let e2eAvailable = (_g.__bastionE2eAvailable as boolean) ?? false;
 
 /** Whether E2E encryption is active (session cipher established). */
 export const e2eStatus: Writable<{ available: boolean; active: boolean }> = writable({
@@ -243,6 +263,8 @@ async function initE2E(): Promise<void> {
   try {
     ownKeyPair = generateKeyPair();
     e2eAvailable = true;
+    _g.__bastionKeyPair = ownKeyPair;
+    _g.__bastionE2eAvailable = true;
     e2eStatus.set({ available: true, active: false });
     console.log('[Bastion] X25519 keypair generated (tweetnacl) — E2E available');
   } catch (err) {
@@ -278,6 +300,7 @@ function handlePeerKeyExchange(peerPublicKeyB64: string): void {
   // Human client is the 'initiator' role (AI is 'responder')
   const sessionKeys = deriveSessionKeys('initiator', ownKeyPair, peerPublicKey);
   sessionCipher = createSessionCipher(sessionKeys);
+  _g.__bastionCipher = sessionCipher;
   e2eStatus.set({ available: true, active: true });
   console.log('[Bastion] E2E session established — interoperable ratchet active');
 }
@@ -336,7 +359,7 @@ function tryDecrypt(msg: Record<string, unknown>): Record<string, unknown> {
 // Auto-connect — called from layout on app open
 // ---------------------------------------------------------------------------
 
-let autoConnectAttempted = false;
+let autoConnectAttempted = (_g.__bastionAutoConnectAttempted as boolean) ?? false;
 
 /** Whether auto-connect is currently in progress. Subscribe from UI to avoid showing manual connect screen. */
 export const autoConnecting: Writable<boolean> = writable(false);
@@ -348,6 +371,7 @@ export const autoConnecting: Writable<boolean> = writable(false);
 export async function tryAutoConnect(): Promise<void> {
   if (autoConnectAttempted) return;
   autoConnectAttempted = true;
+  _g.__bastionAutoConnectAttempted = true;
 
   if (!cfg.get('setupComplete')) return;
   if (!cfg.get('autoConnect')) return;
