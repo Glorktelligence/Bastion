@@ -17,6 +17,8 @@ let totalCount = $state(0);
 let loading = $state(false);
 let integrity: ChainIntegrityStatus | null = $state(null);
 
+let querySent = false;
+
 $effect(() => {
 	if (!browser) return () => {};
 	const unsubs = [
@@ -29,10 +31,14 @@ $effect(() => {
 		session.auditLog.pageCount.subscribe((v) => (pageCount = v)),
 		session.auditLog.totalCount.subscribe((v) => (totalCount = v)),
 		session.auditLog.integrity.subscribe((v) => (integrity = v)),
+		// React to connection state — query when connected
+		session.connection.subscribe((v) => {
+			if ((v.status === 'connected' || v.status === 'authenticated') && !querySent) {
+				querySent = true;
+				sendAuditQuery();
+			}
+		}),
 	];
-
-	// Send audit_query on mount if connected
-	sendAuditQuery();
 
 	return () => {
 		for (const u of unsubs) u();

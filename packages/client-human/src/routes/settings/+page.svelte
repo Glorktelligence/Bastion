@@ -93,9 +93,15 @@ $effect(() => {
 		session.extensions.totalMessageTypes.subscribe((v) => { extensionMessageTypes = v; }),
 	];
 
-	// Request memory list and project list on mount
-	requestMemoryList();
-	requestProjectList();
+	// Request data when connected (not on mount — WebSocket may not be ready)
+	let settingsDataLoaded = false;
+	unsubs.push(session.connection.subscribe((v) => {
+		if ((v.status === 'connected' || v.status === 'authenticated') && !settingsDataLoaded) {
+			settingsDataLoaded = true;
+			requestMemoryList();
+			requestProjectList();
+		}
+	}));
 
 	return () => {
 		for (const u of unsubs) u();

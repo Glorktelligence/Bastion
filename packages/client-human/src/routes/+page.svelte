@@ -33,6 +33,7 @@ let budgetStatus: BudgetStatusData | null = $state(null);
 let lastBudgetAlert: BudgetAlert | null = $state(null);
 let connecting = $state(false);
 let isAutoConnecting = $state(false);
+let initialising = $state(true);
 let e2eActive = $state(false);
 let e2eAvailable = $state(false);
 let toasts: session.ToastNotification[] = $state([]);
@@ -56,12 +57,20 @@ let unsubs: (() => void)[] = [];
 
 $effect(() => {
 	if (!browser) return () => {};
-	unsubs.push(session.connection.subscribe((v) => (conn = v)));
+	unsubs.push(session.connection.subscribe((v) => {
+		conn = v;
+		// Connected or authenticated = no longer initialising
+		if (v.status === 'connected' || v.status === 'authenticated') initialising = false;
+	}));
 	unsubs.push(session.messages.store.subscribe((v) => (messages = [...v.messages])));
 	unsubs.push(session.challenges.store.subscribe((v) => (activeChallenge = v.active)));
 	unsubs.push(session.tools.store.subscribe((v) => (pendingToolRequest = v.pendingRequest)));
 	unsubs.push(session.budget.store.subscribe((v) => { budgetStatus = v.status; lastBudgetAlert = v.lastAlert; }));
-	unsubs.push(session.autoConnecting.subscribe((v) => (isAutoConnecting = v)));
+	unsubs.push(session.autoConnecting.subscribe((v) => {
+		isAutoConnecting = v;
+		// Once auto-connect finishes (success or failure), we're no longer initialising
+		if (!v && initialising) initialising = false;
+	}));
 	unsubs.push(session.e2eStatus.subscribe((v) => { e2eActive = v.active; e2eAvailable = v.available; }));
 	unsubs.push(session.notifications.subscribe((v) => { toasts = [...v]; }));
 	unsubs.push(session.provider.store.subscribe((v) => { providerName = v.provider?.providerName ?? ''; providerActive = v.provider?.status === 'active'; providerModel = v.provider?.model ?? ''; }));
@@ -281,7 +290,12 @@ function handleChallengeCancel(): void {
 </script>
 
 <div class="messages-view">
-	{#if !session.getClient() && !connecting && !isAutoConnecting && conn.status === 'disconnected'}
+	{#if initialising || isAutoConnecting}
+		<div class="connect-screen">
+			<p class="connect-label">Connecting...</p>
+			<p class="connect-url">{session.getRelayUrl()}</p>
+		</div>
+	{:else if !session.getClient() && !connecting && conn.status === 'disconnected'}
 		<div class="connect-screen">
 			<p class="connect-label">Connect to the Bastion relay to start messaging.</p>
 			<p class="connect-url">{session.getRelayUrl()}</p>
