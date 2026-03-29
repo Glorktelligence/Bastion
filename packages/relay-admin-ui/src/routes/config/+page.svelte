@@ -2,6 +2,7 @@
 // System Configuration — Task 3.11
 // Relay settings, safety floors, TLS status, audit chain integrity
 
+import { onMount } from 'svelte';
 import ConfigPanel from '$lib/components/ConfigPanel.svelte';
 import { createConfigStore } from '$lib/stores/config.js';
 import { createSharedService } from '$lib/api/service-instance.js';
@@ -21,7 +22,7 @@ let chainHealthy = $state(config.chainHealthy.get());
 /** @type {boolean} */
 let systemHealthy = $state(config.systemHealthy.get());
 
-$effect(() => {
+onMount(() => {
 	const unsub1 = config.store.subscribe((s) => { state = s; });
 	const unsub2 = config.tlsHealthy.subscribe((h) => { tlsHealthy = h; });
 	const unsub3 = config.chainHealthy.subscribe((h) => { chainHealthy = h; });
@@ -78,8 +79,8 @@ let discSaving = $state(false);
 let discSaved = $state(false);
 let discError = $state('');
 
-// Fetch current disclosure config
-$effect(() => {
+// Fetch current disclosure config on mount
+onMount(() => {
 	fetch('/api/disclosure').then(r => r.json()).then(data => {
 		if (data.enabled !== undefined) discEnabled = data.enabled;
 		if (data.text) discText = data.text;
@@ -168,7 +169,7 @@ const DISC_STYLE_ICONS = { info: 'ℹ️', legal: '🤖', warning: '⚠️' };
 
 			<label>
 				<span class="disc-label">Text</span>
-				<textarea class="disc-input" bind:value={discText} rows="3" placeholder="Use {provider} and {model} for dynamic substitution"></textarea>
+				<textarea class="disc-input" bind:value={discText} rows="3" placeholder={'Use {provider} and {model} for dynamic substitution'}></textarea>
 			</label>
 
 			<label>
