@@ -87,6 +87,7 @@ These cannot be disabled or configured away:
 5. **Admin panel locality**: The admin server binds to localhost only. Public binding attempts are logged as security violations and refused.
 6. **Budget Guard**: Web search cost caps with SQLite persistence, tighten-only mid-month, 7-day cooldown on loosening, blocked during Challenge Me More active periods.
 7. **Per-conversation tool trust isolation**: Tool approvals earned in one conversation do not carry to another. Prevents cross-conversation trust escalation.
+8. **AI Disclosure audit trail**: When the relay-configurable AI disclosure banner is enabled (for regulatory transparency such as EU AI Act Article 50), every disclosure sent to a human client is logged as an `ai_disclosure_sent` audit event with text content, jurisdiction label, and target client ID. These entries are part of the tamper-evident hash chain, providing cryptographic evidence of compliance.
 
 ### Streaming Security
 

@@ -172,7 +172,7 @@ pnpm --filter @bastion/relay-admin-ui dev
 
 ## Protocol
 
-Bastion defines 70 message types across structured categories:
+Bastion defines 71 message types across structured categories:
 
 - **Core** (10): `task`, `conversation`, `challenge`, `confirmation`, `denial`, `status`, `result`, `error`, `audit`, `heartbeat`
 - **File Transfer** (3): `file_manifest`, `file_offer`, `file_request`
@@ -188,6 +188,7 @@ Bastion defines 70 message types across structured categories:
 - **Budget Guard** (2): `budget_status`, `budget_config`
 - **E2E Encryption** (1): `key_exchange`
 - **Multi-Conversation** (13): `conversation_list`, `conversation_list_response`, `conversation_create`, `conversation_create_ack`, `conversation_switch`, `conversation_switch_ack`, `conversation_history`, `conversation_history_response`, `conversation_archive`, `conversation_delete`, `conversation_compact`, `conversation_compact_ack`, `conversation_stream`
+- **AI Disclosure** (1): `ai_disclosure`
 
 All messages are validated against Zod schemas at every boundary. Unknown message types are rejected. The protocol version is checked on session establishment.
 
@@ -212,7 +213,7 @@ Bastion includes deployment templates for self-hosted environments:
 
 - [Getting Started Guide](docs/guides/getting-started.md) — Clone to running local instance walkthrough
 - [Deployment Guide](docs/guides/deployment.md) — Self-hosting with TLS, VLANs, and AI VM isolation
-- [Protocol Specification](docs/protocol/bastion-protocol-v0.1.0.md) — All 70 message types, envelope structure, E2E encryption, safety evaluation
+- [Protocol Specification](docs/protocol/bastion-protocol-v0.1.0.md) — All 71 message types, envelope structure, E2E encryption, safety evaluation
 - [Core Specification](docs/spec/Project-Bastion-Spec-v0.1.0.docx) — The full product specification
 - [Supplementary Specification](docs/spec/bastion-supplementary-spec.md) — Architectural decisions, session lifecycle, error codes, GDPR considerations
 - [Project Structure](docs/spec/bastion-project-structure.md) — Package layout and task breakdown
@@ -244,6 +245,7 @@ Bastion includes deployment templates for self-hosted environments:
 | — | Tamper-evident audit trail with chain integrity verification | Deployed |
 | — | Admin panel with TOTP auth, live monitoring, setup wizard | Deployed |
 | — | Unified test runner (auto-discovers all test files) | Deployed |
+| — | AI Disclosure Banner — relay-configurable regulatory transparency (EU AI Act etc.) | Deployed |
 | — | MaliClaw Clause: 13 patterns + `/claw/i` catch-all | Hardcoded |
 
 ### 5 Immutable Boundaries
@@ -260,13 +262,11 @@ These cannot be disabled, bypassed, or configured away:
 
 **Pre-Release.** The protocol, crypto layer, relay, AI client, desktop client, admin UI, adapter template, and infrastructure templates are all implemented and tested across 2,724 passing tests.
 
-The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. E2E encryption is active with interoperable tweetnacl (browser) and libsodium (Node.js) implementations. The protocol is stable at 70 message types with 48 error codes across 8 categories. The reference implementation works.
+The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. E2E encryption is active with interoperable tweetnacl (browser) and libsodium (Node.js) implementations. The protocol is stable at 71 message types with 48 error codes across 8 categories. The reference implementation works.
 
 > **Mobile client note:** The React Native mobile client (`packages/client-human-mobile`) was built during the initial development phases and builds successfully, but has not been updated with Layer 2-4 features, the setup wizard, or Challenge Me More. Mobile client modernisation is on the roadmap.
 
-### Known Issues
-
-**Human Client Navigation:** The SvelteKit-based human client currently experiences WebSocket disconnection on page navigation in some environments. Each route change can trigger a full reconnect cycle. This is a known SvelteKit lifecycle issue being actively investigated (globalThis persistence for HMR has been applied). The connection is stable within any single page — the issue only occurs when navigating between pages (Messages, Settings, Audit, etc.). This does not affect the relay, AI client, or protocol layer.
+No known critical issues. See [GitHub Issues](https://github.com/Glorktelligence/Bastion/issues) for minor items.
 
 This is a framework and protocol — not a consumer product. The hard parts are done. Fork it, adapt it, build on it.
 

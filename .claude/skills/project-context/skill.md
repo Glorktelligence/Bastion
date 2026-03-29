@@ -24,7 +24,7 @@ bastion/
 ├── start-ai-client.mjs          # AI client startup script (wires all library code)
 ├── docs/                        # Specs, protocol docs, guides, architecture decisions
 ├── packages/
-│   ├── protocol/                # @bastion/protocol — 57 message types, schemas, constants
+│   ├── protocol/                # @bastion/protocol — 71 message types, schemas, constants
 │   ├── crypto/                  # @bastion/crypto — E2E encryption, hashing, key management
 │   ├── relay/                   # @bastion/relay — WSS server, routing, audit, quarantine, admin
 │   ├── client-human/            # @bastion/client-human — Desktop (Tauri + SvelteKit)
@@ -57,7 +57,7 @@ bastion/
 
 ---
 
-## Protocol — 57 Message Types
+## Protocol — 71 Message Types
 
 | Category | Count | Types |
 |----------|-------|-------|
@@ -72,6 +72,8 @@ bastion/
 | Challenge Me More | 3 | challenge_status, challenge_config, challenge_config_ack |
 | Budget Guard | 2 | budget_status, budget_config |
 | E2E Key Exchange | 1 | key_exchange |
+| Multi-Conversation | 13 | conversation_list, conversation_list_response, conversation_create, conversation_create_ack, conversation_switch, conversation_switch_ack, conversation_history, conversation_history_response, conversation_archive, conversation_delete, conversation_compact, conversation_compact_ack, conversation_stream |
+| AI Disclosure | 1 | ai_disclosure |
 
 ---
 
@@ -132,11 +134,11 @@ These are **hardcoded** and **non-negotiable**. Never make them configurable.
 | Transport | WebSocket over TLS (wss://) |
 | Auth | JWT (jose library, HS256, 15-min expiry) |
 | E2E Encryption | tweetnacl (browser) + libsodium-wrappers-sumo (Node.js) |
-| Desktop client | Tauri + SvelteKit |
+| Desktop client | Tauri + SvelteKit (Svelte 5 runes — use `onMount` not `$effect` for store subscriptions) |
 | Mobile client | React Native (Android) |
 | Database | node:sqlite DatabaseSync (audit), SQLite (memories, budget) |
 | Linting | Biome |
-| Testing | node:test (trace-test.mjs pattern), 2,675 tests across 13 files |
+| Testing | node:test (trace-test.mjs pattern), 2,724 tests across 13 files |
 
 ---
 
@@ -152,7 +154,7 @@ Safety floors can be tightened but NEVER loosened below factory defaults.
 
 ## Testing
 
-13 test files, 2,675 tests total. Run all with:
+13 test files, 2,724 tests total. Run all with:
 ```bash
 pnpm test    # or run individually with: node packages/<path>/trace-test.mjs
 ```

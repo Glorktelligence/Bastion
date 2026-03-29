@@ -344,7 +344,7 @@ Tokens expire every 15 minutes. Clients should refresh at 13 minutes (2 minutes 
 
 ## 7. Message Types
 
-The Bastion protocol defines 70 message types across thirteen categories: core (13), supplementary (10), audit (2), provider/context (2), memory (6), extensions (2), project context (7), tool integration (9), challenge governance (3), budget guard (2), E2E encryption (1), and multi-conversation persistence (13: conversation_list, conversation_list_response, conversation_create, conversation_create_ack, conversation_switch, conversation_switch_ack, conversation_history, conversation_history_response, conversation_archive, conversation_delete, conversation_compact, conversation_compact_ack, conversation_stream).
+The Bastion protocol defines 71 message types across fourteen categories: core (13), supplementary (10), audit (2), provider/context (2), memory (6), extensions (2), project context (7), tool integration (9), challenge governance (3), budget guard (2), E2E encryption (1), multi-conversation persistence (13), and AI disclosure (1).
 
 ### 7.1 Core Message Types
 
@@ -720,6 +720,24 @@ The relay validates the registration against the MaliClaw Clause and responds wi
 | `content` | string | User context text (informative, not authoritative) |
 
 The user context sits below the immutable role context in the prompt hierarchy. It is written to `/var/lib/bastion-ai/user-context.md` on the AI VM and reloaded into the conversation manager.
+
+### 7.5 AI Disclosure
+
+#### `ai_disclosure` (Relay → Human)
+
+Relay-generated regulatory transparency banner. Sent after session pairing when disclosure is enabled by the deployer. Default: OFF.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `text` | string | Disclosure text (supports `{provider}` and `{model}` template variables) |
+| `style` | enum | Visual treatment: `info`, `legal`, or `warning` |
+| `position` | enum | Render location: `banner` (top of chat) or `footer` (bottom) |
+| `dismissible` | boolean | Whether the user can hide the banner |
+| `link` | string? | Optional URL for more information |
+| `linkText` | string? | Display text for the link |
+| `jurisdiction` | string? | Regulation label for audit trail (e.g. "EU AI Act Article 50") |
+
+The relay generates this message — not the AI client — because the relay admin is the operator/deployer responsible for regulatory compliance. Template variables `{provider}` and `{model}` are resolved at send time from the registered provider's current values. Every disclosure sent is logged as an `ai_disclosure_sent` audit event in the tamper-evident hash chain.
 
 ---
 

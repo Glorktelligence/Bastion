@@ -183,6 +183,18 @@ BASTION_ADMIN_CA=/opt/bastion/certs/ca-cert.pem
 # Audit
 BASTION_AUDIT_DB=/var/lib/bastion/audit.db
 BASTION_AUDIT_RETENTION_DAYS=365
+
+# AI Disclosure Banner (regulatory transparency — default: OFF)
+# Set BASTION_DISCLOSURE_ENABLED=true to show a persistent banner to human clients.
+# Template variables: {provider} and {model} are substituted at send time.
+BASTION_DISCLOSURE_ENABLED=false
+BASTION_DISCLOSURE_TEXT=You are interacting with an AI system powered by {provider} ({model}).
+BASTION_DISCLOSURE_STYLE=info          # info | legal | warning
+BASTION_DISCLOSURE_POSITION=banner     # banner (top) | footer (bottom)
+BASTION_DISCLOSURE_DISMISSIBLE=true    # Can the user hide the banner?
+# BASTION_DISCLOSURE_LINK=https://example.com/ai-policy
+# BASTION_DISCLOSURE_LINK_TEXT=Learn more about our AI system
+# BASTION_DISCLOSURE_JURISDICTION=EU AI Act Article 50
 ```
 
 **Security note:** The `.env` file contains secrets. Set permissions:
