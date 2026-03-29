@@ -31,6 +31,28 @@ Human Client  ←→  Relay  ←→  AI Client (your adapter runs HERE)
 5. Edit `start-ai-client.mjs` to import and register your adapter
 6. Deploy to the AI VM
 
+## What Your Adapter Does (and Doesn't Do)
+
+Your adapter is a **translator**. It receives a fully assembled prompt and returns a response. Everything upstream is handled for you:
+
+| Responsibility | Handled by | Your adapter's role |
+|---|---|---|
+| System prompt (role context, memories, user context, project files) | ConversationManager | **Receives** it in `task.parameters._systemPrompt` |
+| Conversation history (trimmed to token budget) | ConversationManager | **Receives** it in `task.parameters._conversationHistory` |
+| Safety evaluation (3-layer engine) | SafetyEngine | Runs **before** your adapter is called |
+| Budget tracking | Budget Guard | Uses your `getModelPricing()` for cost calculation |
+| Conversation state, message storage | ConversationManager + SQLite | Not your concern |
+| Memory persistence | MemoryStore | Not your concern |
+
+**The two "magic" parameters in `task.parameters`:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `_systemPrompt` | `string` | The full assembled system prompt. Includes immutable role context, persistent memories, user context, and project files. Your adapter sends this as the system message. |
+| `_conversationHistory` | `Array<{ role: string; content: string }>` | The conversation message buffer, already trimmed to token budget. Your adapter sends these as the messages array. If absent, format the task itself as a single user message. |
+
+These are the **only** magic parameters. Per-call overrides (model, temperature, maxTokens, streaming) come via the `options` argument to `executeTask()`, not `task.parameters`.
+
 ## The ProviderAdapter Interface
 
 Every adapter must implement this interface (from `@bastion/protocol`):
@@ -61,21 +83,22 @@ Update `package.json` with your adapter name and dependencies.
 
 ### Step 2: Implement executeTask()
 
-This is the core method. Bastion sends a `TaskPayload`, you translate it to your provider's API format, make the call, and return an `AdapterResult`.
+This is the core method. The ConversationManager has already assembled the system prompt and conversation history (see "What Your Adapter Does" above). Your adapter extracts them, formats for your provider's API, and returns an `AdapterResult`.
 
 ```typescript
 async executeTask(task: TaskPayload, options?: AdapterOptions): Promise<AdapterResult> {
-  // 1. Extract system prompt: task.parameters._systemPrompt
-  // 2. Extract conversation history: task.parameters._conversationHistory
-  // 3. Build your provider's request body
-  // 4. Make the HTTP call
-  // 5. Parse the response
-  // 6. Calculate cost from token usage
-  // 7. Return AdapterResult
+  // 1. Extract system prompt: task.parameters._systemPrompt (pre-assembled by ConversationManager)
+  // 2. Extract conversation history: task.parameters._conversationHistory (trimmed to token budget)
+  // 3. Format both for your provider's API (system prompt handling varies by provider)
+  // 4. Apply per-call overrides from options (model, temperature, maxTokens)
+  // 5. Make the HTTP call to your provider
+  // 6. Parse the response — extract text, token usage, stop reason
+  // 7. Calculate cost from token usage and your pricing
+  // 8. Return AdapterResult
 }
 ```
 
-The `_systemPrompt` and `_conversationHistory` are injected by Bastion's ConversationManager. Your adapter receives them as pre-built strings/arrays.
+**Your adapter does NOT build the system prompt or manage conversation state.** It receives these fully assembled and just translates them into your provider's request format. See `template-adapter.ts` for the exact extraction pattern.
 
 ### Step 3: Handle Tool Formatting
 

@@ -17,8 +17,19 @@
  * The ProviderAdapter interface is the contract. As long as your adapter
  * returns the correct types, it works with the Bastion ecosystem.
  *
- * Key principle: the adapter is a TRANSLATOR between Bastion's protocol
- * and your provider's API. Bastion sends TaskPayload, you return AdapterResult.
+ * KEY PRINCIPLE — THE ADAPTER IS A TRANSLATOR, NOT A PROMPT BUILDER:
+ *
+ * Before your adapter is called, the ConversationManager has already:
+ *   - Assembled the system prompt (role context + memories + user context + project files)
+ *   - Built the conversation history (trimmed to token budget)
+ *   - Evaluated the task through the three-layer safety engine
+ *
+ * These are injected into task.parameters as two "magic" underscore-prefixed fields:
+ *   - task.parameters._systemPrompt        → string (the full assembled system prompt)
+ *   - task.parameters._conversationHistory  → Array<{ role, content }> (message history)
+ *
+ * Your adapter's job: receive these → format for your provider's API → send → parse response.
+ * Your adapter does NOT build system prompts, manage memories, or handle conversation state.
  */
 
 import type {
@@ -306,21 +317,27 @@ export function createTemplateAdapter(config: TemplateAdapterConfig, fetchFn?: t
 
     async executeTask(task: TaskPayload, options?: AdapterOptions): Promise<AdapterResult> {
       /**
-       * This is the main entry point. Bastion calls this with a TaskPayload.
-       * You translate it to your provider's format, make the API call,
-       * and return an AdapterResult.
+       * Main entry point. The ConversationManager has already assembled
+       * the system prompt and conversation history before calling this.
+       * Your job: format them for your provider's API, send, parse response.
        */
 
-      // Step 1: Determine effective parameters (per-call options override config)
+      // Step 1: Per-call option overrides (from AdapterRegistry/caller, not task.parameters)
       const callModel = options?.model ?? config.model;
       const callMaxTokens = options?.maxTokens ?? config.maxTokens;
       const callTemperature = options?.temperature ?? temperature;
 
-      // Step 2: Extract system prompt (from ConversationManager or fallback)
+      // Step 2: Extract the pre-assembled system prompt.
+      // The ConversationManager builds this from: role context + memories +
+      // user context + project files. Your adapter receives the final string.
+      // Fallback to config.systemPrompt only if ConversationManager didn't provide one.
       const effectiveSystemPrompt =
         typeof task.parameters._systemPrompt === 'string' ? task.parameters._systemPrompt : systemPrompt;
 
-      // Step 3: Build messages array (from conversation history or task format)
+      // Step 3: Extract conversation history.
+      // The ConversationManager provides an array of {role, content} messages,
+      // already trimmed to token budget. If absent (e.g. raw task execution
+      // without conversation context), fall back to formatting the task itself.
       const history = Array.isArray(task.parameters._conversationHistory)
         ? (task.parameters._conversationHistory as Array<{ role: string; content: string }>)
         : null;
@@ -329,7 +346,11 @@ export function createTemplateAdapter(config: TemplateAdapterConfig, fetchFn?: t
         ? history.map((m) => ({ role: m.role, content: m.content }))
         : [{ role: 'user', content: formatTaskMessage(task) }];
 
-      // Step 4: Build the API request for your provider
+      // Step 4: Build the API request for your provider.
+      // Different providers handle system prompts differently:
+      //   - Anthropic: separate `system` field (as shown here)
+      //   - OpenAI: first message with role: 'system'
+      //   - Others: check your provider's documentation
       const requestBody: ProviderApiRequest = {
         model: callModel,
         messages,
