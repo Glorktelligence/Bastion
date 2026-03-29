@@ -1,14 +1,15 @@
 {
-  "_description": "Example adapter configuration. Copy and modify for your provider.",
-  "adapterId": "my-custom-adapter",
-  "adapterName": "My Custom AI Provider",
-  "type": "custom",
+  "_description": "Example adapter configuration. Copy and modify for your provider. API keys come from environment variables — never put them here.",
+  "providerId": "my-custom-adapter",
+  "providerName": "My Custom AI Provider",
   "model": "my-model-v1",
+  "supportedModels": ["my-model-v1", "my-model-lite"],
   "apiKeyEnvVar": "MY_PROVIDER_API_KEY",
   "apiBaseUrl": "https://api.my-provider.com/v1",
   "maxTokens": 4096,
   "temperature": 1.0,
-  "timeout": 120000,
+  "timeoutMs": 120000,
+  "systemPrompt": "You are a helpful AI assistant.",
   "pricing": {
     "inputPerMTok": 2,
     "outputPerMTok": 10

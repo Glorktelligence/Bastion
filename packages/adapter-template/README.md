@@ -2,13 +2,34 @@
 
 This package is a **reference template** for community developers building AI provider adapters for Project Bastion.
 
+> **Adapters run ONLY on the AI VM.** The relay and human client need **zero changes** for a new adapter. Your adapter is a plugin for `start-ai-client.mjs` — the AI client startup script on the isolated VM. The relay routes encrypted messages without knowing which provider is behind them. The human client displays whatever provider metadata the relay forwards.
+
+## Architecture — Where Your Adapter Fits
+
+```
+Human Client  ←→  Relay  ←→  AI Client (your adapter runs HERE)
+                                │
+                                ├── start-ai-client.mjs  ← you edit this to register your adapter
+                                ├── AdapterRegistry       ← routes operations to adapters by role
+                                ├── SafetyEngine           ← evaluates tasks BEFORE they reach your adapter
+                                └── YourAdapter            ← translates Bastion → your provider's API
+```
+
+**Registration flow:**
+1. You register your adapter in `start-ai-client.mjs` with the `AdapterRegistry`
+2. On startup, the AI client sends `provider_register` to the relay with your adapter's metadata
+3. The relay approves the provider and forwards `provider_status` to the human client
+4. The human client displays your provider name, model, and capabilities in the UI
+5. **You do not modify the relay or human client.** They work with any adapter automatically.
+
 ## Quick Start
 
 1. Copy this package to `packages/my-adapter/`
 2. Rename `@bastion/adapter-template` to `@bastion/my-adapter` in `package.json`
 3. Implement `executeTask()` with your provider's API
 4. Set accurate pricing and capabilities
-5. Register in `start-ai-client.mjs`
+5. Edit `start-ai-client.mjs` to import and register your adapter
+6. Deploy to the AI VM
 
 ## The ProviderAdapter Interface
 
@@ -16,10 +37,10 @@ Every adapter must implement this interface (from `@bastion/protocol`):
 
 ```typescript
 interface ProviderAdapter {
-  readonly providerId: string;            // Unique ID (e.g., 'openai-gpt4')
-  readonly providerName: string;          // Display name (e.g., 'OpenAI GPT-4')
-  readonly supportedModels: string[];     // Models this adapter supports
-  readonly activeModel: string;           // Currently selected model
+  readonly providerId: string;              // Unique ID (e.g., 'openai-gpt4')
+  readonly providerName: string;            // Display name (e.g., 'OpenAI GPT-4')
+  readonly supportedModels: readonly string[]; // Models this adapter supports
+  readonly activeModel: string;             // Currently selected model
   readonly capabilities: AdapterCapabilities;
 
   executeTask(task: TaskPayload, options?: AdapterOptions): Promise<AdapterResult>;
@@ -86,13 +107,14 @@ Never throw exceptions from `executeTask()` — always return an `AdapterResult`
 ```typescript
 getModelPricing(model?: string): ModelPricing {
   return {
-    inputPerMTok: 2.0,     // USD per million input tokens
-    outputPerMTok: 10.0,   // USD per million output tokens
+    inputPerMTok: 2.0,       // USD per million input tokens
+    outputPerMTok: 10.0,     // USD per million output tokens
+    searchPerRequest: 0.01,  // USD per web search (optional — omit if not applicable)
   };
 }
 ```
 
-Bastion uses this for budget tracking. Inaccurate pricing = inaccurate budget alerts.
+Bastion uses this for Budget Guard tracking. Inaccurate pricing = inaccurate budget alerts.
 
 ### Step 6: Create Your Config
 
@@ -103,7 +125,7 @@ Copy `example-config.json` and fill in your provider's details. The config file 
 **Never put API keys in config files.** Use environment variables:
 
 ```bash
-# In your .env file
+# In your .env file on the AI VM
 MY_PROVIDER_API_KEY=sk-your-key-here
 ```
 
@@ -114,18 +136,34 @@ const apiKey = process.env.MY_PROVIDER_API_KEY;
 
 ### Step 8: Register in start-ai-client.mjs
 
+There is no plugin loading system. You **must edit `start-ai-client.mjs` directly** to import and register your adapter. This is by design — the AI VM startup is a controlled, auditable process.
+
+Add your adapter alongside the existing Anthropic adapter:
+
 ```javascript
+// At the top of start-ai-client.mjs — import your adapter factory
 import { createMyAdapter } from './packages/my-adapter/dist/index.js';
 
+// After the existing adapter creation — create your adapter instance
 const myAdapter = createMyAdapter({
-  providerId: 'my-adapter',
+  providerId: 'my-provider',
   providerName: 'My Provider',
   model: 'my-model-v1',
-  // ... config
+  maxTokens: 4096,
+  apiBaseUrl: 'https://api.my-provider.com/v1',
+  apiKey: process.env.MY_PROVIDER_API_KEY,
+  pricingInputPerMTok: 2.0,
+  pricingOutputPerMTok: 10.0,
 });
 
+// Register with the AdapterRegistry — declare which roles this adapter serves
 adapterRegistry.registerAdapter(myAdapter, ['default', 'conversation', 'task']);
+
+// The registry is locked after all adapters are registered — no runtime additions
+adapterRegistry.lock();
 ```
+
+The `adapterRegistry.selectAdapter(operation, preferredAdapterId)` method routes operations to the correct adapter based on roles and per-conversation preferences.
 
 ### Step 9: Test
 
@@ -138,12 +176,16 @@ console.log('Connection test:', connected ? 'PASS' : 'FAIL');
 
 ```typescript
 // Success
-{ ok: true, response: {
+{
+  ok: true,
+  response: {
     textContent: "The assistant's response text",
     stopReason: "end_turn",
     usage: { inputTokens: 500, outputTokens: 200 },
     cost: { inputTokens: 500, outputTokens: 200, estimatedCostUsd: 0.003 },
-    model: "my-model-v1"
+    model: "my-model-v1",
+    toolCalls: [],          // Optional — tool invocations if toolUse is enabled
+    rejectedToolCalls: [],  // Optional — tools the adapter refused to call
   }
 }
 
@@ -162,6 +204,9 @@ adapter.executeTask(task, { temperature: 0.3 });
 
 // Override max tokens
 adapter.executeTask(task, { maxTokens: 2048 });
+
+// Enable streaming (if your adapter supports it)
+adapter.executeTask(task, { streaming: true });
 ```
 
 ## Adapter Roles
@@ -173,10 +218,10 @@ When registering your adapter, declare what it's used for:
 | `default` | Fallback for any operation |
 | `conversation` | Used for chat messages |
 | `task` | Used for task execution |
-| `compaction` | Used for conversation summarisation (prefer cheap/fast) |
+| `compaction` | Used for conversation summarisation (prefer cheap/fast models) |
 | `dream` | Used for background processing (future) |
 
-A single adapter can have multiple roles. The AdapterRegistry routes operations to the correct adapter based on roles.
+A single adapter can have multiple roles. The AdapterRegistry routes operations to the correct adapter based on roles. You can register multiple adapters with different roles — e.g., a powerful model for `conversation`/`task` and a cheap model for `compaction`.
 
 ## Capabilities
 
@@ -187,7 +232,7 @@ capabilities: {
   conversation: true,      // Can handle chat messages
   taskExecution: true,     // Can execute structured tasks
   fileTransfer: false,     // Can process file content
-  streaming: false,        // Supports streaming responses (future)
+  streaming: false,        // Supports streaming responses (set true if your provider supports SSE)
   webSearch: false,        // Has built-in web search
   toolUse: false,          // Supports function/tool calling
   vision: false,           // Can process images
@@ -197,8 +242,8 @@ capabilities: {
 
 ## Security Notes
 
-- API keys are **never** stored in config files or transmitted through the relay
-- The adapter runs on the AI VM (isolated VLAN) — network access is controlled by firewall
-- All API calls use HTTPS — the adapter handles TLS
-- Bastion's safety engine evaluates tasks **before** they reach your adapter
-- Your adapter should **never** bypass the safety engine
+- **Adapters run exclusively on the AI VM** — an isolated VLAN with firewall-controlled network access. They never run on the relay or human client.
+- API keys are **never** stored in config files or transmitted through the relay. Keys stay on the AI VM and are read from environment variables.
+- All API calls use HTTPS — the adapter handles TLS directly to the provider.
+- Bastion's three-layer safety engine evaluates tasks **before** they reach your adapter. Your adapter should **never** bypass the safety engine.
+- The relay and human client require **no modifications** for a new adapter. The relay forwards encrypted envelopes without knowing which provider is behind them.
