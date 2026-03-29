@@ -1,6 +1,7 @@
 <script>
 import '../app.css';
 import { browser } from '$app/environment';
+import { goto } from '$app/navigation';
 import { page } from '$app/state';
 import * as session from '$lib/session.js';
 import SetupWizard from '$lib/components/SetupWizard.svelte';
@@ -30,6 +31,24 @@ $effect(() => {
 		if (setupComplete) {
 			session.tryAutoConnect();
 		}
+
+		// --- DIAGNOSTIC: detect full page unloads vs client-side navigation ---
+		globalThis.addEventListener?.('beforeunload', () => {
+			console.warn('[Bastion] PAGE UNLOADING — this proves full-page navigation is happening');
+		});
+		// Observe all link clicks to see if SvelteKit router intercepts them
+		document.addEventListener('click', (e) => {
+			const el = /** @type {Element} */ (e.target);
+			const link = el?.closest?.('a[href]');
+			if (link) {
+				// SvelteKit router runs in capture phase and calls preventDefault()
+				// By the time this bubble-phase listener fires, we can check:
+				setTimeout(() => {
+					console.log(`[Bastion] Link click: href="${link.getAttribute('href')}" defaultPrevented=${e.defaultPrevented}`);
+				}, 0);
+			}
+		});
+		// --- END DIAGNOSTIC ---
 	}
 });
 
@@ -199,6 +218,8 @@ function relativeTime(iso) {
 			<a href="/challenges" class="nav-item" class:active={page.url.pathname === '/challenges'}>Challenges</a>
 			<a href="/audit" class="nav-item" class:active={page.url.pathname === '/audit'}>Audit Log</a>
 			<a href="/settings" class="nav-item" class:active={page.url.pathname === '/settings'}>Settings</a>
+			<!-- DIAGNOSTIC: goto() test — remove after debugging -->
+			<button class="nav-item" style="border:1px dashed orange;text-align:left;background:transparent;cursor:pointer;font-size:0.875rem;color:orange;" onclick={() => { console.log('[Bastion] GOTO /settings via programmatic nav'); goto('/settings'); }}>Settings (goto)</button>
 
 			{#if extensionPages.length > 0}
 				<div class="nav-separator"></div>
