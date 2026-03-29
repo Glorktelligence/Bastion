@@ -81,7 +81,9 @@ let discError = $state('');
 
 // Fetch current disclosure config on mount
 onMount(() => {
-	fetch('/api/disclosure').then(r => r.json()).then(data => {
+	service.client.getDisclosure().then(result => {
+		if (!result.ok) return;
+		const data = result.data;
 		if (data.enabled !== undefined) discEnabled = data.enabled;
 		if (data.text) discText = data.text;
 		if (data.style) discStyle = data.style;
@@ -90,7 +92,7 @@ onMount(() => {
 		if (data.link) discLink = data.link;
 		if (data.linkText) discLinkText = data.linkText;
 		if (data.jurisdiction) discJurisdiction = data.jurisdiction;
-	}).catch(() => {});
+	});
 });
 
 async function saveDisclosure() {
@@ -104,14 +106,9 @@ async function saveDisclosure() {
 			link: discLink || undefined, linkText: discLinkText || undefined,
 			jurisdiction: discJurisdiction || undefined,
 		};
-		const res = await fetch('/api/disclosure', {
-			method: 'PUT',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body),
-		});
-		if (!res.ok) {
-			const err = await res.json().catch(() => ({}));
-			discError = err.error || `HTTP ${res.status}`;
+		const result = await service.client.updateDisclosure(body);
+		if (!result.ok) {
+			discError = result.error || `HTTP ${result.status}`;
 		} else {
 			discSaved = true;
 			setTimeout(() => { discSaved = false; }, 3000);

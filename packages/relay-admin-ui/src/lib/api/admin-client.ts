@@ -296,4 +296,18 @@ export class AdminApiClient {
     this.clearSessionToken();
     return result;
   }
+
+  // -------------------------------------------------------------------------
+  // AI Disclosure
+  // -------------------------------------------------------------------------
+
+  /** Get current disclosure config. */
+  async getDisclosure(): Promise<ApiResult> {
+    return this.request('GET', '/api/disclosure');
+  }
+
+  /** Update disclosure config (requires auth). */
+  async updateDisclosure(config: Record<string, unknown>): Promise<ApiResult> {
+    return this.request('PUT', '/api/disclosure', config);
+  }
 }
