@@ -201,6 +201,7 @@ export { AdminRoutes, defaultCapabilityMatrix } from './admin/admin-routes.js';
 export type {
   AdminRoutesConfig,
   CapabilityMatrix,
+  DisclosureConfig,
   FileTransferCapabilities,
   ApiResponse,
   RelayStatusProvider,

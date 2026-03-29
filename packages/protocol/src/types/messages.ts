@@ -699,6 +699,17 @@ export interface ConversationCompactAckPayload {
   readonly tokensSaved: number;
 }
 
+/** Relay → Human: AI disclosure banner for regulatory transparency (EU AI Act etc.). */
+export interface AiDisclosurePayload {
+  readonly text: string;
+  readonly style: 'info' | 'legal' | 'warning';
+  readonly position: 'banner' | 'footer';
+  readonly dismissible: boolean;
+  readonly link?: string;
+  readonly linkText?: string;
+  readonly jurisdiction?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Discriminated union of all payload types
 // ---------------------------------------------------------------------------
@@ -773,4 +784,5 @@ export type MessagePayload =
   | { type: 'conversation_delete'; payload: ConversationDeletePayload }
   | { type: 'conversation_compact'; payload: ConversationCompactPayload }
   | { type: 'conversation_compact_ack'; payload: ConversationCompactAckPayload }
-  | { type: 'conversation_stream'; payload: ConversationStreamPayload };
+  | { type: 'conversation_stream'; payload: ConversationStreamPayload }
+  | { type: 'ai_disclosure'; payload: AiDisclosurePayload };

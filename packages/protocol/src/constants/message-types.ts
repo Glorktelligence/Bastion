@@ -112,6 +112,9 @@ export const MESSAGE_TYPES = {
 
   // --- Streaming ---
   CONVERSATION_STREAM: 'conversation_stream',
+
+  // --- AI Disclosure (regulatory transparency) ---
+  AI_DISCLOSURE: 'ai_disclosure',
 } as const;
 
 /** Union type of all valid message type strings. */

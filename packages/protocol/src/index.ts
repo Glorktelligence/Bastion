@@ -109,6 +109,7 @@ export type {
   ConversationCompactPayload,
   ConversationCompactAckPayload,
   ConversationStreamPayload,
+  AiDisclosurePayload,
   MessagePayload,
 } from './types/messages.js';
 
@@ -275,6 +276,7 @@ export {
   ConversationCompactPayloadSchema,
   ConversationCompactAckPayloadSchema,
   ConversationStreamPayloadSchema,
+  AiDisclosurePayloadSchema,
   PAYLOAD_SCHEMAS,
 } from './schemas/message.schema.js';
 

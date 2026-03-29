@@ -5,6 +5,7 @@ import { browser } from '$app/environment';
 import { page } from '$app/state';
 import * as session from '$lib/session.js';
 import SetupWizard from '$lib/components/SetupWizard.svelte';
+import AiDisclosureBanner from '$lib/components/AiDisclosureBanner.svelte';
 
 const { children } = $props();
 
@@ -29,6 +30,10 @@ let newConvType = $state('normal');
 let newConvAdapter = $state('');
 let availableAdapters = $state([]);
 let extensionPages = $state([]);
+
+// AI Disclosure banner state (relay-configurable, all pages)
+let disclosureData = $state(null);
+let disclosureDismissed = $state(false);
 
 // Use onMount (NOT $effect) to set up store subscriptions.
 // $effect tracks reactive reads inside synchronous callbacks — our custom
@@ -64,6 +69,10 @@ onMount(() => {
 		}),
 		session.extensions.extensionsWithUI.subscribe((exts) => {
 			extensionPages = exts.flatMap((e) => (e.ui?.pages ?? []).map((p) => ({ namespace: e.namespace, pageId: p.id, name: p.name, icon: p.icon })));
+		}),
+		session.aiDisclosure.store.subscribe((v) => {
+			disclosureData = v.disclosure;
+			disclosureDismissed = v.dismissed;
 		}),
 	];
 
@@ -211,7 +220,13 @@ function relativeTime(iso) {
 		</nav>
 	</aside>
 	<main class="main-area">
+		{#if disclosureData?.position === 'banner'}
+			<AiDisclosureBanner disclosure={disclosureData} dismissed={disclosureDismissed} onDismiss={() => session.aiDisclosure.dismiss()} />
+		{/if}
 		{@render children()}
+		{#if disclosureData?.position === 'footer'}
+			<AiDisclosureBanner disclosure={disclosureData} dismissed={disclosureDismissed} onDismiss={() => session.aiDisclosure.dismiss()} />
+		{/if}
 	</main>
 </div>
 {/if}

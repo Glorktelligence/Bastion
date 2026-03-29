@@ -608,6 +608,16 @@ export const ConversationCompactAckPayloadSchema = z.object({
   tokensSaved: z.number().int().nonnegative(),
 });
 
+export const AiDisclosurePayloadSchema = z.object({
+  text: z.string().min(1),
+  style: z.enum(['info', 'legal', 'warning']),
+  position: z.enum(['banner', 'footer']),
+  dismissible: z.boolean(),
+  link: z.string().url().optional(),
+  linkText: z.string().optional(),
+  jurisdiction: z.string().optional(),
+});
+
 // ---------------------------------------------------------------------------
 // Payload schema lookup map (message type → Zod schema)
 // ---------------------------------------------------------------------------
@@ -689,4 +699,5 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.CONVERSATION_COMPACT]: ConversationCompactPayloadSchema,
   [MESSAGE_TYPES.CONVERSATION_COMPACT_ACK]: ConversationCompactAckPayloadSchema,
   [MESSAGE_TYPES.CONVERSATION_STREAM]: ConversationStreamPayloadSchema,
+  [MESSAGE_TYPES.AI_DISCLOSURE]: AiDisclosurePayloadSchema,
 } as const;

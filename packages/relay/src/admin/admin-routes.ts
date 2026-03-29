@@ -132,6 +132,18 @@ export interface RelayStatusProvider {
   getQuarantineStatus(): { active: number; capacity: number };
 }
 
+/** AI disclosure banner configuration for regulatory transparency. */
+export interface DisclosureConfig {
+  enabled: boolean;
+  text: string;
+  style: 'info' | 'legal' | 'warning';
+  position: 'banner' | 'footer';
+  dismissible: boolean;
+  link?: string;
+  linkText?: string;
+  jurisdiction?: string;
+}
+
 /** Configuration for admin routes. */
 export interface AdminRoutesConfig {
   readonly providerRegistry: ProviderRegistry;
@@ -140,6 +152,8 @@ export interface AdminRoutesConfig {
   readonly statusProvider?: RelayStatusProvider;
   /** Optional extension registry for listing loaded extensions. */
   readonly extensionRegistry?: import('../extensions/extension-registry.js').ExtensionRegistry;
+  /** Callback invoked when admin updates disclosure config via API. */
+  readonly onDisclosureUpdate?: (config: DisclosureConfig) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +181,8 @@ export class AdminRoutes {
   private readonly connectionProviders: Map<string, string>;
   private readonly statusProvider: RelayStatusProvider | null;
   private readonly extensionRegistry: import('../extensions/extension-registry.js').ExtensionRegistry | null;
+  private readonly onDisclosureUpdate: ((config: DisclosureConfig) => void) | null;
+  private disclosureConfig: DisclosureConfig;
 
   constructor(config: AdminRoutesConfig) {
     this.registry = config.providerRegistry;
@@ -175,6 +191,14 @@ export class AdminRoutes {
     this.connectionProviders = new Map();
     this.statusProvider = config.statusProvider ?? null;
     this.extensionRegistry = config.extensionRegistry ?? null;
+    this.onDisclosureUpdate = config.onDisclosureUpdate ?? null;
+    this.disclosureConfig = {
+      enabled: false,
+      text: 'You are interacting with an AI system powered by {provider} ({model}).',
+      style: 'info',
+      position: 'banner',
+      dismissible: true,
+    };
   }
 
   /** Number of providers with custom capability matrices. */
@@ -685,6 +709,29 @@ export class AdminRoutes {
         result = ext
           ? { status: 200, body: { ...ext } as Record<string, unknown> }
           : { status: 404, body: { error: 'Extension not found', namespace: ns } };
+      } else if (method === 'GET' && path === '/api/disclosure') {
+        result = { status: 200, body: { ...this.disclosureConfig } };
+      } else if (method === 'PUT' && path === '/api/disclosure') {
+        const body = await readJsonBody(req);
+        const updated: DisclosureConfig = {
+          enabled: typeof body.enabled === 'boolean' ? body.enabled : this.disclosureConfig.enabled,
+          text: typeof body.text === 'string' && body.text.length > 0 ? body.text : this.disclosureConfig.text,
+          style: ['info', 'legal', 'warning'].includes(body.style) ? body.style : this.disclosureConfig.style,
+          position: ['banner', 'footer'].includes(body.position) ? body.position : this.disclosureConfig.position,
+          dismissible: typeof body.dismissible === 'boolean' ? body.dismissible : this.disclosureConfig.dismissible,
+        };
+        if (typeof body.link === 'string') updated.link = body.link || undefined;
+        if (typeof body.linkText === 'string') updated.linkText = body.linkText || undefined;
+        if (typeof body.jurisdiction === 'string') updated.jurisdiction = body.jurisdiction || undefined;
+        this.disclosureConfig = updated;
+        this.audit.logEvent(AUDIT_EVENT_TYPES.CONFIG_CHANGE, 'admin', {
+          changeType: 'disclosure_config',
+          changedBy: adminUsername,
+          enabled: updated.enabled,
+          jurisdiction: updated.jurisdiction ?? null,
+        });
+        if (this.onDisclosureUpdate) this.onDisclosureUpdate(updated);
+        result = { status: 200, body: { ...updated, saved: true } };
       } else {
         result = { status: 404, body: { error: 'Not found', path, method } };
       }

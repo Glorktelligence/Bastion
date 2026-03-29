@@ -19,6 +19,7 @@
 import { BastionHumanClient } from './services/connection.js';
 import type { Writable } from './store.js';
 import { writable } from './store.js';
+import { type AiDisclosureData, createAiDisclosureStore } from './stores/ai-disclosure.js';
 import { type AuditLogEntry, createAuditLogStore } from './stores/audit-log.js';
 import { type BudgetStatusData, createBudgetStore } from './stores/budget.js';
 import { type ChallengeStats, createChallengeStatsStore } from './stores/challenge-stats.js';
@@ -98,6 +99,7 @@ export const projects = hmrStore('__bastionProjects', createProjectsStore);
 export const provider = hmrStore('__bastionProvider', createProviderStore);
 export const extensions = hmrStore('__bastionExtensions', createExtensionsStore);
 export const conversations = hmrStore('__bastionConversations', createConversationsStore);
+export const aiDisclosure = hmrStore('__bastionAiDisclosure', createAiDisclosureStore);
 
 /** General-purpose toast notifications (cross-cutting — not owned by a single store). */
 export interface ToastNotification {
@@ -1004,6 +1006,25 @@ function handleRelayMessage(data: string): void {
       },
       adapters: adapterList.map((a) => ({ id: a.id, name: a.name, model: a.model, roles: a.roles })),
       lastUpdated: new Date().toISOString(),
+    });
+    return;
+  }
+
+  // AI disclosure banner → ai disclosure store
+  if (type === 'ai_disclosure') {
+    const p = payload as Record<string, unknown>;
+    aiDisclosure.setDisclosure({
+      text: String(p.text ?? ''),
+      style: (p.style === 'info' || p.style === 'legal' || p.style === 'warning'
+        ? p.style
+        : 'info') as AiDisclosureData['style'],
+      position: (p.position === 'banner' || p.position === 'footer'
+        ? p.position
+        : 'banner') as AiDisclosureData['position'],
+      dismissible: Boolean(p.dismissible ?? true),
+      link: p.link ? String(p.link) : undefined,
+      linkText: p.linkText ? String(p.linkText) : undefined,
+      jurisdiction: p.jurisdiction ? String(p.jurisdiction) : undefined,
     });
     return;
   }

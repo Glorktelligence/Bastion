@@ -276,6 +276,7 @@ const adminRoutes = new AdminRoutes({
   auditLogger,
   statusProvider,
   extensionRegistry,
+  onDisclosureUpdate: (cfg) => updateDisclosureConfig(cfg),
 });
 console.log('[✓] Admin routes initialised (live status provider wired)');
 
@@ -317,6 +318,65 @@ function sendProviderStatus(targetConnectionId) {
   }));
 }
 
+// ---------------------------------------------------------------------------
+// AI Disclosure — relay-configurable transparency banner (default: OFF)
+// ---------------------------------------------------------------------------
+
+/** @type {{ enabled: boolean; text: string; style: string; position: string; dismissible: boolean; link?: string; linkText?: string; jurisdiction?: string }} */
+let disclosureConfig = {
+  enabled: process.env.BASTION_DISCLOSURE_ENABLED === 'true',
+  text: process.env.BASTION_DISCLOSURE_TEXT || 'You are interacting with an AI system powered by {provider} ({model}).',
+  style: process.env.BASTION_DISCLOSURE_STYLE || 'info',
+  position: process.env.BASTION_DISCLOSURE_POSITION || 'banner',
+  dismissible: process.env.BASTION_DISCLOSURE_DISMISSIBLE !== 'false',
+  link: process.env.BASTION_DISCLOSURE_LINK || undefined,
+  linkText: process.env.BASTION_DISCLOSURE_LINK_TEXT || undefined,
+  jurisdiction: process.env.BASTION_DISCLOSURE_JURISDICTION || undefined,
+};
+
+/** Substitute {provider} and {model} template vars with current values. */
+function resolveDisclosureText(text) {
+  const providerName = registeredProvider?.providerName ?? 'AI';
+  const model = registeredProvider?.model ?? 'unknown';
+  return text.replace(/\{provider\}/g, providerName).replace(/\{model\}/g, model);
+}
+
+/** Send ai_disclosure to a human client if disclosure is enabled. */
+function sendAiDisclosure(targetConnectionId) {
+  if (!disclosureConfig.enabled) return;
+  const payload = {
+    text: resolveDisclosureText(disclosureConfig.text),
+    style: disclosureConfig.style,
+    position: disclosureConfig.position,
+    dismissible: disclosureConfig.dismissible,
+  };
+  if (disclosureConfig.link) payload.link = disclosureConfig.link;
+  if (disclosureConfig.linkText) payload.linkText = disclosureConfig.linkText;
+  if (disclosureConfig.jurisdiction) payload.jurisdiction = disclosureConfig.jurisdiction;
+
+  relay.send(targetConnectionId, JSON.stringify({
+    type: 'ai_disclosure',
+    id: randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: { id: 'relay', type: 'relay', displayName: 'Bastion Relay' },
+    payload,
+  }));
+
+  auditLogger.logEvent('ai_disclosure_sent', sessionIds.get(targetConnectionId) || 'unknown', {
+    text: payload.text,
+    jurisdiction: disclosureConfig.jurisdiction || null,
+    targetConnectionId,
+  });
+}
+
+/** Update disclosure config and broadcast to all connected human clients. */
+function updateDisclosureConfig(newConfig) {
+  disclosureConfig = { ...disclosureConfig, ...newConfig };
+  if (disclosureConfig.enabled && humanConnectionId) {
+    sendAiDisclosure(humanConnectionId);
+  }
+}
+
 function tryPairClients() {
   if (!humanConnectionId || !aiConnectionId) return;
 
@@ -342,6 +402,9 @@ function tryPairClients() {
       sendProviderStatus(humanConnectionId);
       console.log(`[→] provider_status sent to human: ${registeredProvider.providerName}`);
     }
+
+    // Send AI disclosure banner if configured (regulatory transparency)
+    sendAiDisclosure(humanConnectionId);
   } catch (err) {
     console.error(`[!] Pairing failed: ${err.message}`);
   }
