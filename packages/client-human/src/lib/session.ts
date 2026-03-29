@@ -71,22 +71,33 @@ export const RELAY_URL = getRelayUrl();
 export const IDENTITY = getIdentity();
 
 // ---------------------------------------------------------------------------
-// Shared store instances (survive route changes)
+// Shared store instances (survive route changes AND Vite HMR)
+//
+// All stores are pinned on globalThis so that HMR module re-evaluation
+// reuses existing instances instead of creating orphaned duplicates.
+// Same pattern already used for the BastionHumanClient.
 // ---------------------------------------------------------------------------
 
-export const messages = createMessagesStore();
-export const challenges = createChallengesStore();
-export const tasks = createTasksStore();
-export const auditLog = createAuditLogStore();
-export const settings = createSettingsStore();
-export const challengeStats = createChallengeStatsStore(challenges.store);
-export const memories = createMemoriesStore();
-export const tools = createToolsStore();
-export const budget = createBudgetStore();
-export const projects = createProjectsStore();
-export const provider = createProviderStore();
-export const extensions = createExtensionsStore();
-export const conversations = createConversationsStore();
+const _g = globalThis as unknown as Record<string, unknown>;
+
+function hmrStore<T>(key: string, create: () => T): T {
+  if (!_g[key]) _g[key] = create();
+  return _g[key] as T;
+}
+
+export const messages = hmrStore('__bastionMessages', createMessagesStore);
+export const challenges = hmrStore('__bastionChallenges', createChallengesStore);
+export const tasks = hmrStore('__bastionTasks', createTasksStore);
+export const auditLog = hmrStore('__bastionAuditLog', createAuditLogStore);
+export const settings = hmrStore('__bastionSettings', createSettingsStore);
+export const challengeStats = hmrStore('__bastionChallengeStats', () => createChallengeStatsStore(challenges.store));
+export const memories = hmrStore('__bastionMemories', createMemoriesStore);
+export const tools = hmrStore('__bastionTools', createToolsStore);
+export const budget = hmrStore('__bastionBudget', createBudgetStore);
+export const projects = hmrStore('__bastionProjects', createProjectsStore);
+export const provider = hmrStore('__bastionProvider', createProviderStore);
+export const extensions = hmrStore('__bastionExtensions', createExtensionsStore);
+export const conversations = hmrStore('__bastionConversations', createConversationsStore);
 
 /** General-purpose toast notifications (cross-cutting — not owned by a single store). */
 export interface ToastNotification {
@@ -95,7 +106,9 @@ export interface ToastNotification {
   readonly level: 'info' | 'success' | 'warning' | 'error';
   readonly timestamp: string;
 }
-export const notifications: Writable<readonly ToastNotification[]> = writable([]);
+export const notifications: Writable<readonly ToastNotification[]> = hmrStore('__bastionNotifications', () =>
+  writable<readonly ToastNotification[]>([]),
+);
 
 export function addNotification(message: string, level: ToastNotification['level'] = 'info'): void {
   const n: ToastNotification = { id: crypto.randomUUID(), message, level, timestamp: new Date().toISOString() };
@@ -112,25 +125,26 @@ export const challengeStatus: Writable<{
   timezone: string;
   periodEnd: string | null;
   restrictions: string[];
-}> = writable({ active: false, timezone: '', periodEnd: null, restrictions: [] });
+}> = hmrStore('__bastionChallengeStatus', () =>
+  writable({ active: false, timezone: '', periodEnd: null, restrictions: [] }),
+);
 
 /** Connection state — plain writable, populated by createConnectionStore when connected. */
-export const connection: Writable<ConnectionStoreState> = writable<ConnectionStoreState>({
-  status: 'disconnected',
-  jwt: null,
-  sessionId: null,
-  peerStatus: 'unknown',
-  reconnectAttempt: 0,
-  lastError: null,
-});
+export const connection: Writable<ConnectionStoreState> = hmrStore('__bastionConnection', () =>
+  writable<ConnectionStoreState>({
+    status: 'disconnected',
+    jwt: null,
+    sessionId: null,
+    peerStatus: 'unknown',
+    reconnectAttempt: 0,
+    lastError: null,
+  }),
+);
 
 // ---------------------------------------------------------------------------
-// Client management
+// Client management (also on globalThis — see _g above)
 // ---------------------------------------------------------------------------
 
-// Store client on globalThis to survive HMR module re-evaluation in dev mode.
-// Without this, SvelteKit HMR re-creates session.ts module scope, orphaning the WebSocket.
-const _g = globalThis as unknown as Record<string, unknown>;
 let client: BastionHumanClient | null = (_g.__bastionClient as BastionHumanClient) ?? null;
 let connSub: (() => void) | null = (_g.__bastionConnSub as () => void) ?? null;
 

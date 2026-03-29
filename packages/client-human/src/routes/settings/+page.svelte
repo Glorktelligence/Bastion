@@ -7,6 +7,7 @@ import type { ApprovedTool } from '$lib/stores/tools.js';
 import type { ProjectFile, LoadingMode } from '$lib/stores/projects.js';
 import type { ProviderInfo } from '$lib/stores/provider.js';
 import type { ExtensionInfo } from '$lib/stores/extensions.js';
+import type { ConversationEntry } from '$lib/stores/conversations.js';
 import SettingsPanel from '$lib/components/SettingsPanel.svelte';
 
 // ---------------------------------------------------------------------------
@@ -41,6 +42,9 @@ let providerInfo: ProviderInfo | null = $state(null);
 let extensionList: readonly ExtensionInfo[] = $state([]);
 let extensionCount = $state(0);
 let extensionMessageTypes = $state(0);
+
+// Conversation list — for memory filter dropdown (scoped per-conversation filtering)
+let convList: ConversationEntry[] = $state([]);
 
 function handleToolRevoke(toolId: string): void {
   const client = session.getClient();
@@ -91,6 +95,9 @@ $effect(() => {
 		session.extensions.store.subscribe((v) => { extensionList = v.extensions; }),
 		session.extensions.totalCount.subscribe((v) => { extensionCount = v; }),
 		session.extensions.totalMessageTypes.subscribe((v) => { extensionMessageTypes = v; }),
+		session.conversations.store.subscribe((v) => {
+			convList = v.conversations.filter((c: ConversationEntry) => !c.archived);
+		}),
 	];
 
 	// Request data when connected (not on mount — WebSocket may not be ready)
