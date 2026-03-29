@@ -1,5 +1,5 @@
 <script lang="ts">
-import { browser } from '$app/environment';
+import { onMount } from 'svelte';
 import * as session from '$lib/session.js';
 import type { SafetySettings, SettingUpdateResult } from '$lib/stores/settings.js';
 import type { MemoryEntry } from '$lib/stores/memories.js';
@@ -65,8 +65,9 @@ function handleResetSetup(): void {
   globalThis.location?.reload();
 }
 
-$effect(() => {
-	if (!browser) return () => {};
+// Use onMount (NOT $effect) to set up store subscriptions.
+// See +layout.svelte for detailed explanation of the reactive loop issue.
+onMount(() => {
 	const unsubs = [
 		session.settings.store.subscribe((v) => {
 			currentSettings = v.settings;

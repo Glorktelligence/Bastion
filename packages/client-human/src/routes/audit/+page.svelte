@@ -1,5 +1,5 @@
 <script lang="ts">
-import { browser } from '$app/environment';
+import { onMount } from 'svelte';
 import * as session from '$lib/session.js';
 import type { AuditLogEntry, ChainIntegrityStatus } from '$lib/stores/audit-log.js';
 import type { AuditLogFilter } from '$lib/stores/audit-log.js';
@@ -19,8 +19,9 @@ let integrity: ChainIntegrityStatus | null = $state(null);
 
 let querySent = false;
 
-$effect(() => {
-	if (!browser) return () => {};
+// Use onMount (NOT $effect) to set up store subscriptions.
+// See +layout.svelte for detailed explanation of the reactive loop issue.
+onMount(() => {
 	const unsubs = [
 		session.auditLog.currentPageEntries.subscribe((v) => (entries = v)),
 		session.auditLog.store.subscribe((v) => {

@@ -1,7 +1,7 @@
 <script>
 import '../app.css';
+import { onMount } from 'svelte';
 import { browser } from '$app/environment';
-import { goto } from '$app/navigation';
 import { page } from '$app/state';
 import * as session from '$lib/session.js';
 import SetupWizard from '$lib/components/SetupWizard.svelte';
@@ -13,44 +13,10 @@ const { children } = $props();
 const initialSetup = browser ? session.getConfigStore().get('setupComplete') : true;
 let setupComplete = $state(initialSetup);
 
-// One-time auto-connect flag — prevents repeated connect attempts
-let autoConnectFired = false;
-
 function handleSetupComplete() {
 	setupComplete = true;
 	if (browser) session.tryAutoConnect();
 }
-
-$effect(() => {
-	// Fire auto-connect ONCE on client hydration — not on every navigation
-	if (browser && !autoConnectFired) {
-		autoConnectFired = true;
-		console.log('[Bastion] Layout: first hydration — checking auto-connect');
-		const cfg = session.getConfigStore();
-		setupComplete = cfg.get('setupComplete');
-		if (setupComplete) {
-			session.tryAutoConnect();
-		}
-
-		// --- DIAGNOSTIC: detect full page unloads vs client-side navigation ---
-		globalThis.addEventListener?.('beforeunload', () => {
-			console.warn('[Bastion] PAGE UNLOADING — this proves full-page navigation is happening');
-		});
-		// Observe all link clicks to see if SvelteKit router intercepts them
-		document.addEventListener('click', (e) => {
-			const el = /** @type {Element} */ (e.target);
-			const link = el?.closest?.('a[href]');
-			if (link) {
-				// SvelteKit router runs in capture phase and calls preventDefault()
-				// By the time this bubble-phase listener fires, we can check:
-				setTimeout(() => {
-					console.log(`[Bastion] Link click: href="${link.getAttribute('href')}" defaultPrevented=${e.defaultPrevented}`);
-				}, 0);
-			}
-		});
-		// --- END DIAGNOSTIC ---
-	}
-});
 
 // Conversation state
 let convList = $state([]);
@@ -64,8 +30,22 @@ let newConvAdapter = $state('');
 let availableAdapters = $state([]);
 let extensionPages = $state([]);
 
-$effect(() => {
-	if (!browser) return () => {};
+// Use onMount (NOT $effect) to set up store subscriptions.
+// $effect tracks reactive reads inside synchronous callbacks — our custom
+// store.subscribe() calls the callback immediately with the current value,
+// and if that callback reads $state (e.g. `if (!newConvAdapter)`), Svelte
+// tracks it as a dependency. The subsequent $state write triggers the
+// effect to re-run, creating an infinite loop (effect_update_depth_exceeded).
+// onMount has no reactive tracking context, so this problem cannot occur.
+onMount(() => {
+	// Auto-connect once
+	const cfg = session.getConfigStore();
+	setupComplete = cfg.get('setupComplete');
+	if (setupComplete) {
+		session.tryAutoConnect();
+	}
+
+	// Store subscriptions — callbacks update $state but onMount won't re-run
 	const subs = [
 		session.conversations.store.subscribe((s) => {
 			convList = s.conversations.filter((c) => !c.archived);
@@ -86,8 +66,8 @@ $effect(() => {
 			extensionPages = exts.flatMap((e) => (e.ui?.pages ?? []).map((p) => ({ namespace: e.namespace, pageId: p.id, name: p.name, icon: p.icon })));
 		}),
 	];
+
 	return () => {
-		console.log('[Bastion] Layout: subscription effect cleanup — unsubscribing stores (NOT disconnecting)');
 		for (const u of subs) u();
 	};
 });
@@ -218,8 +198,6 @@ function relativeTime(iso) {
 			<a href="/challenges" class="nav-item" class:active={page.url.pathname === '/challenges'}>Challenges</a>
 			<a href="/audit" class="nav-item" class:active={page.url.pathname === '/audit'}>Audit Log</a>
 			<a href="/settings" class="nav-item" class:active={page.url.pathname === '/settings'}>Settings</a>
-			<!-- DIAGNOSTIC: goto() test — remove after debugging -->
-			<button class="nav-item" style="border:1px dashed orange;text-align:left;background:transparent;cursor:pointer;font-size:0.875rem;color:orange;" onclick={() => { console.log('[Bastion] GOTO /settings via programmatic nav'); goto('/settings'); }}>Settings (goto)</button>
 
 			{#if extensionPages.length > 0}
 				<div class="nav-separator"></div>

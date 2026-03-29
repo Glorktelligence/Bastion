@@ -217,11 +217,6 @@ export class BastionHumanClient extends TypedEmitter<HumanClientEvents> {
         const code = ev && typeof ev === 'object' && 'code' in ev ? Number((ev as { code: unknown }).code) : 1006;
         const reason = ev && typeof ev === 'object' && 'reason' in ev ? String((ev as { reason: unknown }).reason) : '';
 
-        // Diagnostic: full call stack for every WebSocket close
-        console.trace(
-          `[Bastion] WEBSOCKET CLOSED code=${code} reason="${reason}" state=${this.state} intentional=${this.intentionalClose}`,
-        );
-
         // If we were still connecting, reject the connect promise
         if (this.state === 'connecting') {
           this.setState('disconnected');

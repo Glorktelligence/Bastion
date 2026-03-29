@@ -1,16 +1,16 @@
 <script>
-import { browser } from '$app/environment';
+import { onMount } from 'svelte';
 import { page } from '$app/state';
 import * as session from '$lib/session.js';
 import ExtensionUIHost from '$lib/components/ExtensionUIHost.svelte';
 
 let extensions = $state([]);
-let unsub = null;
 
-$effect(() => {
-	if (!browser) return () => {};
-	unsub = session.extensions.store.subscribe((s) => { extensions = s.extensions; });
-	return () => { if (unsub) unsub(); };
+// Use onMount (NOT $effect) to set up store subscriptions.
+// See +layout.svelte for detailed explanation of the reactive loop issue.
+onMount(() => {
+	const unsub = session.extensions.store.subscribe((s) => { extensions = s.extensions; });
+	return () => { unsub(); };
 });
 
 const namespace = $derived(page.params.namespace);

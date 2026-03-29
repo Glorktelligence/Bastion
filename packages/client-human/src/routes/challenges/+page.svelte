@@ -1,5 +1,5 @@
 <script lang="ts">
-import { browser } from '$app/environment';
+import { onMount } from 'svelte';
 import * as session from '$lib/session.js';
 import type { ActiveChallenge } from '$lib/stores/challenges.js';
 import type { ChallengeStats } from '$lib/stores/challenge-stats.js';
@@ -23,8 +23,9 @@ let stats: ChallengeStats = $state({
 	recentTrend: 'stable',
 });
 
-$effect(() => {
-	if (!browser) return () => {};
+// Use onMount (NOT $effect) to set up store subscriptions.
+// See +layout.svelte for detailed explanation of the reactive loop issue.
+onMount(() => {
 	const unsubs = [
 		session.challenges.store.subscribe((v) => (history = v.history)),
 		session.challengeStats.subscribe((v) => (stats = v)),

@@ -1,5 +1,5 @@
 <script lang="ts">
-import { browser } from '$app/environment';
+import { onMount } from 'svelte';
 import * as session from '$lib/session.js';
 import type { ConnectionStoreState } from '$lib/stores/connection.js';
 import type { DisplayMessage } from '$lib/stores/messages.js';
@@ -53,8 +53,9 @@ const isConnected = $derived(
 	conn.status === 'connected' || conn.status === 'authenticated',
 );
 
-$effect(() => {
-	if (!browser) return () => {};
+// Use onMount (NOT $effect) to set up store subscriptions.
+// See +layout.svelte for detailed explanation of the reactive loop issue.
+onMount(() => {
 	const subs = [
 		session.connection.subscribe((v) => {
 			conn = v;
