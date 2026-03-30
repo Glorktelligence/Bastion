@@ -1,0 +1,29 @@
+[Unit]
+Description=Bastion Update Agent
+After=network.target
+# On relay VM, start after relay:
+# After=bastion-relay.service
+
+[Service]
+Type=simple
+User=bastion-updater
+Group=bastion-updater
+WorkingDirectory=/opt/bastion-updater
+ExecStart=/usr/bin/node /opt/bastion-updater/dist/agent.js
+Restart=always
+RestartSec=10
+
+# Security hardening
+# NoNewPrivileges=no because agent needs sudo for git/pnpm/systemctl.
+# The sudoers whitelist restricts what it can actually do.
+NoNewPrivileges=no
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/bastion /opt/bastion-ai /var/lib/bastion
+PrivateTmp=true
+
+# Environment
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

@@ -674,6 +674,26 @@ sudo systemctl restart bastion-ai-client
 
 **Budget Guard:** Web search usage is tracked in SQLite at `BASTION_BUDGET_DB` (default: `/var/lib/bastion-ai/budget.db`). Budget configuration persisted at `BASTION_BUDGET_CONFIG` (default: `/var/lib/bastion-ai/budget-config.json`). Default limits: $10/month, 500 searches/month, 50/day, 20/session. Monthly cap increases take effect next month only (tighten-only mid-month). All config changes have a 7-day cooldown and are blocked during challenge hours.
 
+## Self-Update Agents
+
+Bastion includes a self-update system that can pull, build, and restart all components remotely via the admin panel. See [`deploy/update-agent/`](../../deploy/update-agent/) for full deployment instructions.
+
+**Quick setup** (run on each VM as root):
+
+```bash
+cd deploy/update-agent
+sudo ./setup-updater.sh
+```
+
+This installs:
+- A `bastion-updater` system user with a minimal sudoers whitelist
+- A systemd service (`bastion-updater.service`) that auto-restarts
+- The agent connects to the relay and appears in the admin panel's `/update` page
+
+**Restart orchestration**: The relay persists update state to `/var/lib/bastion/pending-update.json` before restarting itself. On startup, it resumes from the restart phase, waits for all components to reconnect and report their new version, then marks the update as complete. If a component fails to reconnect within the timeout (60s local, 120s remote), the update is marked as failed.
+
+**Security**: The agent can only execute 3 whitelisted command types (`git_pull`, `pnpm_install`, `pnpm_build`). The sudoers file restricts what the agent can actually `sudo`. All update operations are logged in the tamper-evident audit chain.
+
 ## Security Checklist
 
 Before going live, verify:

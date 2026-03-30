@@ -220,6 +220,7 @@ export type {
   OrchestratorConfig,
   ConnectedAgent,
   BuildResult,
+  PendingUpdateState,
 } from './admin/update-orchestrator.js';
 
 // ---------------------------------------------------------------------------

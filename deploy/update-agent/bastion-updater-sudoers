@@ -1,0 +1,27 @@
+# Bastion Update Agent — minimal privilege sudoers config
+# Install to: /etc/sudoers.d/bastion-updater
+# Validate after install: visudo -c
+
+# Allow git operations as bastion user
+bastion-updater ALL=(bastion) NOPASSWD: /usr/bin/git -C /opt/bastion pull
+bastion-updater ALL=(bastion) NOPASSWD: /usr/bin/git -C /opt/bastion fetch *
+bastion-updater ALL=(bastion) NOPASSWD: /usr/bin/git -C /opt/bastion log *
+bastion-updater ALL=(bastion) NOPASSWD: /usr/bin/git -C /opt/bastion rev-parse *
+
+# Allow pnpm install and build as bastion user
+bastion-updater ALL=(bastion) NOPASSWD: /usr/bin/pnpm -C /opt/bastion install
+bastion-updater ALL=(bastion) NOPASSWD: /usr/bin/pnpm -C /opt/bastion run build
+bastion-updater ALL=(bastion) NOPASSWD: /usr/bin/pnpm -C /opt/bastion --filter * run build
+
+# AI VM variant (if buildPath is /opt/bastion-ai)
+bastion-updater ALL=(bastion) NOPASSWD: /usr/bin/git -C /opt/bastion-ai pull
+bastion-updater ALL=(bastion) NOPASSWD: /usr/bin/git -C /opt/bastion-ai fetch *
+bastion-updater ALL=(bastion) NOPASSWD: /usr/bin/pnpm -C /opt/bastion-ai install
+bastion-updater ALL=(bastion) NOPASSWD: /usr/bin/pnpm -C /opt/bastion-ai run build
+bastion-updater ALL=(bastion) NOPASSWD: /usr/bin/pnpm -C /opt/bastion-ai --filter * run build
+
+# Allow restarting ONLY Bastion services (no other systemd units)
+bastion-updater ALL=(root) NOPASSWD: /usr/bin/systemctl restart bastion-relay
+bastion-updater ALL=(root) NOPASSWD: /usr/bin/systemctl restart bastion-admin-ui
+bastion-updater ALL=(root) NOPASSWD: /usr/bin/systemctl restart bastion-ai-client
+bastion-updater ALL=(root) NOPASSWD: /usr/bin/systemctl restart bastion-updater

@@ -296,11 +296,18 @@ const adminRoutes = new AdminRoutes({
 console.log('[✓] Admin routes initialised (live status provider wired)');
 
 // Update orchestrator — manages multi-phase update lifecycle
+const UPDATE_STATE_FILE = process.env.BASTION_UPDATE_STATE_FILE || '/var/lib/bastion/pending-update.json';
 const updateOrchestrator = new UpdateOrchestrator({
   auditLogger,
   send: (connectionId, data) => relay.send(connectionId, data),
+  stateFilePath: UPDATE_STATE_FILE,
 });
-console.log('[✓] Update orchestrator initialised');
+const resumedUpdate = updateOrchestrator.loadPendingState();
+if (resumedUpdate) {
+  console.log('[!] Resumed pending update from state file — waiting for reconnections');
+} else {
+  console.log('[✓] Update orchestrator initialised (no pending update)');
+}
 
 const adminServer = new AdminServer({
   port: ADMIN_PORT,

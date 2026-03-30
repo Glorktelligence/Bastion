@@ -437,6 +437,307 @@ async function run() {
   console.log();
 
   // =========================================================================
+  // Test 13: State file persistence (restart recovery)
+  // =========================================================================
+  console.log('--- Test 13: State file persistence ---');
+  {
+    const tmpFile = './test-pending-update-' + Date.now() + '.json';
+    const audit = makeAuditLogger();
+    const orch = new UpdateOrchestrator({
+      auditLogger: audit,
+      send: () => true,
+      stateFilePath: tmpFile,
+    });
+
+    // No state file yet
+    check('loadPendingState returns false when no file', !orch.loadPendingState());
+
+    // Drive through phases to restart
+    orch.registerAgent('conn-1', 'updater-1', 'relay');
+    orch.checkForUpdates('repo', '0.1.0');
+    orch.handleUpdateAvailable('0.2.0', 'abc');
+    orch.prepareAll('0.2.0', 'abc', 'test');
+    orch.handlePrepareAck('relay');
+    orch.executeBuild([{ type: 'git_pull' }], '0.2.0', 'abc');
+    orch.handleBuildStatus('relay', 'complete', 30);
+    orch.executeRestart({ relay: 'bastion-relay' }, ['relay']);
+    check('restart wrote state file', orch.currentPhase === 'restarting');
+
+    // Simulate relay restart — new orchestrator loads state
+    const { readFileSync } = await import('node:fs');
+    let stateExists = false;
+    try {
+      readFileSync(tmpFile, 'utf-8');
+      stateExists = true;
+    } catch { /* */ }
+    check('state file exists on disk', stateExists);
+
+    const orch2 = new UpdateOrchestrator({
+      auditLogger: audit,
+      send: () => true,
+      stateFilePath: tmpFile,
+    });
+    const loaded = orch2.loadPendingState();
+    check('new orchestrator loads state', loaded);
+    check('resumed in restarting phase', orch2.currentPhase === 'restarting');
+    check('resumed with target version', orch2.getStatus().targetVersion === '0.2.0');
+    check('resumed with expected components', orch2.getStatus().expectedComponents.includes('relay'));
+
+    // Handle reconnection → complete
+    orch2.handleReconnected('relay', '0.2.0');
+    check('completes after reconnection', orch2.currentPhase === 'complete');
+
+    // State file should be deleted after completion
+    let stateDeleted = false;
+    try {
+      readFileSync(tmpFile, 'utf-8');
+    } catch {
+      stateDeleted = true;
+    }
+    check('state file deleted after completion', stateDeleted);
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 14: Reconnection with correct vs wrong version
+  // =========================================================================
+  console.log('--- Test 14: Reconnection version verification ---');
+  {
+    const tmpFile = './test-pending-update-' + Date.now() + '.json';
+    const audit = makeAuditLogger();
+    const orch = new UpdateOrchestrator({
+      auditLogger: audit,
+      send: () => true,
+      stateFilePath: tmpFile,
+      reconnectTimeoutMs: 500,
+    });
+
+    orch.registerAgent('conn-1', 'updater-1', 'relay');
+    orch.checkForUpdates('repo', '0.1.0');
+    orch.handleUpdateAvailable('0.2.0', 'abc');
+    orch.prepareAll('0.2.0', 'abc', 'test');
+    orch.handlePrepareAck('relay');
+    orch.executeBuild([{ type: 'git_pull' }], '0.2.0', 'abc');
+    orch.handleBuildStatus('relay', 'complete', 30);
+    orch.executeRestart({ relay: 'bastion-relay' }, ['relay']);
+
+    // Reconnect with OLD version → warning but doesn't block
+    orch.handleReconnected('relay', '0.1.0');
+    check('old version reconnection adds warning', orch.getStatus().warnings.length > 0);
+    check('old version warning mentions version', orch.getStatus().warnings[0].includes('0.1.0'));
+    check('completes despite old version (reconnection tracked)', orch.currentPhase === 'complete');
+
+    // Cleanup
+    try { const { unlinkSync } = await import('node:fs'); unlinkSync(tmpFile); } catch { /* */ }
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 15: Reconnection timeout
+  // =========================================================================
+  console.log('--- Test 15: Reconnection timeout ---');
+  {
+    const tmpFile = './test-pending-update-' + Date.now() + '.json';
+    const audit = makeAuditLogger();
+    const orch = new UpdateOrchestrator({
+      auditLogger: audit,
+      send: () => true,
+      stateFilePath: tmpFile,
+      reconnectTimeoutMs: 50,
+    });
+
+    orch.registerAgent('conn-1', 'updater-1', 'relay');
+    orch.checkForUpdates('repo', '0.1.0');
+    orch.handleUpdateAvailable('0.2.0', 'abc');
+    orch.prepareAll('0.2.0', 'abc', 'test');
+    orch.handlePrepareAck('relay');
+    orch.executeBuild([{ type: 'git_pull' }], '0.2.0', 'abc');
+    orch.handleBuildStatus('relay', 'complete', 30);
+    orch.executeRestart({ relay: 'bastion-relay' }, ['relay']);
+
+    // Don't reconnect — wait for timeout
+    await new Promise(resolve => setTimeout(resolve, 100));
+    check('reconnection timeout → failed', orch.currentPhase === 'failed');
+    check('timeout error mentions component', orch.getStatus().error?.includes('relay'));
+
+    // Cleanup
+    try { const { unlinkSync } = await import('node:fs'); unlinkSync(tmpFile); } catch { /* */ }
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 16: Cancel during restart
+  // =========================================================================
+  console.log('--- Test 16: Cancel during restart ---');
+  {
+    const tmpFile = './test-pending-update-' + Date.now() + '.json';
+    const audit = makeAuditLogger();
+    const orch = new UpdateOrchestrator({
+      auditLogger: audit,
+      send: () => true,
+      stateFilePath: tmpFile,
+    });
+
+    orch.registerAgent('conn-1', 'updater-1', 'relay');
+    orch.registerAgent('conn-2', 'updater-2', 'ai-client');
+    orch.checkForUpdates('repo', '0.1.0');
+    orch.handleUpdateAvailable('0.2.0', 'abc');
+    orch.prepareAll('0.2.0', 'abc', 'test');
+    orch.handlePrepareAck('relay');
+    orch.handlePrepareAck('ai-client');
+    orch.executeBuild([{ type: 'git_pull' }], '0.2.0', 'abc');
+    orch.handleBuildStatus('relay', 'complete', 30);
+    orch.handleBuildStatus('ai-client', 'complete', 60);
+    orch.executeRestart({ relay: 'bastion-relay', 'ai-client': 'bastion-ai-client' }, ['relay', 'ai-client']);
+
+    // Cancel mid-restart
+    orch.cancel();
+    check('cancel resets to idle', orch.currentPhase === 'idle');
+
+    // Audit should log the cancellation
+    const cancelEvent = audit.events.find(e => e.detail?.reason === 'cancelled');
+    check('audit logs cancellation', !!cancelEvent);
+    check('audit logs previous phase', cancelEvent?.detail?.previousPhase === 'restarting');
+
+    // State file deleted
+    let stateDeleted = false;
+    try { const { readFileSync } = await import('node:fs'); readFileSync(tmpFile, 'utf-8'); } catch { stateDeleted = true; }
+    check('state file deleted on cancel', stateDeleted);
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 17: Human client reconnection (optional)
+  // =========================================================================
+  console.log('--- Test 17: Human client reconnection ---');
+  {
+    const tmpFile = './test-pending-update-' + Date.now() + '.json';
+    const orch = new UpdateOrchestrator({
+      auditLogger: makeAuditLogger(),
+      send: () => true,
+      stateFilePath: tmpFile,
+      reconnectTimeoutMs: 500,
+    });
+
+    // Only relay agent — human is optional
+    orch.registerAgent('conn-1', 'updater-1', 'relay');
+    orch.checkForUpdates('repo', '0.1.0');
+    orch.handleUpdateAvailable('0.2.0', 'abc');
+    orch.prepareAll('0.2.0', 'abc', 'test');
+    orch.handlePrepareAck('relay');
+    orch.executeBuild([{ type: 'git_pull' }], '0.2.0', 'abc');
+    orch.handleBuildStatus('relay', 'complete', 30);
+    orch.executeRestart({ relay: 'bastion-relay' }, ['relay']);
+
+    // Relay reconnects, human never does — should complete
+    orch.handleReconnected('relay', '0.2.0');
+    check('completes without human reconnection', orch.currentPhase === 'complete');
+
+    try { const { unlinkSync } = await import('node:fs'); unlinkSync(tmpFile); } catch { /* */ }
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 18: State file cleanup on failure
+  // =========================================================================
+  console.log('--- Test 18: State file cleanup on failure ---');
+  {
+    const tmpFile = './test-pending-update-' + Date.now() + '.json';
+    const orch = new UpdateOrchestrator({
+      auditLogger: makeAuditLogger(),
+      send: () => true,
+      stateFilePath: tmpFile,
+      reconnectTimeoutMs: 50,
+    });
+
+    orch.registerAgent('conn-1', 'updater-1', 'relay');
+    orch.checkForUpdates('repo', '0.1.0');
+    orch.handleUpdateAvailable('0.2.0', 'abc');
+    orch.prepareAll('0.2.0', 'abc', 'test');
+    orch.handlePrepareAck('relay');
+    orch.executeBuild([{ type: 'git_pull' }], '0.2.0', 'abc');
+    orch.handleBuildStatus('relay', 'complete', 30);
+    orch.executeRestart({ relay: 'bastion-relay' }, ['relay']);
+
+    // Wait for timeout → failure
+    await new Promise(resolve => setTimeout(resolve, 100));
+    check('failure after timeout', orch.currentPhase === 'failed');
+
+    // State file should be cleaned up on failure
+    let cleaned = false;
+    try { const { readFileSync } = await import('node:fs'); readFileSync(tmpFile, 'utf-8'); } catch { cleaned = true; }
+    check('state file cleaned up on failure', cleaned);
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 19: Agent disconnect during build
+  // =========================================================================
+  console.log('--- Test 19: Agent disconnect during build ---');
+  {
+    const orch = new UpdateOrchestrator({
+      auditLogger: makeAuditLogger(),
+      send: () => true,
+      stateFilePath: './test-no-write-' + Date.now() + '.json',
+    });
+
+    orch.registerAgent('conn-1', 'updater-1', 'relay');
+    orch.checkForUpdates('repo', '0.1.0');
+    orch.handleUpdateAvailable('0.2.0', 'abc');
+    orch.prepareAll('0.2.0', 'abc', 'test');
+    orch.handlePrepareAck('relay');
+    orch.executeBuild([{ type: 'git_pull' }], '0.2.0', 'abc');
+
+    // Agent disconnects mid-build
+    orch.unregisterAgent('conn-1');
+    check('agent disconnect during build → failed', orch.currentPhase === 'failed');
+    check('error mentions disconnect', orch.getStatus().error?.includes('disconnected'));
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 20: Remote component gets longer timeout
+  // =========================================================================
+  console.log('--- Test 20: Remote component timeout ---');
+  {
+    const tmpFile = './test-pending-update-' + Date.now() + '.json';
+    const orch = new UpdateOrchestrator({
+      auditLogger: makeAuditLogger(),
+      send: () => true,
+      stateFilePath: tmpFile,
+      reconnectTimeoutMs: 50,
+      remoteReconnectTimeoutMs: 200,
+    });
+
+    orch.registerAgent('conn-1', 'updater-1', 'relay');
+    orch.registerAgent('conn-2', 'updater-2', 'ai-client');
+    orch.checkForUpdates('repo', '0.1.0');
+    orch.handleUpdateAvailable('0.2.0', 'abc');
+    orch.prepareAll('0.2.0', 'abc', 'test');
+    orch.handlePrepareAck('relay');
+    orch.handlePrepareAck('ai-client');
+    orch.executeBuild([{ type: 'git_pull' }], '0.2.0', 'abc');
+    orch.handleBuildStatus('relay', 'complete', 30);
+    orch.handleBuildStatus('ai-client', 'complete', 60);
+    orch.executeRestart(
+      { relay: 'bastion-relay', 'ai-client': 'bastion-ai-client' },
+      ['relay', 'ai-client'],
+    );
+
+    // At 80ms, local timeout (50ms) would have fired, but remote timeout (200ms) applies
+    await new Promise(resolve => setTimeout(resolve, 80));
+    check('not timed out at 80ms (remote timeout is 200ms)', orch.currentPhase === 'restarting');
+
+    // Reconnect both before remote timeout
+    orch.handleReconnected('relay', '0.2.0');
+    orch.handleReconnected('ai-client', '0.2.0');
+    check('completes after both reconnect', orch.currentPhase === 'complete');
+
+    try { const { unlinkSync } = await import('node:fs'); unlinkSync(tmpFile); } catch { /* */ }
+  }
+  console.log();
+
+  // =========================================================================
   // Summary
   // =========================================================================
   console.log('=================================================');

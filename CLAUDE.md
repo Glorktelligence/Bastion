@@ -74,4 +74,4 @@ Format: `BASTION-CXXX` — 45 codes across 8 categories:
 1XXX=Connection (7) | 2XXX=Auth (6) | 3XXX=Protocol (6) | 4XXX=Safety (6) | 5XXX=File (7) | 6XXX=Provider (6) | 7XXX=Config (5) | 8XXX=Budget (5)
 
 ## Tech Stack
-PNPM workspaces | TypeScript (ES2022/Node16) | Zod (validation) | node:test (testing, 2,854 tests) | Biome (linting) | WebSocket over TLS | tweetnacl + libsodium (E2E encryption) | node:sqlite DatabaseSync (audit) | SQLite (memories, budget) | jose (JWT) | Tauri + SvelteKit (desktop) | React Native (mobile)
+PNPM workspaces | TypeScript (ES2022/Node16) | Zod (validation) | node:test (testing, 2,879 tests) | Biome (linting) | WebSocket over TLS | tweetnacl + libsodium (E2E encryption) | node:sqlite DatabaseSync (audit) | SQLite (memories, budget) | jose (JWT) | Tauri + SvelteKit (desktop) | React Native (mobile)

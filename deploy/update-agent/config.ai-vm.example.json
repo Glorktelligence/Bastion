@@ -1,0 +1,11 @@
+{
+  "relayUrl": "wss://10.0.30.10:9443",
+  "agentId": "updater-ai",
+  "agentName": "AI Client Update Agent",
+  "component": "ai-client",
+  "buildPath": "/opt/bastion-ai",
+  "services": ["bastion-ai-client"],
+  "buildSteps": [{ "type": "git_pull" }, { "type": "pnpm_install" }, { "type": "pnpm_build" }],
+  "rejectUnauthorized": false,
+  "commandTimeoutMs": 300000
+}
