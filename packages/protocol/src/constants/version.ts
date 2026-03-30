@@ -3,4 +3,4 @@
 // See LICENSE file for full terms
 
 /** Current protocol version. */
-export const PROTOCOL_VERSION = '0.1.0' as const;
+export const PROTOCOL_VERSION = '0.5.0' as const;

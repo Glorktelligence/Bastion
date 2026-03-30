@@ -1,8 +1,8 @@
-# Bastion Protocol Specification v0.1.0
+# Bastion Protocol Specification v0.5.0
 
-**Version:** 0.1.0
+**Version:** 0.5.0
 **Date:** March 2026
-**Status:** Stable (Phase 1–5 complete)
+**Status:** Stable (Phase 1–5 complete, self-update system)
 **Licence:** Apache 2.0
 **Authors:** Harry Smith, Claude (Anthropic)
 
@@ -101,7 +101,7 @@ interface MessageEnvelope {
   timestamp: string;       // ISO 8601 UTC timestamp
   sender: SenderIdentity;  // Authenticated sender
   correlationId: string;   // UUID v4 — links related messages
-  version: string;         // Protocol version ("0.1.0")
+  version: string;         // Protocol version ("0.5.0")
   payload: unknown;        // Type-specific content
 }
 ```
@@ -1131,7 +1131,7 @@ These properties are enforced by the protocol and cannot be disabled, configured
 
 | Constant | Value |
 |----------|-------|
-| Protocol version | `0.1.0` |
+| Protocol version | `0.5.0` |
 | Default relay port | 9443 |
 | Max message size | 5 MB (5,242,880 bytes) |
 | JWT expiry | 15 minutes (900 seconds) |
@@ -1164,6 +1164,7 @@ Schema validation failures result in `BASTION-3001` and the message is rejected.
 | Version | Date | Changes |
 |---------|------|---------|
 | 0.1.0 | March 2026 | Initial protocol specification |
+| 0.5.0 | March 2026 | 81 message types, self-update system, AI disclosure, conversation persistence, streaming |
 
 ## Appendix C: Reference Implementation
 

@@ -215,7 +215,7 @@ Bastion includes deployment templates for self-hosted environments:
 
 - [Getting Started Guide](docs/guides/getting-started.md) — Clone to running local instance walkthrough
 - [Deployment Guide](docs/guides/deployment.md) — Self-hosting with TLS, VLANs, and AI VM isolation
-- [Protocol Specification](docs/protocol/bastion-protocol-v0.1.0.md) — All 81 message types, envelope structure, E2E encryption, safety evaluation
+- [Protocol Specification](docs/protocol/bastion-protocol-v0.5.0.md) — All 81 message types, envelope structure, E2E encryption, safety evaluation
 - [Core Specification](docs/spec/Project-Bastion-Spec-v0.1.0.docx) — The full product specification
 - [Supplementary Specification](docs/spec/bastion-supplementary-spec.md) — Architectural decisions, session lifecycle, error codes, GDPR considerations
 - [Project Structure](docs/spec/bastion-project-structure.md) — Package layout and task breakdown

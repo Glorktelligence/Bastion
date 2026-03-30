@@ -19,7 +19,7 @@ let isActive = $state(update.isActive.get());
 let repo = $state('Glorktelligence/Bastion');
 
 /** @type {string} */
-let currentVersion = $state('0.1.0');
+let currentVersion = $state('0.5.0');
 
 /** @type {ReturnType<typeof setInterval> | null} */
 let pollTimer = null;

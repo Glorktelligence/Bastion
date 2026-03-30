@@ -1,12 +1,12 @@
 # Project Bastion — Supplementary Specification
 
-**Version:** 0.1.0-supplement-1  
-**Date:** March 2026  
-**Status:** Pre-build specification  
+**Version:** 0.5.0-supplement-1
+**Date:** March 2026
+**Status:** Stable
 **Licence:** Apache 2.0  
 **Authors:** Harry Smith, Claude (Anthropic)
 
-This document addresses all outstanding architectural decisions, unanswered questions, and specification gaps identified during the design review. It supplements the core Product Specification (v0.1.0) and the Project Structure document. All decisions documented here are binding for the initial implementation.
+This document addresses all outstanding architectural decisions, unanswered questions, and specification gaps identified during the design review. It supplements the core Product Specification (v0.5.0) and the Project Structure document. All decisions documented here are binding for the initial implementation.
 
 ---
 

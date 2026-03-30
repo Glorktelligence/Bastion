@@ -14,6 +14,8 @@
     { "type": "pnpm_build", "filter": "@bastion/relay-admin-ui" },
     { "type": "pnpm_build", "filter": "@bastion/update-agent" }
   ],
-  "rejectUnauthorized": false,
-  "commandTimeoutMs": 300000
+  "timeouts": {
+    "build": 300,
+    "restart": 60
+  }
 }

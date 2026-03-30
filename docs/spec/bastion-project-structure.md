@@ -7,7 +7,7 @@ This document defines the complete project structure for Bastion, an open-source
 **Repository Root:** `G:\Glorktelligence\Projects\Bastion`  
 **Remote Origin:** `git.glorktelligence.co.uk` (Gitea, self-hosted)  
 **Licence:** Apache 2.0  
-**Protocol Version:** 0.1.0
+**Protocol Version:** 0.5.0
 
 ---
 

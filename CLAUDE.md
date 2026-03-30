@@ -65,7 +65,7 @@ Startup scripts (root level):
 ## Key Documentation
 - Core spec: `docs/spec/Project-Bastion-Spec-v0.1.0.docx`
 - Supplementary spec: `docs/spec/bastion-supplementary-spec.md`
-- Protocol specification: `docs/protocol/bastion-protocol-v0.1.0.md`
+- Protocol specification: `docs/protocol/bastion-protocol-v0.5.0.md`
 - Project structure: `docs/spec/bastion-project-structure.md`
 - Skills: `.claude/skills/` (9 skills covering all development patterns)
 

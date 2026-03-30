@@ -41,7 +41,7 @@ interface MessageEnvelope<TPayload> {
   timestamp: Timestamp;    // ISO 8601
   sender: SenderIdentity;  // { id, type: 'human'|'ai'|'relay', displayName }
   correlationId: CorrelationId;  // UUID v4 — links related messages
-  version: string;         // Protocol version (e.g. "0.1.0")
+  version: string;         // Protocol version (e.g. "0.5.0")
   payload: TPayload;       // Type-specific, validated by Zod schema
 }
 ```

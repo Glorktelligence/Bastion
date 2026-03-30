@@ -437,6 +437,6 @@ pnpm build      # Rebuild everything
 ## Next Steps
 
 - **[Deployment Guide](./deployment.md)** — Self-hosting Bastion on a real server with TLS, VLANs, and AI VM isolation.
-- **[Protocol Specification](../protocol/bastion-protocol-v0.1.0.md)** — Complete protocol reference with all 23 message types.
+- **[Protocol Specification](../protocol/bastion-protocol-v0.5.0.md)** — Complete protocol reference with all 81 message types.
 - **[Contributing](../../CONTRIBUTING.md)** — How to contribute to Bastion.
 - **[Security Policy](../../SECURITY.md)** — Reporting vulnerabilities and understanding the threat model.
