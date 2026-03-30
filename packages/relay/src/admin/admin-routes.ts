@@ -175,6 +175,8 @@ export interface AdminRoutesConfig {
   readonly onDisclosureUpdate?: (config: DisclosureConfig) => void;
   /** Callback for sending update messages to the connected updater client. */
   readonly onUpdateMessage?: (type: string, payload: Record<string, unknown>) => void;
+  /** Optional update orchestrator for enriched status responses. */
+  readonly updateOrchestrator?: import('./update-orchestrator.js').UpdateOrchestrator;
 }
 
 // ---------------------------------------------------------------------------
@@ -204,6 +206,7 @@ export class AdminRoutes {
   private readonly extensionRegistry: import('../extensions/extension-registry.js').ExtensionRegistry | null;
   private readonly onDisclosureUpdate: ((config: DisclosureConfig) => void) | null;
   private readonly onUpdateMessage: ((type: string, payload: Record<string, unknown>) => void) | null;
+  private readonly orchestrator: import('./update-orchestrator.js').UpdateOrchestrator | null;
   private disclosureConfig: DisclosureConfig;
   private updateStatus: UpdateStatus;
 
@@ -216,6 +219,7 @@ export class AdminRoutes {
     this.extensionRegistry = config.extensionRegistry ?? null;
     this.onDisclosureUpdate = config.onDisclosureUpdate ?? null;
     this.onUpdateMessage = config.onUpdateMessage ?? null;
+    this.orchestrator = config.updateOrchestrator ?? null;
     this.updateStatus = { phase: 'idle', targetVersion: null, startedAt: null, component: null, error: null };
     this.disclosureConfig = {
       enabled: false,
@@ -712,9 +716,21 @@ export class AdminRoutes {
     return { status: 200, body: { status: 'building', targetComponent, version } };
   }
 
-  /** Get the current update status. */
+  /** Get the current update status, enriched with orchestrator data. */
   getUpdateStatus(): ApiResponse {
-    return { status: 200, body: { ...this.updateStatus } };
+    const orchStatus = this.orchestrator?.getStatus();
+    return {
+      status: 200,
+      body: {
+        ...this.updateStatus,
+        agents: orchStatus?.agents ?? [],
+        prepareAcks: orchStatus?.prepareAcks ?? [],
+        buildResults: orchStatus?.buildResults ?? {},
+        reconnections: orchStatus?.reconnections ?? [],
+        expectedComponents: orchStatus?.expectedComponents ?? [],
+        warnings: orchStatus?.warnings ?? [],
+      },
+    };
   }
 
   /** Cancel an in-progress update. */

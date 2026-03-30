@@ -272,11 +272,26 @@ const statusProvider = {
   },
 };
 
+// Update orchestrator — manages multi-phase update lifecycle
+const UPDATE_STATE_FILE = process.env.BASTION_UPDATE_STATE_FILE || '/var/lib/bastion/pending-update.json';
+const updateOrchestrator = new UpdateOrchestrator({
+  auditLogger,
+  send: (connectionId, data) => relay.send(connectionId, data),
+  stateFilePath: UPDATE_STATE_FILE,
+});
+const resumedUpdate = updateOrchestrator.loadPendingState();
+if (resumedUpdate) {
+  console.log('[!] Resumed pending update from state file — waiting for reconnections');
+} else {
+  console.log('[✓] Update orchestrator initialised (no pending update)');
+}
+
 const adminRoutes = new AdminRoutes({
   providerRegistry,
   auditLogger,
   statusProvider,
   extensionRegistry,
+  updateOrchestrator,
   onDisclosureUpdate: (cfg) => updateDisclosureConfig(cfg),
   onUpdateMessage: (type, payload) => {
     if (!updaterConnectionId) {
@@ -294,20 +309,6 @@ const adminRoutes = new AdminRoutes({
   },
 });
 console.log('[✓] Admin routes initialised (live status provider wired)');
-
-// Update orchestrator — manages multi-phase update lifecycle
-const UPDATE_STATE_FILE = process.env.BASTION_UPDATE_STATE_FILE || '/var/lib/bastion/pending-update.json';
-const updateOrchestrator = new UpdateOrchestrator({
-  auditLogger,
-  send: (connectionId, data) => relay.send(connectionId, data),
-  stateFilePath: UPDATE_STATE_FILE,
-});
-const resumedUpdate = updateOrchestrator.loadPendingState();
-if (resumedUpdate) {
-  console.log('[!] Resumed pending update from state file — waiting for reconnections');
-} else {
-  console.log('[✓] Update orchestrator initialised (no pending update)');
-}
 
 const adminServer = new AdminServer({
   port: ADMIN_PORT,
@@ -529,8 +530,10 @@ relay.on('message', async (data, info) => {
       console.log(`[✓] AI client registered: ${identity.displayName}`);
     } else if (identity.type === 'updater') {
       updaterConnectionId = connId;
-      updateOrchestrator.registerAgent(connId, identity.id, identity.displayName);
-      console.log(`[✓] Updater client registered: ${identity.displayName}`);
+      // Register with orchestrator: agentId=identity.id, component=identity.id
+      // The component name matches the agentId (e.g. "updater-relay", "updater-ai")
+      updateOrchestrator.registerAgent(connId, identity.id, identity.id);
+      console.log(`[✓] Updater client registered: ${identity.displayName} (${identity.id})`);
     }
 
     // Auto-pair when both sides are connected
