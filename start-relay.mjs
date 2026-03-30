@@ -14,6 +14,7 @@ import {
   HashVerifier,
   PurgeScheduler,
   FileTransferRouter,
+  UpdateOrchestrator,
 } from './packages/relay/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -294,6 +295,13 @@ const adminRoutes = new AdminRoutes({
 });
 console.log('[✓] Admin routes initialised (live status provider wired)');
 
+// Update orchestrator — manages multi-phase update lifecycle
+const updateOrchestrator = new UpdateOrchestrator({
+  auditLogger,
+  send: (connectionId, data) => relay.send(connectionId, data),
+});
+console.log('[✓] Update orchestrator initialised');
+
 const adminServer = new AdminServer({
   port: ADMIN_PORT,
   host: '127.0.0.1',
@@ -514,6 +522,7 @@ relay.on('message', async (data, info) => {
       console.log(`[✓] AI client registered: ${identity.displayName}`);
     } else if (identity.type === 'updater') {
       updaterConnectionId = connId;
+      updateOrchestrator.registerAgent(connId, identity.id, identity.displayName);
       console.log(`[✓] Updater client registered: ${identity.displayName}`);
     }
 
@@ -829,36 +838,28 @@ relay.on('message', async (data, info) => {
   if (msg.type === 'update_check' || msg.type === 'update_available' || msg.type === 'update_prepare' || msg.type === 'update_prepare_ack' || msg.type === 'update_execute' || msg.type === 'update_build_status' || msg.type === 'update_restart' || msg.type === 'update_reconnected' || msg.type === 'update_complete' || msg.type === 'update_failed') {
     const sid = sessionIds.get(connId);
 
-    // Map update messages to audit events and update admin status
+    // Map update messages to orchestrator + admin status tracking
+    const p = msg.payload || {};
     if (msg.type === 'update_available') {
-      adminRoutes.setUpdateStatus('preparing', { targetVersion: msg.payload?.availableVersion });
-      if (sid) auditLogger.logEvent('update_check_initiated', sid, { availableVersion: msg.payload?.availableVersion });
+      updateOrchestrator.handleUpdateAvailable(p.availableVersion, p.commitHash);
+      adminRoutes.setUpdateStatus('preparing', { targetVersion: p.availableVersion });
+    } else if (msg.type === 'update_prepare_ack') {
+      updateOrchestrator.handlePrepareAck(p.component);
     } else if (msg.type === 'update_build_status') {
-      const phase = msg.payload?.phase;
-      if (phase === 'complete') {
-        adminRoutes.setUpdateStatus('complete', { component: msg.payload?.component });
-        if (sid) auditLogger.logEvent('update_build_complete', sid, { component: msg.payload?.component, duration: msg.payload?.duration });
-      } else if (phase === 'failed') {
-        adminRoutes.setUpdateStatus('failed', { component: msg.payload?.component, error: msg.payload?.error });
-        if (sid) auditLogger.logEvent('update_build_failed', sid, { component: msg.payload?.component, error: msg.payload?.error });
-      } else {
-        adminRoutes.setUpdateStatus('building', { component: msg.payload?.component });
-        if (sid) auditLogger.logEvent('update_build_started', sid, { component: msg.payload?.component, phase });
-      }
+      updateOrchestrator.handleBuildStatus(p.component, p.phase, p.duration, p.error);
+      if (p.phase === 'complete') adminRoutes.setUpdateStatus('complete', { component: p.component });
+      else if (p.phase === 'failed') adminRoutes.setUpdateStatus('failed', { component: p.component, error: p.error });
+      else adminRoutes.setUpdateStatus('building', { component: p.component });
     } else if (msg.type === 'update_reconnected') {
-      if (sid) auditLogger.logEvent('update_completed', sid, { component: msg.payload?.component, version: msg.payload?.version });
+      updateOrchestrator.handleReconnected(p.component, p.version);
     } else if (msg.type === 'update_complete') {
-      adminRoutes.setUpdateStatus('complete', { targetVersion: msg.payload?.toVersion });
-      if (sid) auditLogger.logEvent('update_completed', sid, { fromVersion: msg.payload?.fromVersion, toVersion: msg.payload?.toVersion, duration: msg.payload?.duration });
+      adminRoutes.setUpdateStatus('complete', { targetVersion: p.toVersion });
     } else if (msg.type === 'update_failed') {
-      adminRoutes.setUpdateStatus('failed', { component: msg.payload?.component, error: msg.payload?.error });
-      if (sid) auditLogger.logEvent('update_failed', sid, { phase: msg.payload?.phase, component: msg.payload?.component, error: msg.payload?.error });
+      adminRoutes.setUpdateStatus('failed', { component: p.component, error: p.error });
     } else if (msg.type === 'update_restart') {
-      adminRoutes.setUpdateStatus('restarting', { component: msg.payload?.targetComponent });
-      if (sid) auditLogger.logEvent('update_restart_issued', sid, { targetComponent: msg.payload?.targetComponent, service: msg.payload?.service });
+      adminRoutes.setUpdateStatus('restarting', { component: p.targetComponent });
     } else if (msg.type === 'update_prepare') {
-      adminRoutes.setUpdateStatus('preparing', { targetVersion: msg.payload?.targetVersion });
-      if (sid) auditLogger.logEvent('update_prepare_sent', sid, { targetVersion: msg.payload?.targetVersion });
+      adminRoutes.setUpdateStatus('preparing', { targetVersion: p.targetVersion });
     }
 
     // Forward to updater or admin depending on sender
@@ -1159,6 +1160,7 @@ relay.on('disconnection', (info, code, reason) => {
     }
   } else if (connId === updaterConnectionId) {
     updaterConnectionId = null;
+    updateOrchestrator.unregisterAgent(connId);
     console.log('[-] Updater client disconnected');
   } else if (connId === aiConnectionId) {
     aiConnectionId = null;

@@ -1,8 +1,8 @@
 # Project Bastion
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-2%2C763_passing-brightgreen.svg)](#run-tests)
-[![Packages](https://img.shields.io/badge/Packages-8-purple.svg)](#packages)
+[![Tests](https://img.shields.io/badge/Tests-2%2C854_passing-brightgreen.svg)](#run-tests)
+[![Packages](https://img.shields.io/badge/Packages-9-purple.svg)](#packages)
 [![Protocol](https://img.shields.io/badge/Protocol-81_message_types-orange.svg)](#protocol)
 [![Node](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-339933.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-3178C6.svg)](https://www.typescriptlang.org)
@@ -261,7 +261,7 @@ These cannot be disabled, bypassed, or configured away:
 
 ## Status
 
-**Pre-Release.** The protocol, crypto layer, relay, AI client, desktop client, admin UI, adapter template, and infrastructure templates are all implemented and tested across 2,763 passing tests.
+**Pre-Release.** The protocol, crypto layer, relay, AI client, desktop client, admin UI, adapter template, and infrastructure templates are all implemented and tested across 2,854 passing tests.
 
 The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. E2E encryption is active with interoperable tweetnacl (browser) and libsodium (Node.js) implementations. The protocol is stable at 81 message types with 48 error codes across 8 categories. The reference implementation works.
 

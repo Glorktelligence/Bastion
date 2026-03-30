@@ -97,6 +97,7 @@ async function handleLogout() {
 				<li><a href="/connections" class:active={page.url.pathname === '/connections'}>Connections</a></li>
 				<li><a href="/audit" class:active={page.url.pathname === '/audit'}>Audit Log</a></li>
 				<li><a href="/config" class:active={page.url.pathname === '/config'}>Configuration</a></li>
+				<li><a href="/update" class:active={page.url.pathname === '/update'}>System Update</a></li>
 			</ul>
 			<div class="sidebar-footer">
 				<button class="logout-btn" onclick={handleLogout}>Logout</button>

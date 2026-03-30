@@ -211,6 +211,18 @@ export type {
 } from './admin/admin-routes.js';
 
 // ---------------------------------------------------------------------------
+// Admin: Update orchestrator
+// ---------------------------------------------------------------------------
+export { UpdateOrchestrator } from './admin/update-orchestrator.js';
+export type {
+  OrchestratorPhase,
+  OrchestratorStatus,
+  OrchestratorConfig,
+  ConnectedAgent,
+  BuildResult,
+} from './admin/update-orchestrator.js';
+
+// ---------------------------------------------------------------------------
 // Admin: HTTPS server
 // ---------------------------------------------------------------------------
 export { AdminServer, AdminServerError } from './admin/admin-server.js';
