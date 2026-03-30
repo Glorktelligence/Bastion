@@ -9,7 +9,7 @@ Type=simple
 User=bastion-updater
 Group=bastion-updater
 WorkingDirectory=/opt/bastion-updater
-ExecStart=/usr/bin/node /opt/bastion-updater/dist/agent.js
+ExecStart=/usr/bin/node /opt/bastion-updater/dist/main.js
 Restart=always
 RestartSec=10
 
