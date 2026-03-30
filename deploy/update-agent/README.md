@@ -135,6 +135,16 @@ grep bastion-relay /etc/sudoers.d/bastion-updater
 - The relay cannot read update_execute payloads (E2E encrypted)
 - All update operations are logged in the tamper-evident audit chain
 
+## Known Issues & Limitations
+
+- The setup script must be made executable before running: `chmod +x setup-updater.sh`
+- The deployed package.json must have devDependencies stripped (the setup script handles this, but manual deployments must do it manually — `workspace:*` references break outside the monorepo)
+- The `buildUser` in config.json must match the OS user that owns the build path (e.g., `bastion` on relay VM, `bastion-ai` on AI VM)
+- The sudoers file must use the same user as `buildUser` in the agent config
+- Self-signed TLS certs require either `tls.caCertPath` (recommended) or `tls.rejectUnauthorized: false` in config
+- The relay-local agent connects via `wss://127.0.0.1:9443` and can use `caCertPath` for the local cert
+- Remote agents (AI VM) without access to the cert file should use `rejectUnauthorized: false` for internal networks — the E2E encryption layer provides the real security
+
 ## Files
 
 | File | Purpose |

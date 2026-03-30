@@ -5,8 +5,18 @@ All notable changes to Project Bastion are documented in this file.
 ## [0.5.1] - 2026-03-30
 
 ### Fixed
+- E2E decryption: streaming chunks (`conversation_stream`) were sent in plaintext via `client.send()` instead of `sendSecure()`, desynchronising the KDF ratchet chain and breaking all subsequent encrypted messages
+- Conversation switching: message display was bound to the flat `messages` store instead of the conversations store's `activeMessages` — switching conversations now shows the correct messages
+- Systemd service: removed `ProtectSystem=strict` which requires all paths to exist — the AI VM uses `/opt/bastion-ai` not `/opt/bastion`
 - Update orchestrator: agents keyed by agentId instead of connectionId — reconnections now replace the old entry instead of duplicating
-- Setup script: strip both devDependencies and scripts from deployed package.json — workspace:* references and tsc references break outside the monorepo
+- Admin API: `GET /api/update/status` now includes orchestrator data (agents, buildResults, reconnections) — previously returned only the basic status object
+- Setup script: strip both devDependencies and scripts from deployed package.json — `workspace:*` references break outside the monorepo
+- Setup script: added `pnpm install --prod` step to install runtime dependencies (ws, zod)
+- Agent entry point: added `main.ts` with config loading, reconnection (exponential backoff), SIGTERM handling
+- Agent TLS: added `tls.caCertPath` (trust specific cert) and `tls.rejectUnauthorized` (accept any) config options for self-signed certs
+- Command executor: configurable `buildUser` field — relay VM uses `bastion`, AI VM uses `bastion-ai`, omit for no sudo
+- Version check: falls back to local `git fetch` + `git log HEAD..origin/main` when no agents are connected
+- PLAINTEXT_TYPES: synced human client to include file_manifest, file_offer, file_request, file_data (matches AI client)
 
 ### Changed
 - First version deployed via the self-update system
