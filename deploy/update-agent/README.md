@@ -88,9 +88,11 @@ sudo systemctl enable --now bastion-updater
 | `agentName` | Yes | Human-readable name (shown in admin panel) |
 | `component` | Yes | Component name: `relay`, `ai-client`, etc. |
 | `buildPath` | Yes | Absolute path to the Bastion project root |
+| `buildUser` | No | System user that owns the build path. Commands run via `sudo -u <buildUser>`. If omitted, commands run as the agent's own user (no sudo). Relay VM: `bastion`. AI VM: `bastion-ai`. |
 | `services` | Yes | Systemd service names to restart after build |
 | `buildSteps` | No | Default build steps (override via update_execute) |
-| `rejectUnauthorized` | No | Set `false` for self-signed TLS certs (dev only) |
+| `tls.rejectUnauthorized` | No | Set `false` to accept self-signed TLS certs |
+| `tls.caCertPath` | No | Path to CA cert to trust (recommended for self-signed) |
 | `commandTimeoutMs` | No | Command timeout in ms (default: 300000 = 5 min) |
 
 ## Verifying Connection

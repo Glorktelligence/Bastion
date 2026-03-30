@@ -78,19 +78,24 @@ async function run() {
   // =========================================================================
   console.log('--- Test 2: Command executor — buildCommandString ---');
   {
+    // Without buildUser — no sudo prefix
     const config = makeConfig();
+    check('git_pull (no buildUser)', buildCommandString('git_pull', config) === 'git -C /opt/bastion pull');
+    check('pnpm_install (no buildUser)', buildCommandString('pnpm_install', config) === 'pnpm -C /opt/bastion install');
+    check('pnpm_build (no buildUser)', buildCommandString('pnpm_build', config) === 'pnpm -C /opt/bastion run build');
+    check('pnpm_build+filter (no buildUser)', buildCommandString('pnpm_build', config, { filter: '@bastion/relay' }) === 'pnpm -C /opt/bastion --filter @bastion/relay run build');
 
-    const gitCmd = buildCommandString('git_pull', config);
-    check('git_pull command', gitCmd === 'sudo -u bastion git -C /opt/bastion pull');
+    // With buildUser — sudo prefix
+    const sudoConfig = makeConfig({ buildUser: 'bastion' });
+    check('git_pull (buildUser=bastion)', buildCommandString('git_pull', sudoConfig) === 'sudo -u bastion git -C /opt/bastion pull');
+    check('pnpm_install (buildUser=bastion)', buildCommandString('pnpm_install', sudoConfig) === 'sudo -u bastion pnpm -C /opt/bastion install');
+    check('pnpm_build (buildUser=bastion)', buildCommandString('pnpm_build', sudoConfig) === 'sudo -u bastion pnpm -C /opt/bastion run build');
+    check('pnpm_build+filter (buildUser=bastion)', buildCommandString('pnpm_build', sudoConfig, { filter: '@bastion/relay' }) === 'sudo -u bastion pnpm -C /opt/bastion --filter @bastion/relay run build');
 
-    const installCmd = buildCommandString('pnpm_install', config);
-    check('pnpm_install command', installCmd === 'sudo -u bastion pnpm -C /opt/bastion install');
-
-    const buildCmd = buildCommandString('pnpm_build', config);
-    check('pnpm_build command (no filter)', buildCmd === 'sudo -u bastion pnpm -C /opt/bastion run build');
-
-    const filteredCmd = buildCommandString('pnpm_build', config, { filter: '@bastion/relay' });
-    check('pnpm_build command (with filter)', filteredCmd === 'sudo -u bastion pnpm -C /opt/bastion --filter @bastion/relay run build');
+    // AI VM user
+    const aiConfig = makeConfig({ buildUser: 'bastion-ai', buildPath: '/opt/bastion-ai' });
+    check('git_pull (buildUser=bastion-ai)', buildCommandString('git_pull', aiConfig) === 'sudo -u bastion-ai git -C /opt/bastion-ai pull');
+    check('pnpm_install (buildUser=bastion-ai)', buildCommandString('pnpm_install', aiConfig) === 'sudo -u bastion-ai pnpm -C /opt/bastion-ai install');
   }
   console.log();
 

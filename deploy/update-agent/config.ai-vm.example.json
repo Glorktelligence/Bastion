@@ -4,6 +4,7 @@
   "agentName": "AI Client Update Agent",
   "component": "ai-client",
   "buildPath": "/opt/bastion-ai",
+  "buildUser": "bastion-ai",
   "services": ["bastion-ai-client"],
   "buildSteps": [{ "type": "git_pull" }, { "type": "pnpm_install" }, { "type": "pnpm_build" }],
   "tls": {

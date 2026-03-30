@@ -22,6 +22,7 @@
  * MaliClaw Clause: blocked identifiers cannot be approved as providers.
  */
 
+import { execSync } from 'node:child_process';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AuditLogger } from '../audit/audit-logger.js';
 import { AUDIT_EVENT_TYPES } from '../audit/audit-logger.js';
@@ -177,6 +178,8 @@ export interface AdminRoutesConfig {
   readonly onUpdateMessage?: (type: string, payload: Record<string, unknown>) => void;
   /** Optional update orchestrator for enriched status responses. */
   readonly updateOrchestrator?: import('./update-orchestrator.js').UpdateOrchestrator;
+  /** Local git repo path for relay-side version checks (default: process.cwd()). */
+  readonly localGitPath?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -207,6 +210,7 @@ export class AdminRoutes {
   private readonly onDisclosureUpdate: ((config: DisclosureConfig) => void) | null;
   private readonly onUpdateMessage: ((type: string, payload: Record<string, unknown>) => void) | null;
   private readonly orchestrator: import('./update-orchestrator.js').UpdateOrchestrator | null;
+  private readonly localGitPath: string;
   private disclosureConfig: DisclosureConfig;
   private updateStatus: UpdateStatus;
 
@@ -220,6 +224,7 @@ export class AdminRoutes {
     this.onDisclosureUpdate = config.onDisclosureUpdate ?? null;
     this.onUpdateMessage = config.onUpdateMessage ?? null;
     this.orchestrator = config.updateOrchestrator ?? null;
+    this.localGitPath = config.localGitPath ?? process.cwd();
     this.updateStatus = { phase: 'idle', targetVersion: null, startedAt: null, component: null, error: null };
     this.disclosureConfig = {
       enabled: false,
@@ -646,7 +651,13 @@ export class AdminRoutes {
   // Self-Update System
   // -------------------------------------------------------------------------
 
-  /** Trigger a version check via the connected updater client. */
+  /**
+   * Trigger a version check.
+   *
+   * If update agents are connected, sends update_check to the first agent.
+   * If no agents are connected, runs a local git fetch + comparison on the
+   * relay's own repo (since the relay process has access to the git checkout).
+   */
   triggerUpdateCheck(repo: string, currentVersion: string, adminUsername: string): ApiResponse {
     if (
       this.updateStatus.phase !== 'idle' &&
@@ -664,17 +675,82 @@ export class AdminRoutes {
       error: null,
     };
 
-    if (this.onUpdateMessage) {
-      this.onUpdateMessage('update_check', { source: 'github', repo, currentVersion });
-    }
-
     this.audit.logEvent(AUDIT_EVENT_TYPES.UPDATE_CHECK_INITIATED, 'admin', {
       repo,
       currentVersion,
       triggeredBy: adminUsername,
     });
 
-    return { status: 200, body: { status: 'checking', repo, currentVersion } };
+    // Try via connected agent first
+    const hasAgents = this.orchestrator && this.orchestrator.connectedAgentCount > 0;
+    if (hasAgents && this.onUpdateMessage) {
+      this.onUpdateMessage('update_check', { source: 'github', repo, currentVersion });
+      return { status: 200, body: { status: 'checking', method: 'agent', repo, currentVersion } };
+    }
+
+    // No agents connected — run local git check on the relay's repo
+    return this.localVersionCheck(currentVersion);
+  }
+
+  /** Run git fetch + log locally to check for available updates. */
+  private localVersionCheck(currentVersion: string): ApiResponse {
+    try {
+      execSync(`git -C ${this.localGitPath} fetch --quiet 2>/dev/null`, {
+        timeout: 30_000,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch {
+      // fetch failed — maybe offline, check local state anyway
+    }
+
+    try {
+      const ahead = execSync(`git -C ${this.localGitPath} log HEAD..origin/main --oneline 2>/dev/null`, {
+        timeout: 10_000,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim();
+
+      if (!ahead) {
+        this.updateStatus = { phase: 'idle', targetVersion: null, startedAt: null, component: null, error: null };
+        return { status: 200, body: { status: 'up_to_date', currentVersion, method: 'local_git' } };
+      }
+
+      const commits = ahead.split('\n').filter((l) => l.length > 0);
+      const latestHash = commits[0]?.split(' ')[0] ?? 'unknown';
+
+      // Try to read the remote VERSION file
+      let remoteVersion = 'unknown';
+      try {
+        remoteVersion = execSync(`git -C ${this.localGitPath} show origin/main:VERSION 2>/dev/null`, {
+          timeout: 5_000,
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }).trim();
+      } catch {
+        // VERSION file may not exist in remote — use commit count as indicator
+        remoteVersion = `${currentVersion}+${commits.length}`;
+      }
+
+      this.updateStatus.targetVersion = remoteVersion;
+
+      return {
+        status: 200,
+        body: {
+          status: 'update_available',
+          method: 'local_git',
+          currentVersion,
+          availableVersion: remoteVersion,
+          commitHash: latestHash,
+          changelog: commits.map((c) => c.replace(/^[a-f0-9]+ /, '')),
+          commitCount: commits.length,
+        },
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.updateStatus = { phase: 'failed', targetVersion: null, startedAt: null, component: null, error: msg };
+      return { status: 500, body: { status: 'error', error: `Local git check failed: ${msg}`, method: 'local_git' } };
+    }
   }
 
   /** Trigger an update execution sequence via the connected updater client. */

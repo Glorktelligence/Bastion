@@ -4,6 +4,7 @@
   "agentName": "Relay Update Agent",
   "component": "relay",
   "buildPath": "/opt/bastion",
+  "buildUser": "bastion",
   "services": ["bastion-relay", "bastion-admin-ui"],
   "buildSteps": [
     { "type": "git_pull" },

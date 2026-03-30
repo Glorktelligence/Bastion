@@ -10,7 +10,8 @@
  *
  * Security model:
  *   - Only three command types are accepted: git_pull, pnpm_install, pnpm_build
- *   - All commands run as the 'bastion' service user via sudo
+ *   - If buildUser is set, commands run via sudo -u <buildUser>
+ *   - If buildUser is not set, commands run as the current process user (no sudo)
  *   - PATH is restricted to /usr/bin:/bin
  *   - Execution timeout defaults to 5 minutes
  *   - Unknown command types are rejected with an error
@@ -46,20 +47,36 @@ const SAFE_FILTER_PATTERN = /^@?[\w-]+(?:\/[\w-]+)?$/;
 /** Safe pattern for git repo URLs or paths. */
 const SAFE_REPO_PATTERN = /^[\w./:@-]+$/;
 
-/** Validate a pnpm filter value. */
+/** Safe pattern for buildUser — alphanumeric, hyphens, underscores only. */
+const SAFE_USER_PATTERN = /^[\w-]+$/;
+
 function validateFilter(filter: string): boolean {
   return SAFE_FILTER_PATTERN.test(filter);
 }
 
-/** Validate a git repo URL/path. */
 function validateRepo(repo: string): boolean {
   return SAFE_REPO_PATTERN.test(repo);
 }
 
-/** Validate that a path contains no shell metacharacters. */
 function validatePath(path: string): boolean {
-  // Reject anything that could be used for command injection
   return /^[\w/.:-]+$/.test(path);
+}
+
+function validateUser(user: string): boolean {
+  return SAFE_USER_PATTERN.test(user);
+}
+
+// ---------------------------------------------------------------------------
+// Command prefix helper
+// ---------------------------------------------------------------------------
+
+/** Returns "sudo -u <user> " if buildUser is set, or "" if not. */
+function sudoPrefix(config: AgentConfig): string {
+  if (!config.buildUser) return '';
+  if (!validateUser(config.buildUser)) {
+    throw new CommandExecutorError(`Invalid buildUser: ${config.buildUser}`);
+  }
+  return `sudo -u ${config.buildUser} `;
 }
 
 // ---------------------------------------------------------------------------
@@ -74,11 +91,11 @@ const COMMAND_MAP: Record<string, CommandBuilder> = {
     if (repo && !validateRepo(repo)) {
       throw new CommandExecutorError(`Invalid repo value: ${repo}`);
     }
-    return `sudo -u bastion git -C ${config.buildPath} pull`;
+    return `${sudoPrefix(config)}git -C ${config.buildPath} pull`;
   },
 
   pnpm_install: (config) => {
-    return `sudo -u bastion pnpm -C ${config.buildPath} install`;
+    return `${sudoPrefix(config)}pnpm -C ${config.buildPath} install`;
   },
 
   pnpm_build: (config, options) => {
@@ -87,9 +104,9 @@ const COMMAND_MAP: Record<string, CommandBuilder> = {
       if (!validateFilter(filter)) {
         throw new CommandExecutorError(`Invalid filter value: ${filter}`);
       }
-      return `sudo -u bastion pnpm -C ${config.buildPath} --filter ${filter} run build`;
+      return `${sudoPrefix(config)}pnpm -C ${config.buildPath} --filter ${filter} run build`;
     }
-    return `sudo -u bastion pnpm -C ${config.buildPath} run build`;
+    return `${sudoPrefix(config)}pnpm -C ${config.buildPath} run build`;
   },
 };
 
@@ -107,7 +124,7 @@ const RESTRICTED_ENV = { PATH: '/usr/bin:/bin' };
  * Execute a whitelisted command.
  *
  * @param type — command type (must be in COMMAND_MAP)
- * @param config — agent configuration with buildPath
+ * @param config — agent configuration with buildPath and optional buildUser
  * @param options — optional parameters (filter, repo)
  * @returns execution result with output and duration
  * @throws CommandExecutorError if command type is unknown or parameters are invalid

@@ -41,6 +41,8 @@ export const AgentConfigSchema = z.object({
   component: z.string().min(1),
   /** Absolute path to the Bastion project root. */
   buildPath: z.string().min(1),
+  /** System user that owns the build path. Commands run via sudo -u <buildUser>. If omitted, commands run as the current process user (no sudo). */
+  buildUser: z.string().min(1).optional(),
   /** Systemd service names to restart after build. */
   services: z.array(z.string().min(1)),
   /** Default build steps if update_execute doesn't specify commands. */
