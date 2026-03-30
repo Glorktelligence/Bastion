@@ -373,7 +373,16 @@ function handleChallengeCancel(): void {
 			</div>
 		{/if}
 
-		<MessageList {messages} />
+		<MessageList messages={activeConv ? convMessages.map(m => ({
+			id: m.id,
+			type: m.type,
+			timestamp: m.timestamp,
+			senderType: m.role === 'user' ? 'human' as const : 'ai' as const,
+			senderName: m.senderName ?? (m.role === 'user' ? 'You' : 'Claude'),
+			content: m.content,
+			payload: m.payload ?? { content: m.content },
+			direction: m.direction ?? (m.role === 'user' ? 'outgoing' as const : 'incoming' as const),
+		})) : messages} />
 
 		{#if isStreaming}
 			<div class="streaming-indicator">

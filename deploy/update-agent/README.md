@@ -14,6 +14,7 @@ The update agent runs on each VM in your Bastion deployment, connecting to the r
 ```bash
 # On each VM (relay VM and AI VM):
 cd /path/to/bastion/deploy/update-agent
+chmod +x setup-updater.sh
 sudo ./setup-updater.sh
 ```
 

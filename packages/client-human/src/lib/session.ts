@@ -256,7 +256,7 @@ export const e2eStatus: Writable<{ available: boolean; active: boolean }> = writ
   active: false,
 });
 
-/** Messages that must stay plaintext — relay control or pre-key-exchange. */
+/** Messages that must stay plaintext — relay control, pre-key-exchange, or relay-routed file transfers. */
 const PLAINTEXT_TYPES = new Set([
   'session_init',
   'session_established',
@@ -268,6 +268,10 @@ const PLAINTEXT_TYPES = new Set([
   'error',
   'config_ack',
   'config_nack',
+  'file_manifest',
+  'file_offer',
+  'file_request',
+  'file_data',
 ]);
 
 /**

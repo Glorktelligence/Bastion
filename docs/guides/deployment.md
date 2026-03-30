@@ -682,6 +682,7 @@ Bastion includes a self-update system that can pull, build, and restart all comp
 
 ```bash
 cd deploy/update-agent
+chmod +x setup-updater.sh
 sudo ./setup-updater.sh
 ```
 

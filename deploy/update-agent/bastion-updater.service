@@ -17,10 +17,18 @@ RestartSec=10
 # NoNewPrivileges=no because agent needs sudo for git/pnpm/systemctl.
 # The sudoers whitelist restricts what it can actually do.
 NoNewPrivileges=no
-ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/bastion /opt/bastion-ai /var/lib/bastion
 PrivateTmp=true
+
+# NOTE: ProtectSystem=strict requires ReadWritePaths for every path the agent
+# touches. Since the build path varies per VM (/opt/bastion on relay,
+# /opt/bastion-ai on AI VM), we omit ProtectSystem and rely on the sudoers
+# whitelist as the security boundary. Deployers who want stricter sandboxing
+# can add a drop-in override:
+#   /etc/systemd/system/bastion-updater.service.d/paths.conf
+#   [Service]
+#   ProtectSystem=strict
+#   ReadWritePaths=/opt/bastion /var/lib/bastion
 
 # Environment
 Environment=NODE_ENV=production

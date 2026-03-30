@@ -1359,13 +1359,13 @@ client.on('message', async (data) => {
       // Streaming: send chunks to human client in real-time
       let streamChunkIndex = 0;
       const onChunk = STREAMING_ENABLED ? (chunk, index) => {
-        client.send(JSON.stringify({
+        sendSecure({
           type: 'conversation_stream',
           id: randomUUID(),
           timestamp: new Date().toISOString(),
           sender: IDENTITY,
           payload: { conversationId: activeConversationId || '', chunk, index, final: false },
-        }));
+        });
         streamChunkIndex = index;
       } : undefined;
 
@@ -1388,13 +1388,13 @@ client.on('message', async (data) => {
 
         // Send final stream chunk marker if streaming was active
         if (STREAMING_ENABLED && streamChunkIndex > 0) {
-          client.send(JSON.stringify({
+          sendSecure({
             type: 'conversation_stream',
             id: randomUUID(),
             timestamp: new Date().toISOString(),
             sender: IDENTITY,
             payload: { conversationId: activeConversationId || '', chunk: '', index: streamChunkIndex + 1, final: true },
-          }));
+          });
         }
 
         // Add to conversation buffer and persist
