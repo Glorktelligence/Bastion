@@ -202,6 +202,19 @@ async function run() {
     // Extra fields stripped (not failed)
     const extra = validateConfig({ ...makeConfig(), extraField: 'bonus' });
     check('extra fields do not fail', extra.valid);
+
+    // TLS config — both options
+    const tlsReject = validateConfig({ ...makeConfig(), tls: { rejectUnauthorized: false } });
+    check('tls.rejectUnauthorized=false passes', tlsReject.valid);
+
+    const tlsCa = validateConfig({ ...makeConfig(), tls: { caCertPath: '/opt/bastion/certs/relay-cert.pem' } });
+    check('tls.caCertPath passes', tlsCa.valid);
+
+    const tlsBoth = validateConfig({ ...makeConfig(), tls: { rejectUnauthorized: false, caCertPath: '/certs/ca.pem' } });
+    check('tls with both options passes', tlsBoth.valid);
+
+    const noTls = validateConfig(makeConfig());
+    check('config without tls passes (optional)', noTls.valid);
   }
   console.log();
 

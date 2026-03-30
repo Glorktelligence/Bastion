@@ -14,8 +14,8 @@
     { "type": "pnpm_build", "filter": "@bastion/relay-admin-ui" },
     { "type": "pnpm_build", "filter": "@bastion/update-agent" }
   ],
-  "timeouts": {
-    "build": 300,
-    "restart": 60
-  }
+  "tls": {
+    "caCertPath": "/opt/bastion/certs/relay-cert.pem"
+  },
+  "commandTimeoutMs": 300000
 }

@@ -14,6 +14,8 @@
     { "type": "pnpm_build", "filter": "@bastion/relay-admin-ui" },
     { "type": "pnpm_build", "filter": "@bastion/update-agent" }
   ],
-  "rejectUnauthorized": false,
+  "tls": {
+    "caCertPath": "/opt/bastion/certs/relay-cert.pem"
+  },
   "commandTimeoutMs": 300000
 }

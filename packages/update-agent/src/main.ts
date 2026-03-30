@@ -47,6 +47,8 @@ console.log(`Component: ${config.component}`);
 console.log(`Relay:     ${config.relayUrl}`);
 console.log(`Build:     ${config.buildPath}`);
 console.log(`Services:  ${config.services.join(', ')}`);
+if (config.tls?.caCertPath) console.log(`TLS CA:    ${config.tls.caCertPath}`);
+if (config.tls?.rejectUnauthorized === false) console.log('TLS:       accepting self-signed certificates');
 console.log('');
 
 // ---------------------------------------------------------------------------

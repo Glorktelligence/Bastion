@@ -21,6 +21,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
+import { readFileSync } from 'node:fs';
 import { WebSocket } from 'ws';
 import { type CommandResult, executeCommand } from './command-executor.js';
 import type { AgentConfig } from './config.js';
@@ -91,9 +92,19 @@ export class BastionUpdateAgent extends EventEmitter<AgentEvents> {
         reject(new UpdateAgentError('Connection timeout'));
       }, CONNECT_TIMEOUT_MS);
 
-      this.ws = new WebSocket(this.config.relayUrl, {
-        rejectUnauthorized: this.config.rejectUnauthorized ?? true,
-      });
+      const wsOptions: Record<string, unknown> = {
+        rejectUnauthorized: this.config.tls?.rejectUnauthorized ?? true,
+      };
+      if (this.config.tls?.caCertPath) {
+        try {
+          wsOptions.ca = readFileSync(this.config.tls.caCertPath);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          reject(new UpdateAgentError(`Failed to load CA cert at ${this.config.tls.caCertPath}: ${msg}`));
+          return;
+        }
+      }
+      this.ws = new WebSocket(this.config.relayUrl, wsOptions);
 
       this.ws.once('open', () => {
         clearTimeout(timer);

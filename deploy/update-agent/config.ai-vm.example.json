@@ -6,6 +6,8 @@
   "buildPath": "/opt/bastion-ai",
   "services": ["bastion-ai-client"],
   "buildSteps": [{ "type": "git_pull" }, { "type": "pnpm_install" }, { "type": "pnpm_build" }],
-  "rejectUnauthorized": false,
+  "tls": {
+    "caCertPath": "/opt/bastion-ai/certs/relay-cert.pem"
+  },
   "commandTimeoutMs": 300000
 }

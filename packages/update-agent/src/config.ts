@@ -21,6 +21,15 @@ const BuildStepSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('pnpm_build'), filter: z.string().optional() }),
 ]);
 
+const TlsConfigSchema = z
+  .object({
+    /** Accept self-signed TLS certificates (development/homelab only). Default: true. */
+    rejectUnauthorized: z.boolean().optional(),
+    /** Path to a CA certificate file to trust (e.g. the relay's self-signed cert). */
+    caCertPath: z.string().optional(),
+  })
+  .optional();
+
 export const AgentConfigSchema = z.object({
   /** WSS URL of the relay server. */
   relayUrl: z.string().url(),
@@ -36,8 +45,8 @@ export const AgentConfigSchema = z.object({
   services: z.array(z.string().min(1)),
   /** Default build steps if update_execute doesn't specify commands. */
   buildSteps: z.array(BuildStepSchema).optional(),
-  /** Accept self-signed TLS certificates (development only). */
-  rejectUnauthorized: z.boolean().optional(),
+  /** TLS configuration for the relay connection. */
+  tls: TlsConfigSchema,
   /** Command execution timeout in milliseconds. Default: 300000 (5 min). */
   commandTimeoutMs: z.number().int().positive().optional(),
 });
