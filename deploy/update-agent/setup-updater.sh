@@ -60,7 +60,7 @@ echo "  Sudoers installed and validated"
 echo ""
 
 # Copy agent files
-echo "[3/5] Installing agent to $INSTALL_DIR..."
+echo "[3/6] Installing agent to $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
 if [ -d "$SCRIPT_DIR/../../packages/update-agent/dist" ]; then
     cp -r "$SCRIPT_DIR/../../packages/update-agent/dist/" "$INSTALL_DIR/"
@@ -74,15 +74,34 @@ fi
 chown -R bastion-updater:bastion-updater "$INSTALL_DIR"
 echo ""
 
+# Install runtime dependencies
+echo "[4/6] Installing runtime dependencies..."
+if [ -f "$INSTALL_DIR/package.json" ]; then
+    cd "$INSTALL_DIR"
+    if command -v pnpm &>/dev/null; then
+        sudo -u bastion-updater pnpm install --prod 2>&1 | tail -3
+    elif command -v npm &>/dev/null; then
+        sudo -u bastion-updater npm install --omit=dev 2>&1 | tail -3
+    else
+        echo "  ERROR: Neither pnpm nor npm found — cannot install dependencies"
+        exit 1
+    fi
+    cd "$SCRIPT_DIR"
+    echo "  Dependencies installed"
+else
+    echo "  WARNING: No package.json — skipping dependency install"
+fi
+echo ""
+
 # Install systemd service
-echo "[4/5] Installing systemd service..."
+echo "[5/6] Installing systemd service..."
 cp "$SCRIPT_DIR/bastion-updater.service" /etc/systemd/system/
 systemctl daemon-reload
 echo "  Service installed"
 echo ""
 
 # Config check
-echo "[5/5] Checking configuration..."
+echo "[6/6] Checking configuration..."
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "  No config.json found at $CONFIG_FILE"
     echo ""

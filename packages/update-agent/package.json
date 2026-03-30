@@ -20,11 +20,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@bastion/protocol": "workspace:*",
     "ws": "^8.18.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@bastion/protocol": "workspace:*",
     "@types/node": "^25.4.0",
     "@types/ws": "^8.5.14",
     "typescript": "^5.7.0"

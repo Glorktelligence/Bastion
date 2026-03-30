@@ -18,7 +18,7 @@ chmod +x setup-updater.sh
 sudo ./setup-updater.sh
 ```
 
-The script creates the `bastion-updater` system user, installs the sudoers whitelist, copies agent files, and installs the systemd service.
+The script creates the `bastion-updater` system user, installs the sudoers whitelist, copies agent files, installs runtime dependencies (`ws`, `zod`), and installs the systemd service.
 
 ## Manual Setup
 
@@ -44,6 +44,10 @@ sudo mkdir -p /opt/bastion-updater
 sudo cp -r ../../packages/update-agent/dist/ /opt/bastion-updater/
 sudo cp ../../packages/update-agent/package.json /opt/bastion-updater/
 sudo chown -R bastion-updater:bastion-updater /opt/bastion-updater
+
+# Install runtime dependencies
+cd /opt/bastion-updater
+sudo -u bastion-updater pnpm install --prod  # or: npm install --omit=dev
 ```
 
 ### 4. Configure
