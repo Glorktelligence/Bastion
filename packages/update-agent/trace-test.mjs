@@ -446,6 +446,17 @@ async function run() {
     check('1 agent after unregister', orch.connectedAgentCount === 1);
     check('relay agent removed', !orch.findAgentByComponent('relay'));
     check('ai-client agent remains', !!orch.findAgentByComponent('ai-client'));
+
+    // Reconnection deduplication — same agentId, new connectionId
+    orch.registerAgent('conn-3', 'agent-2', 'ai-client');
+    check('reconnection replaces not duplicates', orch.connectedAgentCount === 1);
+    check('connectionId updated', orch.findAgentByComponent('ai-client')?.connectionId === 'conn-3');
+
+    // Multiple reconnections
+    orch.registerAgent('conn-10', 'agent-2', 'ai-client');
+    orch.registerAgent('conn-11', 'agent-2', 'ai-client');
+    orch.registerAgent('conn-12', 'agent-2', 'ai-client');
+    check('still 1 agent after 3 reconnections', orch.connectedAgentCount === 1);
   }
   console.log();
 

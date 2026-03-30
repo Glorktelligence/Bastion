@@ -2,6 +2,15 @@
 
 All notable changes to Project Bastion are documented in this file.
 
+## [0.5.1] - 2026-03-30
+
+### Fixed
+- Update orchestrator: agents keyed by agentId instead of connectionId — reconnections now replace the old entry instead of duplicating
+- Setup script: strip both devDependencies and scripts from deployed package.json — workspace:* references and tsc references break outside the monorepo
+
+### Changed
+- First version deployed via the self-update system
+
 ## [0.5.0] - 2026-03-30
 
 ### Protocol

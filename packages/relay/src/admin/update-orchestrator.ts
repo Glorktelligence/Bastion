@@ -148,8 +148,12 @@ export class UpdateOrchestrator {
   // Agent management
   // -------------------------------------------------------------------------
 
+  /**
+   * Register a connected update agent. Keyed by agentId so
+   * reconnections replace the old entry instead of duplicating.
+   */
   registerAgent(connectionId: string, agentId: string, component: string): void {
-    this.agents.set(connectionId, {
+    this.agents.set(agentId, {
       connectionId,
       component,
       agentId,
@@ -162,15 +166,24 @@ export class UpdateOrchestrator {
     }
   }
 
+  /** Unregister an agent by connection ID (called on WebSocket disconnect). */
   unregisterAgent(connectionId: string): void {
-    const agent = this.agents.get(connectionId);
-    this.agents.delete(connectionId);
+    // Find by connectionId since that's what the relay knows at disconnect time
+    let found: ConnectedAgent | undefined;
+    for (const agent of this.agents.values()) {
+      if (agent.connectionId === connectionId) {
+        found = agent;
+        break;
+      }
+    }
+    if (!found) return;
+    this.agents.delete(found.agentId);
 
     // If agent disconnects during build, fail that component
-    if (this.phase === 'building' && agent) {
-      const result = this.buildResults.get(agent.component);
+    if (this.phase === 'building') {
+      const result = this.buildResults.get(found.component);
       if (result && result.status !== 'complete') {
-        this.handleBuildStatus(agent.component, 'failed', undefined, 'Agent disconnected during build');
+        this.handleBuildStatus(found.component, 'failed', undefined, 'Agent disconnected during build');
       }
     }
   }
