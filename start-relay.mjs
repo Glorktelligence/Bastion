@@ -277,6 +277,20 @@ const adminRoutes = new AdminRoutes({
   statusProvider,
   extensionRegistry,
   onDisclosureUpdate: (cfg) => updateDisclosureConfig(cfg),
+  onUpdateMessage: (type, payload) => {
+    if (!updaterConnectionId) {
+      console.log(`[!] No updater client connected — cannot send ${type}`);
+      return;
+    }
+    relay.send(updaterConnectionId, JSON.stringify({
+      type,
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: { id: 'relay', type: 'relay', displayName: 'Bastion Relay' },
+      payload,
+    }));
+    console.log(`[→] ${type} sent to updater ${updaterConnectionId.slice(0, 8)}`);
+  },
 });
 console.log('[✓] Admin routes initialised (live status provider wired)');
 
@@ -299,6 +313,7 @@ console.log('[✓] Admin server configured (127.0.0.1 only — use SSH tunnel fo
 
 let humanConnectionId = null;
 let aiConnectionId = null;
+let updaterConnectionId = null;
 
 /** Session IDs keyed by connection ID (for audit logging). */
 const sessionIds = new Map();
@@ -490,13 +505,16 @@ relay.on('message', async (data, info) => {
     // Register with router
     router.registerClient(connId, identity);
 
-    // Track human/AI connection
+    // Track human/AI/updater connection
     if (identity.type === 'human') {
       humanConnectionId = connId;
       console.log(`[✓] Human client registered: ${identity.displayName}`);
     } else if (identity.type === 'ai') {
       aiConnectionId = connId;
       console.log(`[✓] AI client registered: ${identity.displayName}`);
+    } else if (identity.type === 'updater') {
+      updaterConnectionId = connId;
+      console.log(`[✓] Updater client registered: ${identity.displayName}`);
     }
 
     // Auto-pair when both sides are connected
@@ -635,16 +653,26 @@ relay.on('message', async (data, info) => {
 
   // ----- key_exchange: forward between paired clients (relay is zero-knowledge) -----
   if (msg.type === 'key_exchange') {
-    const peerId = router.getPeer(connId);
-    if (peerId) {
-      relay.send(peerId, data);
-      console.log(`[→] key_exchange forwarded to peer ${peerId.slice(0, 8)} (relay sees public key only)`);
-      const sid = sessionIds.get(connId);
-      if (sid) auditLogger.logEvent('key_exchange', sid, {
-        // Log only that exchange happened — NOT the key itself (metadata only)
-        messageType: 'key_exchange',
-      });
+    // Updater clients exchange keys — route between updater and human (admin)
+    if (connId === updaterConnectionId && humanConnectionId) {
+      relay.send(humanConnectionId, data);
+      console.log(`[→] key_exchange forwarded from updater to human ${humanConnectionId.slice(0, 8)}`);
+    } else if (connId === humanConnectionId && updaterConnectionId) {
+      relay.send(updaterConnectionId, data);
+      console.log(`[→] key_exchange forwarded from human to updater ${updaterConnectionId.slice(0, 8)}`);
+    } else {
+      // Standard human↔AI key exchange
+      const peerId = router.getPeer(connId);
+      if (peerId) {
+        relay.send(peerId, data);
+        console.log(`[→] key_exchange forwarded to peer ${peerId.slice(0, 8)} (relay sees public key only)`);
+      }
     }
+    const sid = sessionIds.get(connId);
+    if (sid) auditLogger.logEvent('key_exchange', sid, {
+      // Log only that exchange happened — NOT the key itself (metadata only)
+      messageType: 'key_exchange',
+    });
     return;
   }
 
@@ -794,6 +822,56 @@ relay.on('message', async (data, info) => {
         });
       }
     }
+    return;
+  }
+
+  // ----- update_* messages: route between updater client and admin with audit -----
+  if (msg.type === 'update_check' || msg.type === 'update_available' || msg.type === 'update_prepare' || msg.type === 'update_prepare_ack' || msg.type === 'update_execute' || msg.type === 'update_build_status' || msg.type === 'update_restart' || msg.type === 'update_reconnected' || msg.type === 'update_complete' || msg.type === 'update_failed') {
+    const sid = sessionIds.get(connId);
+
+    // Map update messages to audit events and update admin status
+    if (msg.type === 'update_available') {
+      adminRoutes.setUpdateStatus('preparing', { targetVersion: msg.payload?.availableVersion });
+      if (sid) auditLogger.logEvent('update_check_initiated', sid, { availableVersion: msg.payload?.availableVersion });
+    } else if (msg.type === 'update_build_status') {
+      const phase = msg.payload?.phase;
+      if (phase === 'complete') {
+        adminRoutes.setUpdateStatus('complete', { component: msg.payload?.component });
+        if (sid) auditLogger.logEvent('update_build_complete', sid, { component: msg.payload?.component, duration: msg.payload?.duration });
+      } else if (phase === 'failed') {
+        adminRoutes.setUpdateStatus('failed', { component: msg.payload?.component, error: msg.payload?.error });
+        if (sid) auditLogger.logEvent('update_build_failed', sid, { component: msg.payload?.component, error: msg.payload?.error });
+      } else {
+        adminRoutes.setUpdateStatus('building', { component: msg.payload?.component });
+        if (sid) auditLogger.logEvent('update_build_started', sid, { component: msg.payload?.component, phase });
+      }
+    } else if (msg.type === 'update_reconnected') {
+      if (sid) auditLogger.logEvent('update_completed', sid, { component: msg.payload?.component, version: msg.payload?.version });
+    } else if (msg.type === 'update_complete') {
+      adminRoutes.setUpdateStatus('complete', { targetVersion: msg.payload?.toVersion });
+      if (sid) auditLogger.logEvent('update_completed', sid, { fromVersion: msg.payload?.fromVersion, toVersion: msg.payload?.toVersion, duration: msg.payload?.duration });
+    } else if (msg.type === 'update_failed') {
+      adminRoutes.setUpdateStatus('failed', { component: msg.payload?.component, error: msg.payload?.error });
+      if (sid) auditLogger.logEvent('update_failed', sid, { phase: msg.payload?.phase, component: msg.payload?.component, error: msg.payload?.error });
+    } else if (msg.type === 'update_restart') {
+      adminRoutes.setUpdateStatus('restarting', { component: msg.payload?.targetComponent });
+      if (sid) auditLogger.logEvent('update_restart_issued', sid, { targetComponent: msg.payload?.targetComponent, service: msg.payload?.service });
+    } else if (msg.type === 'update_prepare') {
+      adminRoutes.setUpdateStatus('preparing', { targetVersion: msg.payload?.targetVersion });
+      if (sid) auditLogger.logEvent('update_prepare_sent', sid, { targetVersion: msg.payload?.targetVersion });
+    }
+
+    // Forward to updater or admin depending on sender
+    // Relay cannot read encrypted payloads — it only routes and audits metadata
+    if (connId === updaterConnectionId) {
+      // From updater → admin panel can poll /api/update/status
+      console.log(`[→] ${msg.type} from updater (admin will see status via API)`);
+    } else if (updaterConnectionId) {
+      // From admin-initiated → forward to updater
+      relay.send(updaterConnectionId, data);
+      console.log(`[→] ${msg.type} forwarded to updater ${updaterConnectionId.slice(0, 8)}`);
+    }
+
     return;
   }
 
@@ -1079,6 +1157,9 @@ relay.on('disconnection', (info, code, reason) => {
         timestamp: new Date().toISOString(),
       }));
     }
+  } else if (connId === updaterConnectionId) {
+    updaterConnectionId = null;
+    console.log('[-] Updater client disconnected');
   } else if (connId === aiConnectionId) {
     aiConnectionId = null;
     registeredProvider = null;

@@ -24,7 +24,7 @@ bastion/
 ├── start-ai-client.mjs          # AI client startup script (wires all library code)
 ├── docs/                        # Specs, protocol docs, guides, architecture decisions
 ├── packages/
-│   ├── protocol/                # @bastion/protocol — 71 message types, schemas, constants
+│   ├── protocol/                # @bastion/protocol — 81 message types, schemas, constants
 │   ├── crypto/                  # @bastion/crypto — E2E encryption, hashing, key management
 │   ├── relay/                   # @bastion/relay — WSS server, routing, audit, quarantine, admin
 │   ├── client-human/            # @bastion/client-human — Desktop (Tauri + SvelteKit)
@@ -57,7 +57,7 @@ bastion/
 
 ---
 
-## Protocol — 71 Message Types
+## Protocol — 81 Message Types
 
 | Category | Count | Types |
 |----------|-------|-------|
@@ -74,6 +74,7 @@ bastion/
 | E2E Key Exchange | 1 | key_exchange |
 | Multi-Conversation | 13 | conversation_list, conversation_list_response, conversation_create, conversation_create_ack, conversation_switch, conversation_switch_ack, conversation_history, conversation_history_response, conversation_archive, conversation_delete, conversation_compact, conversation_compact_ack, conversation_stream |
 | AI Disclosure | 1 | ai_disclosure |
+| Self-Update | 10 | update_check, update_available, update_prepare, update_prepare_ack, update_execute, update_build_status, update_restart, update_reconnected, update_complete, update_failed |
 
 ---
 
@@ -138,7 +139,7 @@ These are **hardcoded** and **non-negotiable**. Never make them configurable.
 | Mobile client | React Native (Android) |
 | Database | node:sqlite DatabaseSync (audit), SQLite (memories, budget) |
 | Linting | Biome |
-| Testing | node:test (trace-test.mjs pattern), 2,724 tests across 13 files |
+| Testing | node:test (trace-test.mjs pattern), 2,763 tests across 13 files |
 
 ---
 
@@ -154,14 +155,14 @@ Safety floors can be tightened but NEVER loosened below factory defaults.
 
 ## Testing
 
-13 test files, 2,724 tests total. Run all with:
+13 test files, 2,763 tests total. Run all with:
 ```bash
 pnpm test    # or run individually with: node packages/<path>/trace-test.mjs
 ```
 
 | Test File | Count |
 |-----------|-------|
-| packages/tests/trace-test.mjs (protocol schemas) | 233 |
+| packages/tests/trace-test.mjs (protocol schemas) | 286 |
 | packages/tests/integration-test.mjs | 82 |
 | packages/tests/file-transfer-integration-test.mjs | 105 |
 | packages/crypto/trace-test.mjs | 134 |

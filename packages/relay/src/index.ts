@@ -206,6 +206,8 @@ export type {
   ApiResponse,
   RelayStatusProvider,
   LiveConnectionInfo,
+  UpdatePhase,
+  UpdateStatus,
 } from './admin/admin-routes.js';
 
 // ---------------------------------------------------------------------------

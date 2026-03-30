@@ -619,6 +619,92 @@ export const AiDisclosurePayloadSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Self-Update System schemas
+// ---------------------------------------------------------------------------
+
+export const UpdateCheckPayloadSchema = z.object({
+  source: z.literal('github'),
+  repo: z.string().min(1),
+  currentVersion: z.string().min(1),
+});
+
+export const UpdateAvailablePayloadSchema = z.object({
+  currentVersion: z.string().min(1),
+  availableVersion: z.string().min(1),
+  commitHash: z.string().min(1),
+  changelog: z.array(z.string()).readonly(),
+  components: z.array(z.string()).readonly(),
+  estimatedBuildTime: z.number().int().nonnegative().optional(),
+});
+
+export const UpdatePreparePayloadSchema = z.object({
+  targetVersion: z.string().min(1),
+  commitHash: z.string().min(1),
+  reason: z.string().min(1),
+});
+
+export const UpdatePrepareAckPayloadSchema = z.object({
+  component: z.string().min(1),
+  stateSaved: z.boolean(),
+  currentVersion: z.string().min(1),
+});
+
+const UpdateCommandSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('git_pull'), repo: z.string().optional() }),
+  z.object({ type: z.literal('pnpm_install') }),
+  z.object({ type: z.literal('pnpm_build'), filter: z.string().optional() }),
+]);
+
+export const UpdateExecutePayloadSchema = z.object({
+  targetComponent: z.enum(['relay', 'ai-client', 'admin-ui']),
+  commands: z.array(UpdateCommandSchema).readonly(),
+  version: z.string().min(1),
+  commitHash: z.string().min(1),
+});
+
+export const UpdateBuildStatusPayloadSchema = z.object({
+  component: z.string().min(1),
+  phase: z.enum(['pulling', 'installing', 'building', 'complete', 'failed']),
+  progress: z.number().min(0).max(100).optional(),
+  duration: z.number().nonnegative().optional(),
+  error: z.string().optional(),
+});
+
+export const UpdateRestartPayloadSchema = z.object({
+  targetComponent: z.string().min(1),
+  service: z.string().min(1),
+  timeout: z.number().int().positive(),
+});
+
+export const UpdateReconnectedPayloadSchema = z.object({
+  component: z.string().min(1),
+  version: z.string().min(1),
+  previousVersion: z.string().min(1),
+});
+
+export const UpdateCompletePayloadSchema = z.object({
+  fromVersion: z.string().min(1),
+  toVersion: z.string().min(1),
+  duration: z.number().nonnegative(),
+  components: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        buildTime: z.number().nonnegative(),
+        restartTime: z.number().nonnegative(),
+      }),
+    )
+    .readonly(),
+});
+
+export const UpdateFailedPayloadSchema = z.object({
+  phase: z.enum(['check', 'prepare', 'build', 'restart', 'verify']),
+  component: z.string().optional(),
+  error: z.string().min(1),
+  recoverable: z.boolean(),
+});
+
+// ---------------------------------------------------------------------------
 // Payload schema lookup map (message type → Zod schema)
 // ---------------------------------------------------------------------------
 
@@ -700,4 +786,14 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.CONVERSATION_COMPACT_ACK]: ConversationCompactAckPayloadSchema,
   [MESSAGE_TYPES.CONVERSATION_STREAM]: ConversationStreamPayloadSchema,
   [MESSAGE_TYPES.AI_DISCLOSURE]: AiDisclosurePayloadSchema,
+  [MESSAGE_TYPES.UPDATE_CHECK]: UpdateCheckPayloadSchema,
+  [MESSAGE_TYPES.UPDATE_AVAILABLE]: UpdateAvailablePayloadSchema,
+  [MESSAGE_TYPES.UPDATE_PREPARE]: UpdatePreparePayloadSchema,
+  [MESSAGE_TYPES.UPDATE_PREPARE_ACK]: UpdatePrepareAckPayloadSchema,
+  [MESSAGE_TYPES.UPDATE_EXECUTE]: UpdateExecutePayloadSchema,
+  [MESSAGE_TYPES.UPDATE_BUILD_STATUS]: UpdateBuildStatusPayloadSchema,
+  [MESSAGE_TYPES.UPDATE_RESTART]: UpdateRestartPayloadSchema,
+  [MESSAGE_TYPES.UPDATE_RECONNECTED]: UpdateReconnectedPayloadSchema,
+  [MESSAGE_TYPES.UPDATE_COMPLETE]: UpdateCompletePayloadSchema,
+  [MESSAGE_TYPES.UPDATE_FAILED]: UpdateFailedPayloadSchema,
 } as const;

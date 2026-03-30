@@ -3,7 +3,7 @@
 // See LICENSE file for full terms
 
 /**
- * All 70 message types in the Bastion protocol.
+ * All 81 message types in the Bastion protocol.
  *
  * Core spec (13): task, conversation, challenge, confirmation, denial,
  *   status, result, error, audit, file_manifest, file_offer, file_request, heartbeat
@@ -15,6 +15,9 @@
  * Audit query/response (2): audit_query, audit_response
  * Provider/context (2): provider_register, context_update
  * Budget Guard (2): budget_status, budget_config
+ * Self-Update (10): update_check, update_available, update_prepare,
+ *   update_prepare_ack, update_execute, update_build_status,
+ *   update_restart, update_reconnected, update_complete, update_failed
  */
 export const MESSAGE_TYPES = {
   // --- Core message types (Section 5.2) ---
@@ -115,6 +118,18 @@ export const MESSAGE_TYPES = {
 
   // --- AI Disclosure (regulatory transparency) ---
   AI_DISCLOSURE: 'ai_disclosure',
+
+  // --- Self-Update System ---
+  UPDATE_CHECK: 'update_check',
+  UPDATE_AVAILABLE: 'update_available',
+  UPDATE_PREPARE: 'update_prepare',
+  UPDATE_PREPARE_ACK: 'update_prepare_ack',
+  UPDATE_EXECUTE: 'update_execute',
+  UPDATE_BUILD_STATUS: 'update_build_status',
+  UPDATE_RESTART: 'update_restart',
+  UPDATE_RECONNECTED: 'update_reconnected',
+  UPDATE_COMPLETE: 'update_complete',
+  UPDATE_FAILED: 'update_failed',
 } as const;
 
 /** Union type of all valid message type strings. */

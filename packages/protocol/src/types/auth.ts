@@ -18,8 +18,8 @@ export interface BastionJwtClaims {
   readonly iat: number;
   /** Expiration (Unix timestamp). 15-minute expiry. */
   readonly exp: number;
-  /** Client type: human, ai, or relay. */
-  readonly clientType: 'human' | 'ai' | 'relay';
+  /** Client type: human, ai, relay, or updater. */
+  readonly clientType: 'human' | 'ai' | 'relay' | 'updater';
   /** Session identifier. */
   readonly sessionId: string;
   /** Capabilities granted to this client. */

@@ -10,7 +10,7 @@ Every message type is defined in `@bastion/protocol` FIRST. No other package def
 
 ---
 
-## Current State: 57 Message Types, 45 Error Codes
+## Current State: 81 Message Types, 45 Error Codes
 
 The protocol has grown significantly from the original 23 core types. Current categories:
 
@@ -37,7 +37,7 @@ Every message shares this envelope:
 ```typescript
 interface MessageEnvelope<TPayload> {
   id: MessageId;           // UUID v4
-  type: MessageType;       // One of 57 types
+  type: MessageType;       // One of 81 types
   timestamp: Timestamp;    // ISO 8601
   sender: SenderIdentity;  // { id, type: 'human'|'ai'|'relay', displayName }
   correlationId: CorrelationId;  // UUID v4 — links related messages
@@ -62,7 +62,7 @@ interface EncryptedEnvelope {
 
 Every message type has a corresponding Zod schema in `packages/protocol/src/schemas/message.schema.ts`.
 
-All 57 schemas are mapped in `PAYLOAD_SCHEMAS` for runtime lookup.
+All 81 schemas are mapped in `PAYLOAD_SCHEMAS` for runtime lookup.
 
 ```typescript
 import { z } from 'zod';

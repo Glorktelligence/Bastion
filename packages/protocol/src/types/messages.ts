@@ -711,6 +711,98 @@ export interface AiDisclosurePayload {
 }
 
 // ---------------------------------------------------------------------------
+// Self-Update System Payloads
+// ---------------------------------------------------------------------------
+
+/** Updater → Admin: Check for new version from source. */
+export interface UpdateCheckPayload {
+  readonly source: 'github';
+  readonly repo: string;
+  readonly currentVersion: string;
+}
+
+/** Admin → Updater: Version information and changelog. */
+export interface UpdateAvailablePayload {
+  readonly currentVersion: string;
+  readonly availableVersion: string;
+  readonly commitHash: string;
+  readonly changelog: readonly string[];
+  readonly components: readonly string[];
+  readonly estimatedBuildTime?: number;
+}
+
+/** Admin → Components: Prepare for update — save state. */
+export interface UpdatePreparePayload {
+  readonly targetVersion: string;
+  readonly commitHash: string;
+  readonly reason: string;
+}
+
+/** Component → Admin: Acknowledges preparation, state saved. */
+export interface UpdatePrepareAckPayload {
+  readonly component: string;
+  readonly stateSaved: boolean;
+  readonly currentVersion: string;
+}
+
+/** Admin → Updater: Execute build commands (E2E encrypted payload). */
+export interface UpdateExecutePayload {
+  readonly targetComponent: 'relay' | 'ai-client' | 'admin-ui';
+  readonly commands: readonly UpdateCommand[];
+  readonly version: string;
+  readonly commitHash: string;
+}
+
+/** Whitelisted update command — no arbitrary shell strings. */
+export type UpdateCommand =
+  | { readonly type: 'git_pull'; readonly repo?: string }
+  | { readonly type: 'pnpm_install' }
+  | { readonly type: 'pnpm_build'; readonly filter?: string };
+
+/** Updater → Admin: Build progress report (E2E encrypted). */
+export interface UpdateBuildStatusPayload {
+  readonly component: string;
+  readonly phase: 'pulling' | 'installing' | 'building' | 'complete' | 'failed';
+  readonly progress?: number;
+  readonly duration?: number;
+  readonly error?: string;
+}
+
+/** Admin → Updater: Restart a service (E2E encrypted). */
+export interface UpdateRestartPayload {
+  readonly targetComponent: string;
+  readonly service: string;
+  readonly timeout: number;
+}
+
+/** Component → Admin: Reconnected on new version after restart. */
+export interface UpdateReconnectedPayload {
+  readonly component: string;
+  readonly version: string;
+  readonly previousVersion: string;
+}
+
+/** Admin → All: Update completed successfully. */
+export interface UpdateCompletePayload {
+  readonly fromVersion: string;
+  readonly toVersion: string;
+  readonly duration: number;
+  readonly components: readonly {
+    readonly name: string;
+    readonly buildTime: number;
+    readonly restartTime: number;
+  }[];
+}
+
+/** Any → Admin: Update failed at a specific phase. */
+export interface UpdateFailedPayload {
+  readonly phase: 'check' | 'prepare' | 'build' | 'restart' | 'verify';
+  readonly component?: string;
+  readonly error: string;
+  readonly recoverable: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Discriminated union of all payload types
 // ---------------------------------------------------------------------------
 
@@ -785,4 +877,14 @@ export type MessagePayload =
   | { type: 'conversation_compact'; payload: ConversationCompactPayload }
   | { type: 'conversation_compact_ack'; payload: ConversationCompactAckPayload }
   | { type: 'conversation_stream'; payload: ConversationStreamPayload }
-  | { type: 'ai_disclosure'; payload: AiDisclosurePayload };
+  | { type: 'ai_disclosure'; payload: AiDisclosurePayload }
+  | { type: 'update_check'; payload: UpdateCheckPayload }
+  | { type: 'update_available'; payload: UpdateAvailablePayload }
+  | { type: 'update_prepare'; payload: UpdatePreparePayload }
+  | { type: 'update_prepare_ack'; payload: UpdatePrepareAckPayload }
+  | { type: 'update_execute'; payload: UpdateExecutePayload }
+  | { type: 'update_build_status'; payload: UpdateBuildStatusPayload }
+  | { type: 'update_restart'; payload: UpdateRestartPayload }
+  | { type: 'update_reconnected'; payload: UpdateReconnectedPayload }
+  | { type: 'update_complete'; payload: UpdateCompletePayload }
+  | { type: 'update_failed'; payload: UpdateFailedPayload };

@@ -108,7 +108,7 @@ export interface LiveConnectionInfo {
   readonly connectionId: string;
   readonly remoteAddress: string;
   readonly connectedAt: string;
-  readonly clientType: 'human' | 'ai' | 'unknown';
+  readonly clientType: 'human' | 'ai' | 'updater' | 'unknown';
   readonly authenticated: boolean;
   readonly providerId?: string;
   readonly messageCount: number;
@@ -144,6 +144,25 @@ export interface DisclosureConfig {
   jurisdiction?: string;
 }
 
+/** Update status tracking. */
+export type UpdatePhase =
+  | 'idle'
+  | 'checking'
+  | 'preparing'
+  | 'building'
+  | 'restarting'
+  | 'verifying'
+  | 'complete'
+  | 'failed';
+
+export interface UpdateStatus {
+  phase: UpdatePhase;
+  targetVersion: string | null;
+  startedAt: string | null;
+  component: string | null;
+  error: string | null;
+}
+
 /** Configuration for admin routes. */
 export interface AdminRoutesConfig {
   readonly providerRegistry: ProviderRegistry;
@@ -154,6 +173,8 @@ export interface AdminRoutesConfig {
   readonly extensionRegistry?: import('../extensions/extension-registry.js').ExtensionRegistry;
   /** Callback invoked when admin updates disclosure config via API. */
   readonly onDisclosureUpdate?: (config: DisclosureConfig) => void;
+  /** Callback for sending update messages to the connected updater client. */
+  readonly onUpdateMessage?: (type: string, payload: Record<string, unknown>) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -182,7 +203,9 @@ export class AdminRoutes {
   private readonly statusProvider: RelayStatusProvider | null;
   private readonly extensionRegistry: import('../extensions/extension-registry.js').ExtensionRegistry | null;
   private readonly onDisclosureUpdate: ((config: DisclosureConfig) => void) | null;
+  private readonly onUpdateMessage: ((type: string, payload: Record<string, unknown>) => void) | null;
   private disclosureConfig: DisclosureConfig;
+  private updateStatus: UpdateStatus;
 
   constructor(config: AdminRoutesConfig) {
     this.registry = config.providerRegistry;
@@ -192,6 +215,8 @@ export class AdminRoutes {
     this.statusProvider = config.statusProvider ?? null;
     this.extensionRegistry = config.extensionRegistry ?? null;
     this.onDisclosureUpdate = config.onDisclosureUpdate ?? null;
+    this.onUpdateMessage = config.onUpdateMessage ?? null;
+    this.updateStatus = { phase: 'idle', targetVersion: null, startedAt: null, component: null, error: null };
     this.disclosureConfig = {
       enabled: false,
       text: 'You are interacting with an AI system powered by {provider} ({model}).',
@@ -614,6 +639,111 @@ export class AdminRoutes {
   }
 
   // -------------------------------------------------------------------------
+  // Self-Update System
+  // -------------------------------------------------------------------------
+
+  /** Trigger a version check via the connected updater client. */
+  triggerUpdateCheck(repo: string, currentVersion: string, adminUsername: string): ApiResponse {
+    if (
+      this.updateStatus.phase !== 'idle' &&
+      this.updateStatus.phase !== 'complete' &&
+      this.updateStatus.phase !== 'failed'
+    ) {
+      return { status: 409, body: { error: 'Update already in progress', phase: this.updateStatus.phase } };
+    }
+
+    this.updateStatus = {
+      phase: 'checking',
+      targetVersion: null,
+      startedAt: new Date().toISOString(),
+      component: null,
+      error: null,
+    };
+
+    if (this.onUpdateMessage) {
+      this.onUpdateMessage('update_check', { source: 'github', repo, currentVersion });
+    }
+
+    this.audit.logEvent(AUDIT_EVENT_TYPES.UPDATE_CHECK_INITIATED, 'admin', {
+      repo,
+      currentVersion,
+      triggeredBy: adminUsername,
+    });
+
+    return { status: 200, body: { status: 'checking', repo, currentVersion } };
+  }
+
+  /** Trigger an update execution sequence via the connected updater client. */
+  triggerUpdateExecute(
+    targetComponent: string,
+    version: string,
+    commitHash: string,
+    commands: readonly Record<string, unknown>[],
+    adminUsername: string,
+  ): ApiResponse {
+    if (
+      this.updateStatus.phase !== 'idle' &&
+      this.updateStatus.phase !== 'checking' &&
+      this.updateStatus.phase !== 'complete' &&
+      this.updateStatus.phase !== 'failed'
+    ) {
+      return { status: 409, body: { error: 'Update already in progress', phase: this.updateStatus.phase } };
+    }
+
+    this.updateStatus = {
+      phase: 'building',
+      targetVersion: version,
+      startedAt: new Date().toISOString(),
+      component: targetComponent,
+      error: null,
+    };
+
+    if (this.onUpdateMessage) {
+      this.onUpdateMessage('update_execute', { targetComponent, commands, version, commitHash });
+    }
+
+    this.audit.logEvent(AUDIT_EVENT_TYPES.UPDATE_BUILD_STARTED, 'admin', {
+      targetComponent,
+      version,
+      commitHash,
+      triggeredBy: adminUsername,
+    });
+
+    return { status: 200, body: { status: 'building', targetComponent, version } };
+  }
+
+  /** Get the current update status. */
+  getUpdateStatus(): ApiResponse {
+    return { status: 200, body: { ...this.updateStatus } };
+  }
+
+  /** Cancel an in-progress update. */
+  cancelUpdate(adminUsername: string): ApiResponse {
+    if (this.updateStatus.phase === 'idle') {
+      return { status: 400, body: { error: 'No update in progress' } };
+    }
+
+    const previousPhase = this.updateStatus.phase;
+    this.updateStatus = { phase: 'idle', targetVersion: null, startedAt: null, component: null, error: null };
+
+    this.audit.logEvent(AUDIT_EVENT_TYPES.UPDATE_FAILED, 'admin', {
+      reason: 'cancelled_by_admin',
+      previousPhase,
+      cancelledBy: adminUsername,
+    });
+
+    return { status: 200, body: { status: 'cancelled', previousPhase } };
+  }
+
+  /** Update the internal update status (called by relay when receiving update messages from updater). */
+  setUpdateStatus(phase: UpdatePhase, detail?: { targetVersion?: string; component?: string; error?: string }): void {
+    this.updateStatus.phase = phase;
+    if (detail?.targetVersion !== undefined) this.updateStatus.targetVersion = detail.targetVersion;
+    if (detail?.component !== undefined) this.updateStatus.component = detail.component;
+    if (detail?.error !== undefined) this.updateStatus.error = detail.error;
+  }
+
+  // -------------------------------------------------------------------------
   // HTTP request handling
   // -------------------------------------------------------------------------
 
@@ -711,6 +841,33 @@ export class AdminRoutes {
           : { status: 404, body: { error: 'Extension not found', namespace: ns } };
       } else if (method === 'GET' && path === '/api/disclosure') {
         result = { status: 200, body: { ...this.disclosureConfig } };
+      } else if (method === 'POST' && path === '/api/update/check') {
+        const body = await readJsonBody(req);
+        if (!body.repo || !body.currentVersion) {
+          result = { status: 400, body: { error: 'Missing required fields: repo, currentVersion' } };
+        } else {
+          result = this.triggerUpdateCheck(body.repo, body.currentVersion, adminUsername);
+        }
+      } else if (method === 'POST' && path === '/api/update/execute') {
+        const body = await readJsonBody(req);
+        if (!body.targetComponent || !body.version || !body.commitHash || !body.commands) {
+          result = {
+            status: 400,
+            body: { error: 'Missing required fields: targetComponent, version, commitHash, commands' },
+          };
+        } else {
+          result = this.triggerUpdateExecute(
+            body.targetComponent,
+            body.version,
+            body.commitHash,
+            body.commands,
+            adminUsername,
+          );
+        }
+      } else if (method === 'GET' && path === '/api/update/status') {
+        result = this.getUpdateStatus();
+      } else if (method === 'POST' && path === '/api/update/cancel') {
+        result = this.cancelUpdate(adminUsername);
       } else if (method === 'PUT' && path === '/api/disclosure') {
         const body = await readJsonBody(req);
         const updated: DisclosureConfig = {

@@ -58,6 +58,16 @@ import {
   BudgetAlertPayloadSchema,
   BudgetStatusPayloadSchema,
   BudgetConfigPayloadSchema,
+  UpdateCheckPayloadSchema,
+  UpdateAvailablePayloadSchema,
+  UpdatePreparePayloadSchema,
+  UpdatePrepareAckPayloadSchema,
+  UpdateExecutePayloadSchema,
+  UpdateBuildStatusPayloadSchema,
+  UpdateRestartPayloadSchema,
+  UpdateReconnectedPayloadSchema,
+  UpdateCompletePayloadSchema,
+  UpdateFailedPayloadSchema,
 
   // Schemas — file transfer
   FileTransferStateSchema,
@@ -94,7 +104,8 @@ const uuid = () => randomUUID();
 const ts = () => new Date().toISOString().replace(/\.\d{3}Z$/, '.000Z');
 
 function makeSender(type = 'human') {
-  return { id: uuid(), type, displayName: type === 'human' ? 'Alice' : 'Claude' };
+  const names = { human: 'Alice', ai: 'Claude', relay: 'Bastion Relay', updater: 'Bastion Updater' };
+  return { id: uuid(), type, displayName: names[type] || type };
 }
 
 function makeEnvelope(type, payload, sender) {
@@ -309,6 +320,16 @@ function validPayloads() {
     conversation_compact_ack: { conversationId: crypto.randomUUID(), summaryPreview: 'Key decisions: chose SQLite...', messagesCovered: 25, tokensSaved: 3000 },
     conversation_stream: { conversationId: crypto.randomUUID(), chunk: 'Hello, ', index: 0, final: false },
     ai_disclosure: { text: 'You are interacting with an AI system.', style: 'info', position: 'banner', dismissible: true, link: 'https://example.com/ai-policy', linkText: 'Learn more', jurisdiction: 'EU AI Act Article 50' },
+    update_check: { source: 'github', repo: 'Glorktelligence/Bastion', currentVersion: '0.1.0' },
+    update_available: { currentVersion: '0.1.0', availableVersion: '0.2.0', commitHash: 'abc123def456', changelog: ['feat: self-update system', 'fix: relay routing'], components: ['relay', 'ai-client', 'admin-ui'], estimatedBuildTime: 120 },
+    update_prepare: { targetVersion: '0.2.0', commitHash: 'abc123def456', reason: 'Scheduled update' },
+    update_prepare_ack: { component: 'relay', stateSaved: true, currentVersion: '0.1.0' },
+    update_execute: { targetComponent: 'relay', commands: [{ type: 'git_pull' }, { type: 'pnpm_install' }, { type: 'pnpm_build', filter: '@bastion/relay' }], version: '0.2.0', commitHash: 'abc123def456' },
+    update_build_status: { component: 'relay', phase: 'building', progress: 45, duration: 30 },
+    update_restart: { targetComponent: 'relay', service: 'bastion-relay', timeout: 30 },
+    update_reconnected: { component: 'relay', version: '0.2.0', previousVersion: '0.1.0' },
+    update_complete: { fromVersion: '0.1.0', toVersion: '0.2.0', duration: 180, components: [{ name: 'relay', buildTime: 60, restartTime: 5 }, { name: 'ai-client', buildTime: 90, restartTime: 10 }] },
+    update_failed: { phase: 'build', component: 'relay', error: 'TypeScript compilation failed', recoverable: true },
   };
 }
 
@@ -343,6 +364,7 @@ async function run() {
     check('human client type passes', ClientTypeSchema.safeParse('human').success);
     check('ai client type passes', ClientTypeSchema.safeParse('ai').success);
     check('relay client type passes', ClientTypeSchema.safeParse('relay').success);
+    check('updater client type passes', ClientTypeSchema.safeParse('updater').success);
     check('unknown client type fails', !ClientTypeSchema.safeParse('admin').success);
 
     // SenderIdentity
@@ -398,8 +420,8 @@ async function run() {
         break;
       }
     }
-    check('all 71 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 71 entries', ALL_MESSAGE_TYPES.length === 71);
+    check('all 81 message types accepted in envelope', allTypesValid);
+    check('ALL_MESSAGE_TYPES has 81 entries', ALL_MESSAGE_TYPES.length === 81);
   }
   console.log();
 
@@ -435,8 +457,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 71 entries', typeKeys.length === 71);
-    check('PAYLOAD_SCHEMAS has 71 entries', Object.keys(PAYLOAD_SCHEMAS).length === 71);
+    check('MESSAGE_TYPES has 81 entries', typeKeys.length === 81);
+    check('PAYLOAD_SCHEMAS has 81 entries', Object.keys(PAYLOAD_SCHEMAS).length === 81);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -848,7 +870,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 71 message types survive serialisation round-trip', allPassed);
+    check('all 81 message types survive serialisation round-trip', allPassed);
   }
   console.log();
 
@@ -928,6 +950,94 @@ async function run() {
     // Very large values
     const bigResult = { ...payloads.result, cost: { inputTokens: 999999999, outputTokens: 999999999, estimatedCostUsd: 99999.99 } };
     check('very large token counts pass', ResultPayloadSchema.safeParse(bigResult).success);
+  }
+  console.log();
+
+  // =========================================================================
+  // Test 22: Self-Update System validation
+  // =========================================================================
+  console.log('--- Test 22: Self-Update System validation ---');
+  {
+    // update_check
+    check('update_check valid', UpdateCheckPayloadSchema.safeParse(payloads.update_check).success);
+    check('update_check requires github source', !UpdateCheckPayloadSchema.safeParse({ ...payloads.update_check, source: 'gitlab' }).success);
+    check('update_check requires repo', !UpdateCheckPayloadSchema.safeParse({ source: 'github', currentVersion: '0.1.0' }).success);
+
+    // update_available
+    check('update_available valid', UpdateAvailablePayloadSchema.safeParse(payloads.update_available).success);
+    check('update_available optional estimatedBuildTime', UpdateAvailablePayloadSchema.safeParse({ ...payloads.update_available, estimatedBuildTime: undefined }).success);
+
+    // update_execute command whitelist — CRITICAL security test
+    check('update_execute valid with whitelist commands', UpdateExecutePayloadSchema.safeParse(payloads.update_execute).success);
+    check('update_execute rejects unknown command type', !UpdateExecutePayloadSchema.safeParse({
+      ...payloads.update_execute,
+      commands: [{ type: 'shell_exec', command: 'rm -rf /' }],
+    }).success);
+    check('update_execute rejects eval command', !UpdateExecutePayloadSchema.safeParse({
+      ...payloads.update_execute,
+      commands: [{ type: 'eval', code: 'process.exit(1)' }],
+    }).success);
+    check('update_execute rejects arbitrary strings', !UpdateExecutePayloadSchema.safeParse({
+      ...payloads.update_execute,
+      commands: [{ type: 'sudo rm -rf /' }],
+    }).success);
+    check('update_execute accepts git_pull with repo', UpdateExecutePayloadSchema.safeParse({
+      ...payloads.update_execute,
+      commands: [{ type: 'git_pull', repo: 'https://github.com/Glorktelligence/Bastion.git' }],
+    }).success);
+    check('update_execute accepts pnpm_build with filter', UpdateExecutePayloadSchema.safeParse({
+      ...payloads.update_execute,
+      commands: [{ type: 'pnpm_build', filter: '@bastion/relay' }],
+    }).success);
+    check('update_execute targetComponent enum', !UpdateExecutePayloadSchema.safeParse({
+      ...payloads.update_execute,
+      targetComponent: 'database',
+    }).success);
+
+    // update_build_status
+    check('update_build_status valid', UpdateBuildStatusPayloadSchema.safeParse(payloads.update_build_status).success);
+    check('update_build_status all phases valid', ['pulling', 'installing', 'building', 'complete', 'failed'].every(
+      phase => UpdateBuildStatusPayloadSchema.safeParse({ ...payloads.update_build_status, phase }).success
+    ));
+    check('update_build_status invalid phase fails', !UpdateBuildStatusPayloadSchema.safeParse({ ...payloads.update_build_status, phase: 'compiling' }).success);
+    check('update_build_status with error', UpdateBuildStatusPayloadSchema.safeParse({ component: 'relay', phase: 'failed', error: 'tsc error' }).success);
+
+    // update_restart
+    check('update_restart valid', UpdateRestartPayloadSchema.safeParse(payloads.update_restart).success);
+    check('update_restart requires positive timeout', !UpdateRestartPayloadSchema.safeParse({ ...payloads.update_restart, timeout: 0 }).success);
+
+    // update_reconnected
+    check('update_reconnected valid', UpdateReconnectedPayloadSchema.safeParse(payloads.update_reconnected).success);
+
+    // update_complete
+    check('update_complete valid', UpdateCompletePayloadSchema.safeParse(payloads.update_complete).success);
+    check('update_complete with empty components', UpdateCompletePayloadSchema.safeParse({ ...payloads.update_complete, components: [] }).success);
+
+    // update_failed
+    check('update_failed valid', UpdateFailedPayloadSchema.safeParse(payloads.update_failed).success);
+    check('update_failed all phases valid', ['check', 'prepare', 'build', 'restart', 'verify'].every(
+      phase => UpdateFailedPayloadSchema.safeParse({ ...payloads.update_failed, phase }).success
+    ));
+    check('update_failed invalid phase', !UpdateFailedPayloadSchema.safeParse({ ...payloads.update_failed, phase: 'deploy' }).success);
+    check('update_failed optional component', UpdateFailedPayloadSchema.safeParse({ phase: 'check', error: 'Network error', recoverable: true }).success);
+
+    // update_prepare + update_prepare_ack
+    check('update_prepare valid', UpdatePreparePayloadSchema.safeParse(payloads.update_prepare).success);
+    check('update_prepare_ack valid', UpdatePrepareAckPayloadSchema.safeParse(payloads.update_prepare_ack).success);
+
+    // Round-trip serialisation for update types
+    const updateTypes = ['update_check', 'update_available', 'update_prepare', 'update_prepare_ack', 'update_execute', 'update_build_status', 'update_restart', 'update_reconnected', 'update_complete', 'update_failed'];
+    let allUpdateRoundTrips = true;
+    for (const type of updateTypes) {
+      const env = makeEnvelope(type, payloads[type], makeSender('updater'));
+      const ser = serialise(env);
+      const des = deserialise(ser.wire);
+      if (!des.success) {
+        allUpdateRoundTrips = false;
+        console.log(`  FAIL round-trip for ${type}: ${JSON.stringify(des.errors)}`);
+      }
+    }
+    check('all 10 update types survive serialisation round-trip', allUpdateRoundTrips);
   }
   console.log();
 

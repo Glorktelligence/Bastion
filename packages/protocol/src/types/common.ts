@@ -34,8 +34,8 @@ export interface SenderIdentity {
   readonly displayName: string;
 }
 
-/** The three client types in the Bastion protocol. */
-export type ClientType = 'human' | 'ai' | 'relay';
+/** The four client types in the Bastion protocol. */
+export type ClientType = 'human' | 'ai' | 'relay' | 'updater';
 
 /** Priority levels for task messages. */
 export type Priority = 'low' | 'normal' | 'high' | 'critical';

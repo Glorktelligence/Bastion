@@ -154,7 +154,7 @@ Biome auto-fixes import ordering with `pnpm lint --write`.
 □ Tests written and passing
 □ pnpm lint --write applied
 □ pnpm lint clean (0 issues)
-□ Full 13-file test suite passes (2,675+ tests)
+□ Full 13-file test suite passes (2,763+ tests)
 □ No placeholder code or TODO comments
 □ Follows existing patterns
 □ Apache 2.0 header present

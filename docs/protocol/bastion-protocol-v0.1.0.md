@@ -344,7 +344,7 @@ Tokens expire every 15 minutes. Clients should refresh at 13 minutes (2 minutes 
 
 ## 7. Message Types
 
-The Bastion protocol defines 71 message types across fourteen categories: core (13), supplementary (10), audit (2), provider/context (2), memory (6), extensions (2), project context (7), tool integration (9), challenge governance (3), budget guard (2), E2E encryption (1), multi-conversation persistence (13), and AI disclosure (1).
+The Bastion protocol defines 81 message types across fifteen categories: core (13), supplementary (10), audit (2), provider/context (2), memory (6), extensions (2), project context (7), tool integration (9), challenge governance (3), budget guard (2), E2E encryption (1), multi-conversation persistence (13), AI disclosure (1), and self-update (10).
 
 ### 7.1 Core Message Types
 
@@ -738,6 +738,123 @@ Relay-generated regulatory transparency banner. Sent after session pairing when 
 | `jurisdiction` | string? | Regulation label for audit trail (e.g. "EU AI Act Article 50") |
 
 The relay generates this message — not the AI client — because the relay admin is the operator/deployer responsible for regulatory compliance. Template variables `{provider}` and `{model}` are resolved at send time from the registered provider's current values. Every disclosure sent is logged as an `ai_disclosure_sent` audit event in the tamper-evident hash chain.
+
+### 7.6 Self-Update System
+
+The self-update system introduces a fourth client type (`updater`) that connects to the relay, authenticates via JWT, and performs E2E key exchange. Update commands use a **whitelist of command types** — no arbitrary shell execution is possible.
+
+#### `update_check` (Updater → Admin)
+
+Check for a new version from the source repository.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | `'github'` | Source repository type (whitelist) |
+| `repo` | string | Repository identifier (e.g. "Glorktelligence/Bastion") |
+| `currentVersion` | string | Currently running version |
+
+#### `update_available` (Admin → Updater)
+
+Version information and changelog when an update is available.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `currentVersion` | string | Currently running version |
+| `availableVersion` | string | Available version to update to |
+| `commitHash` | string | Git commit hash of available version |
+| `changelog` | string[] | List of changes in the new version |
+| `components` | string[] | Components that need updating |
+| `estimatedBuildTime` | number? | Estimated build time in seconds |
+
+#### `update_prepare` (Admin → Components)
+
+Prepare all components for update — save state.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `targetVersion` | string | Version being updated to |
+| `commitHash` | string | Git commit hash |
+| `reason` | string | Human-readable reason for update |
+
+#### `update_prepare_ack` (Component → Admin)
+
+Component acknowledges preparation, state saved.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `component` | string | Component name |
+| `stateSaved` | boolean | Whether state was successfully saved |
+| `currentVersion` | string | Component's current version |
+
+#### `update_execute` (Admin → Updater, E2E encrypted)
+
+Execute whitelisted build commands. The payload is E2E encrypted — the relay cannot read it.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `targetComponent` | enum | `'relay'` \| `'ai-client'` \| `'admin-ui'` |
+| `commands` | UpdateCommand[] | Whitelisted commands (see below) |
+| `version` | string | Target version |
+| `commitHash` | string | Git commit hash |
+
+**UpdateCommand types (whitelist — no arbitrary shell):**
+- `{ type: 'git_pull', repo?: string }` — Pull latest from git
+- `{ type: 'pnpm_install' }` — Install dependencies
+- `{ type: 'pnpm_build', filter?: string }` — Build package(s)
+
+#### `update_build_status` (Updater → Admin, E2E encrypted)
+
+Build progress report.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `component` | string | Component being built |
+| `phase` | enum | `'pulling'` \| `'installing'` \| `'building'` \| `'complete'` \| `'failed'` |
+| `progress` | number? | Percentage (0–100) |
+| `duration` | number? | Elapsed seconds |
+| `error` | string? | Error message (if failed) |
+
+#### `update_restart` (Admin → Updater, E2E encrypted)
+
+Restart a service after build completes.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `targetComponent` | string | Component to restart |
+| `service` | string | Systemd service name |
+| `timeout` | number | Timeout in seconds |
+
+#### `update_reconnected` (Component → Admin)
+
+Component has reconnected on the new version after restart.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `component` | string | Component name |
+| `version` | string | New version now running |
+| `previousVersion` | string | Version before update |
+
+#### `update_complete` (Admin → All)
+
+All components verified on new version.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `fromVersion` | string | Previous version |
+| `toVersion` | string | New version |
+| `duration` | number | Total update duration in seconds |
+| `components` | object[] | Per-component timing: `{ name, buildTime, restartTime }` |
+
+#### `update_failed` (Any → Admin)
+
+Update failed at a specific phase.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `phase` | enum | `'check'` \| `'prepare'` \| `'build'` \| `'restart'` \| `'verify'` |
+| `component` | string? | Component that failed (if applicable) |
+| `error` | string | Error description |
+| `recoverable` | boolean | Whether the system can continue on current version |
 
 ---
 

@@ -21,11 +21,11 @@ pnpm build && pnpm test
 
 ---
 
-## Test Suite — 13 Files, 2,675 Tests
+## Test Suite — 13 Files, 2,763 Tests
 
 | # | File | Tests | Package | Scope |
 |---|------|-------|---------|-------|
-| 1 | packages/tests/trace-test.mjs | 233 | @bastion/protocol | Schema validation for all 57 message types |
+| 1 | packages/tests/trace-test.mjs | 286 | @bastion/protocol | Schema validation for all 81 message types |
 | 2 | packages/tests/integration-test.mjs | 82 | Cross-package | Full message round-trip (human→relay→AI→relay→human) |
 | 3 | packages/tests/file-transfer-integration-test.mjs | 105 | Cross-package | File transfer pipeline with quarantine + hash verification |
 | 4 | packages/crypto/trace-test.mjs | 134 | @bastion/crypto | E2E encryption, key exchange, hashing, audit chain |
@@ -39,7 +39,7 @@ pnpm build && pnpm test
 | 12 | packages/client-human-mobile/trace-test.mjs | 123 | @bastion/client-human-mobile | Mobile stores, connection, components |
 | 13 | packages/relay-admin-ui/trace-test.mjs | 239 | @bastion/relay-admin-ui | Admin UI stores, data service, API client |
 
-**All 13 files must pass before committing.** Expected: 2,675+ tests, 0 failures.
+**All 13 files must pass before committing.** Expected: 2,763+ tests, 0 failures.
 
 ---
 
@@ -51,7 +51,7 @@ pnpm build && pnpm test
 - Serialisation round-trips preserve data
 - Integrity hashes detect tampering
 - All 45 error codes have valid BASTION-CXXX format
-- All 57 message types have schemas
+- All 81 message types have schemas
 
 ### Safety Engine (Critical)
 - Layer 1 denies every blocked category
@@ -163,7 +163,7 @@ check('accepts clean markdown', validateProjectSync({path: 'a.md', content: '# H
 ## Before Marking "Tested"
 
 ```
-□ All 13 test files pass (2,675+ tests, 0 failures)
+□ All 13 test files pass (2,763+ tests, 0 failures)
 □ Safety floor tests included
 □ MaliClaw tests included (all 13 identifiers + regex)
 □ Error codes tested (BASTION-CXXX format)

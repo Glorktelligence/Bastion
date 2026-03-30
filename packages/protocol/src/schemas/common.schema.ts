@@ -21,7 +21,7 @@ export const FileTransferIdSchema = z.string().regex(UUID_REGEX, 'Must be a vali
 export const CorrelationIdSchema = z.string().regex(UUID_REGEX, 'Must be a valid UUID v4');
 export const TimestampSchema = z.string().regex(ISO_8601_REGEX, 'Must be ISO 8601 UTC timestamp');
 
-export const ClientTypeSchema = z.enum(['human', 'ai', 'relay']);
+export const ClientTypeSchema = z.enum(['human', 'ai', 'relay', 'updater']);
 
 export const SenderIdentitySchema = z.object({
   id: z.string().min(1),
