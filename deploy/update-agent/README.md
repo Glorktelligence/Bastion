@@ -42,10 +42,18 @@ sudo visudo -c  # Validate syntax
 sudo mkdir -p /opt/bastion-updater
 # Copy built agent files
 sudo cp -r ../../packages/update-agent/dist/ /opt/bastion-updater/
-sudo cp ../../packages/update-agent/package.json /opt/bastion-updater/
+
+# Copy package.json WITHOUT devDependencies (they contain workspace:*
+# refs that pnpm cannot resolve outside the monorepo)
+node -e "
+  const pkg = JSON.parse(require('fs').readFileSync('../../packages/update-agent/package.json','utf8'));
+  delete pkg.devDependencies;
+  require('fs').writeFileSync('/opt/bastion-updater/package.json', JSON.stringify(pkg, null, 2) + '\n');
+"
+
 sudo chown -R bastion-updater:bastion-updater /opt/bastion-updater
 
-# Install runtime dependencies
+# Install runtime dependencies (ws, zod only)
 cd /opt/bastion-updater
 sudo -u bastion-updater pnpm install --prod  # or: npm install --omit=dev
 ```

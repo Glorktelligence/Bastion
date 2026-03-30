@@ -64,8 +64,14 @@ echo "[3/6] Installing agent to $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
 if [ -d "$SCRIPT_DIR/../../packages/update-agent/dist" ]; then
     cp -r "$SCRIPT_DIR/../../packages/update-agent/dist/" "$INSTALL_DIR/"
-    cp "$SCRIPT_DIR/../../packages/update-agent/package.json" "$INSTALL_DIR/"
-    echo "  Agent files copied from monorepo build"
+    # Copy package.json but strip devDependencies (contain workspace:* refs
+    # that pnpm cannot resolve outside the monorepo)
+    node -e "
+      const pkg = JSON.parse(require('fs').readFileSync('$SCRIPT_DIR/../../packages/update-agent/package.json','utf8'));
+      delete pkg.devDependencies;
+      require('fs').writeFileSync('$INSTALL_DIR/package.json', JSON.stringify(pkg, null, 2) + '\n');
+    "
+    echo "  Agent files copied (devDependencies stripped from package.json)"
 else
     echo "  WARNING: No built agent found at packages/update-agent/dist"
     echo "  Build first: pnpm --filter @bastion/update-agent build"
@@ -87,7 +93,7 @@ if [ -f "$INSTALL_DIR/package.json" ]; then
         exit 1
     fi
     cd "$SCRIPT_DIR"
-    echo "  Dependencies installed"
+    echo "  Dependencies installed (ws, zod)"
 else
     echo "  WARNING: No package.json — skipping dependency install"
 fi
