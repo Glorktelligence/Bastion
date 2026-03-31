@@ -2,6 +2,14 @@
 
 All notable changes to Project Bastion are documented in this file.
 
+## [0.5.7] - 2026-03-31
+
+### Fixed
+- Human client + admin UI: `@bastion/protocol` imports pulled in `node:crypto` via `hash.ts`, breaking Vite browser builds. Replaced with build-time `__BASTION_VERSION__` via Vite `define` (reads VERSION file at build time). Safety floor values reverted to local constants with protocol source comments.
+
+### Changed
+- Both SvelteKit apps (client-human, relay-admin-ui) now inject version at build time via `vite.config.ts` `define: { __BASTION_VERSION__ }` — no runtime Node.js dependency
+
 ## [0.5.6] - 2026-03-31
 
 ### Fixed

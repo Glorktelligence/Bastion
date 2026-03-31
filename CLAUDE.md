@@ -36,6 +36,7 @@ These are HARDCODED and NON-NEGOTIABLE. Never make them configurable. Never weak
 - Run `pnpm lint --write` then `pnpm lint` before committing. Run the full 13-file test suite.
 - Always write new code in TypeScript with proper type annotations. Check `tsconfig.json` before writing new files.
 - **Svelte 5 store subscriptions**: In `.svelte` route files, use `onMount()` (NOT `$effect()`) for `store.subscribe()` calls. Our custom stores call subscribers synchronously, and `$effect` tracks reactive reads — if a subscribe callback reads `$state` inside `$effect`, it creates an infinite loop (`effect_update_depth_exceeded`). `onMount` has no reactive tracking, so this cannot occur.
+- **Browser packages CANNOT import `@bastion/protocol` values** — only `import type` is safe. The protocol package re-exports `hash.ts` which uses `node:crypto`, breaking Vite browser builds. Affected: `client-human`, `relay-admin-ui`, `client-human-mobile`. Use Vite `define` for version (`__BASTION_VERSION__`), and hardcode safety floor values with comments referencing the protocol source. Node.js packages (`relay`, `client-ai`, `crypto`, `update-agent`) can import freely.
 
 ### Version Management
 - The `VERSION` file at repo root is the **single source of truth** for the project version.

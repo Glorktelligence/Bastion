@@ -7,7 +7,6 @@
  * Safety floors can be TIGHTENED but NEVER LOWERED below factory defaults.
  */
 
-import { SAFETY_FLOORS } from '@bastion/protocol';
 import type { Readable, Writable } from '../store.js';
 import { derived, writable } from '../store.js';
 
@@ -57,17 +56,20 @@ export interface SettingUpdateResult {
 // Safety floor constants
 // ---------------------------------------------------------------------------
 
+// Cannot import SAFETY_FLOORS from @bastion/protocol — it pulls in hash.ts
+// which uses node:crypto, breaking Vite's browser build. Keep in sync manually.
+// Source of truth: packages/protocol/src/constants/safety-levels.ts
 export const SAFETY_FLOOR_VALUES: Readonly<SafetySettings> = {
-  challengeThreshold: SAFETY_FLOORS.CHALLENGE_THRESHOLD,
-  denialThreshold: SAFETY_FLOORS.DENIAL_THRESHOLD,
-  timeOfDayWeight: SAFETY_FLOORS.TIME_OF_DAY_WEIGHT_FLOOR,
-  irreversibleAlwaysChallenge: SAFETY_FLOORS.IRREVERSIBLE_ACTION_ALWAYS_CHALLENGE,
-  fileQuarantineEnabled: SAFETY_FLOORS.FILE_QUARANTINE_ENABLED,
-  patternDeviationSensitivity: SAFETY_FLOORS.PATTERN_DEVIATION_SENSITIVITY_FLOOR,
-  gracePeriodMs: SAFETY_FLOORS.GRACE_PERIOD_MINIMUM_MS,
-  auditRetentionDays: SAFETY_FLOORS.AUDIT_RETENTION_FLOOR_DAYS,
-  highRiskHoursStart: SAFETY_FLOORS.HIGH_RISK_HOURS_START,
-  highRiskHoursEnd: SAFETY_FLOORS.HIGH_RISK_HOURS_END,
+  challengeThreshold: 0.6, // SAFETY_FLOORS.CHALLENGE_THRESHOLD
+  denialThreshold: 0.9, // SAFETY_FLOORS.DENIAL_THRESHOLD
+  timeOfDayWeight: 1.2, // SAFETY_FLOORS.TIME_OF_DAY_WEIGHT_FLOOR
+  irreversibleAlwaysChallenge: true, // SAFETY_FLOORS.IRREVERSIBLE_ACTION_ALWAYS_CHALLENGE
+  fileQuarantineEnabled: true, // SAFETY_FLOORS.FILE_QUARANTINE_ENABLED
+  patternDeviationSensitivity: 'low', // SAFETY_FLOORS.PATTERN_DEVIATION_SENSITIVITY_FLOOR
+  gracePeriodMs: 120_000, // SAFETY_FLOORS.GRACE_PERIOD_MINIMUM_MS
+  auditRetentionDays: 90, // SAFETY_FLOORS.AUDIT_RETENTION_FLOOR_DAYS
+  highRiskHoursStart: 0, // SAFETY_FLOORS.HIGH_RISK_HOURS_START
+  highRiskHoursEnd: 6, // SAFETY_FLOORS.HIGH_RISK_HOURS_END
 };
 
 /** Default settings (may be stricter than floors). */

@@ -3,7 +3,6 @@ import '../app.css';
 import { onMount } from 'svelte';
 import { browser } from '$app/environment';
 import { page } from '$app/state';
-import { PROTOCOL_VERSION } from '@bastion/protocol';
 import * as session from '$lib/session.js';
 import SetupWizard from '$lib/components/SetupWizard.svelte';
 import AiDisclosureBanner from '$lib/components/AiDisclosureBanner.svelte';
@@ -220,7 +219,7 @@ function relativeTime(iso) {
 			{/if}
 		</nav>
 		<div class="sidebar-footer">
-			<span class="version-label">Bastion v{PROTOCOL_VERSION}</span>
+			<span class="version-label">Bastion v{__BASTION_VERSION__}</span>
 		</div>
 	</aside>
 	<main class="main-area">
