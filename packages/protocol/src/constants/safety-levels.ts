@@ -31,6 +31,11 @@ export type SafetyOutcome = (typeof SAFETY_OUTCOMES)[keyof typeof SAFETY_OUTCOME
 
 /** Factory default safety configuration. These are minimum floors. */
 export const SAFETY_FLOORS = {
+  /** Challenge threshold floor (lower = stricter). Cannot exceed this value. */
+  CHALLENGE_THRESHOLD: 0.6,
+  /** Denial threshold floor (lower = stricter). Cannot exceed this value. */
+  DENIAL_THRESHOLD: 0.9,
+
   /** High-risk hours cannot be disabled entirely. Default: 00:00-06:00. */
   HIGH_RISK_HOURS_START: 0,
   HIGH_RISK_HOURS_END: 6,

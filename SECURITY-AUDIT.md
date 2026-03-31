@@ -423,19 +423,19 @@ No `PUT /api/config` or `PUT /api/safety` endpoint exists in `packages/relay/src
 |---|---------|-----|--------|
 | M-7 | Update message routing not isolated — `update_*` types not in `SENDER_TYPE_RESTRICTIONS`, could be sent by AI/human clients; generic fallthrough could leak update messages to AI/human peers | ✅ RESOLVED — Added `update_available`, `update_prepare_ack`, `update_build_status`, `update_reconnected`, `update_complete`, `update_failed` to `SENDER_TYPE_RESTRICTIONS` as `'updater'`-only. Added guards on generic fallthrough: `update_*` prefix blocked from peer routing; updater clients blocked from sending non-update messages via peer routing | ✅ |
 
-### LOW (2 findings — remaining)
+### LOW (2 findings — ALL RESOLVED)
 
-| # | Finding | Location | Impact |
-|---|---------|----------|--------|
-| L-1 | `shouldAutoApprove` doesn't check `dangerous` flag | `tool-registry-manager.ts:224-231` | Theoretical bypass for `dangerous+readOnly` tools — mitigated by conversation-mode stripping |
-| L-2 | Settings store init bypass | ~~`settings.ts:201`~~ | ✅ RESOLVED as part of M-6 fix — initialization now clamps to floors (`settings.ts:222`) |
+| # | Finding | Fix | Status |
+|---|---------|-----|--------|
+| L-1 | `shouldAutoApprove` doesn't check `dangerous` flag | ✅ RESOLVED — Added explicit `tool?.dangerous` check in `shouldAutoApprove()` (`tool-registry-manager.ts:230`). Dangerous tools now NEVER auto-approve regardless of `readOnly` or `trustLevel` | ✅ |
+| L-2 | Settings store init bypass | ✅ RESOLVED as part of M-6 fix — initialization now clamps to floors (`settings.ts:222`) | ✅ |
 
-### INFO (2 observations — remaining)
+### INFO (2 observations)
 
-| # | Observation | Location |
-|---|-------------|----------|
-| I-1 | Mobile client has no safety floor infrastructure | `packages/client-human-mobile/` |
-| I-2 | Admin-UI duplicates floor values as literals instead of importing from protocol | `relay-admin-ui/src/lib/stores/config.ts:39-45` |
+| # | Observation | Location | Status |
+|---|-------------|----------|--------|
+| I-1 | Mobile client has no safety floor infrastructure | `packages/client-human-mobile/` | DEFERRED — mobile modernisation roadmap |
+| I-2 | Admin-UI hardcoded floor values | ~~`relay-admin-ui/src/lib/stores/config.ts:39-45`~~ | ✅ RESOLVED — now imports `SAFETY_FLOORS` from `@bastion/protocol`. Also added `CHALLENGE_THRESHOLD` and `DENIAL_THRESHOLD` to protocol `SAFETY_FLOORS` as authoritative source; human client `SAFETY_FLOOR_VALUES` now references protocol constants |
 
 ---
 

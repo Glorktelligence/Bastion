@@ -227,6 +227,9 @@ export class ToolRegistryManager {
     if (trust.scope !== 'session') return false;
     if (trust.trustLevel < 4) return false;
     if (!trust.readOnly) return false;
+    // Dangerous tools NEVER auto-approve — always per-call, regardless of other flags
+    const tool = this.allTools.get(toolId);
+    if (tool?.dangerous) return false;
     return true;
   }
 

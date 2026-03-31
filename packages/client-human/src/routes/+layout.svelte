@@ -3,6 +3,7 @@ import '../app.css';
 import { onMount } from 'svelte';
 import { browser } from '$app/environment';
 import { page } from '$app/state';
+import { PROTOCOL_VERSION } from '@bastion/protocol';
 import * as session from '$lib/session.js';
 import SetupWizard from '$lib/components/SetupWizard.svelte';
 import AiDisclosureBanner from '$lib/components/AiDisclosureBanner.svelte';
@@ -218,6 +219,9 @@ function relativeTime(iso) {
 				{/each}
 			{/if}
 		</nav>
+		<div class="sidebar-footer">
+			<span class="version-label">Bastion v{PROTOCOL_VERSION}</span>
+		</div>
 	</aside>
 	<main class="main-area">
 		{#if disclosureData?.position === 'banner'}
@@ -305,4 +309,15 @@ function relativeTime(iso) {
 	.nav-ext { display: flex; align-items: center; gap: 0.375rem; }
 	.nav-ext-icon { font-size: 0.8rem; }
 	.main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+	/* Version footer */
+	.sidebar-footer {
+		padding: 0.5rem 0.75rem;
+		border-top: 1px solid var(--color-border);
+	}
+	.version-label {
+		font-size: 0.7rem;
+		color: var(--color-text-muted);
+		opacity: 0.6;
+	}
 </style>

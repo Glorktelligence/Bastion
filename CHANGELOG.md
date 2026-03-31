@@ -2,6 +2,22 @@
 
 All notable changes to Project Bastion are documented in this file.
 
+## [0.5.5] - 2026-03-31
+
+### Fixed
+- Security audit L-1: `shouldAutoApprove` now checks `dangerous` flag — dangerous tools never auto-approve
+- Security audit I-2: Admin UI imports safety floors from `@bastion/protocol` (no more hardcoded literals)
+- Cross-package: `CHALLENGE_THRESHOLD` (0.6) and `DENIAL_THRESHOLD` (0.9) added to protocol `SAFETY_FLOORS`
+- Human client `SAFETY_FLOOR_VALUES` now references protocol constants instead of local literals
+
+### Added
+- Human client sidebar footer showing "Bastion v{version}" (visual proof of self-update)
+- First version with all security audit findings resolved (except I-1 mobile — deferred)
+
+### Security
+- SECURITY-AUDIT.md: 4 CRITICAL, 1 HIGH, 7 MEDIUM, 2 LOW — all resolved
+- Only remaining item: I-1 (mobile safety floor infrastructure) deferred to mobile modernisation roadmap
+
 ## [0.5.4] - 2026-03-31
 
 ### Fixed

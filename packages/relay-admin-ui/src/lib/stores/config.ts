@@ -9,6 +9,7 @@
  * Read-only view — modifications go through the admin API.
  */
 
+import { SAFETY_FLOORS } from '@bastion/protocol';
 import { type Readable, type Writable, derived, writable } from '../store.js';
 import type { ChainIntegritySummary, RelaySettingsSummary, SafetyFloorsSummary, TlsStatusSummary } from '../types.js';
 
@@ -38,8 +39,8 @@ function defaultRelaySettings(): RelaySettingsSummary {
 
 function defaultSafetyFloors(): SafetyFloorsSummary {
   return {
-    challengeThreshold: 0.6,
-    denialThreshold: 0.9,
+    challengeThreshold: SAFETY_FLOORS.CHALLENGE_THRESHOLD,
+    denialThreshold: SAFETY_FLOORS.DENIAL_THRESHOLD,
     maxRiskScore: 1.0,
     description: 'Factory defaults — can be tightened but never lowered',
   };
