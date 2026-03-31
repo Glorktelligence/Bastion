@@ -487,6 +487,10 @@ const SENDER_TYPE_RESTRICTIONS = {
   memory_decision: 'ai', memory_list_response: 'ai',
   project_sync_ack: 'ai', project_list_response: 'ai', project_config_ack: 'ai',
   tool_registry_sync: 'ai', tool_request: 'ai', tool_result: 'ai', tool_alert: 'ai',
+  // Updater-only messages (updater ↔ relay) — must NEVER reach AI or human clients
+  update_available: 'updater', update_prepare_ack: 'updater',
+  update_build_status: 'updater', update_reconnected: 'updater',
+  update_complete: 'updater', update_failed: 'updater',
 };
 
 /** Check if a message's sender type matches the expected type for that message. */
@@ -1198,6 +1202,22 @@ relay.on('message', async (data, info) => {
   }
 
   // ----- Regular message: forward to paired peer -----
+  // Guard: update_* messages must NEVER reach the generic peer routing.
+  // They are handled above and return early. If we reach here with an update_ type,
+  // it means an unrecognised update variant slipped through — reject it.
+  if (msg.type && typeof msg.type === 'string' && msg.type.startsWith('update_')) {
+    console.log(`[!] Unrecognised update message type "${msg.type}" — blocked from peer routing`);
+    return;
+  }
+
+  // Guard: updater clients must NOT receive conversation/task messages via peer routing.
+  // Updaters only handle update_* messages routed in the block above.
+  const senderClient = router.getClient(connId);
+  if (senderClient?.identity.type === 'updater') {
+    console.log(`[!] Updater client sent non-update message "${msg.type}" — dropped`);
+    return;
+  }
+
   const peerId = router.getPeer(connId);
   if (!peerId) {
     console.log(`[!] No peer for ${connId.slice(0, 8)} — message dropped (type: ${msg.type})`);

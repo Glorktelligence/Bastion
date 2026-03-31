@@ -184,7 +184,7 @@ function phaseClass(phase) {
 			<p class="muted">No update agents connected</p>
 		{:else}
 			<div class="agent-list">
-				{#each state.agents as agent}
+				{#each state.agents as agent (agent.agentId)}
 					<div class="agent-card">
 						<span class="agent-dot"></span>
 						<span class="agent-name">{agent.component}</span>

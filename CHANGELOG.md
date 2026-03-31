@@ -6,6 +6,11 @@ All notable changes to Project Bastion are documented in this file.
 
 ### Fixed
 - Admin UI: duplicate agent names on /update page — component and agentId were both set to identity.id, now component is derived (e.g. "updater-relay" → "relay")
+- Admin UI: added keyed `{#each}` for agent list to prevent rendering artifacts
+
+### Security
+- Update message routing isolation: `update_*` types added to `SENDER_TYPE_RESTRICTIONS` as updater-only — AI and human clients cannot send update messages
+- Generic fallthrough routing guards: `update_*` prefix blocked from peer routing; updater clients blocked from non-update message routing
 - First version deployed via the self-update system
 
 ## [0.5.3] - 2026-03-31

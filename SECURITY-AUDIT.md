@@ -417,6 +417,12 @@ No `PUT /api/config` or `PUT /api/safety` endpoint exists in `packages/relay/src
 | M-5 | Wait timer advisory | ✅ RESOLVED — Added `pendingChallenges` tracker (`start-ai-client.mjs:303`). Challenge issuance records timing (`start-ai-client.mjs:1355`). Confirmation handler enforces elapsed time server-side (`start-ai-client.mjs:755`). Early responses rejected with BASTION-4006 | ✅ |
 | M-6 | Hours not floor-enforced | ✅ RESOLVED — Added `HIGH_RISK_HOURS_MIN_WINDOW: 6` to `SAFETY_FLOORS` (`safety-levels.ts:72`). `validateSettingChange()` now computes window size and rejects if below 6 hours (`settings.ts:188`). Also fixed initialization bypass — `createSettingsStore()` now clamps initial values to floors (`settings.ts:222`) | ✅ |
 
+### MEDIUM (1 finding — RESOLVED)
+
+| # | Finding | Fix | Status |
+|---|---------|-----|--------|
+| M-7 | Update message routing not isolated — `update_*` types not in `SENDER_TYPE_RESTRICTIONS`, could be sent by AI/human clients; generic fallthrough could leak update messages to AI/human peers | ✅ RESOLVED — Added `update_available`, `update_prepare_ack`, `update_build_status`, `update_reconnected`, `update_complete`, `update_failed` to `SENDER_TYPE_RESTRICTIONS` as `'updater'`-only. Added guards on generic fallthrough: `update_*` prefix blocked from peer routing; updater clients blocked from sending non-update messages via peer routing | ✅ |
+
 ### LOW (2 findings — remaining)
 
 | # | Finding | Location | Impact |
