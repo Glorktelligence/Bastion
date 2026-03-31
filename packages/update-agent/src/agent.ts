@@ -21,7 +21,8 @@
 
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { WebSocket } from 'ws';
 import { type CommandResult, executeCommand } from './command-executor.js';
 import type { AgentConfig } from './config.js';
@@ -159,7 +160,13 @@ export class BastionUpdateAgent extends EventEmitter<AgentEvents> {
 
     // Update prepare — acknowledge readiness
     if (type === 'update_prepare') {
-      const payload = (msg.payload as Record<string, unknown>) ?? msg;
+      // Read actual current version from VERSION file in build path
+      let actualVersion = 'unknown';
+      try {
+        actualVersion = readFileSync(join(this.config.buildPath, 'VERSION'), 'utf-8').trim();
+      } catch {
+        // VERSION file may not exist — fall back
+      }
       this.send(
         JSON.stringify({
           type: 'update_prepare_ack',
@@ -169,7 +176,7 @@ export class BastionUpdateAgent extends EventEmitter<AgentEvents> {
           payload: {
             component: this.config.component,
             stateSaved: true,
-            currentVersion: (payload.targetVersion as string) ?? '0.0.0',
+            currentVersion: actualVersion,
           },
         }),
       );
@@ -273,26 +280,66 @@ export class BastionUpdateAgent extends EventEmitter<AgentEvents> {
     this.state = 'authenticated';
   }
 
-  private handleUpdateRestart(_payload: Record<string, unknown>): void {
-    // Send acknowledgement before restarting
-    this.send(
-      JSON.stringify({
-        type: 'update_reconnected',
-        id: randomUUID(),
-        timestamp: new Date().toISOString(),
-        sender: { id: this.config.agentId, type: 'updater', displayName: this.config.agentName },
-        payload: {
-          component: this.config.component,
-          version: 'pending-restart',
-          previousVersion: 'current',
-        },
-      }),
-    );
+  private handleUpdateRestart(payload: Record<string, unknown>): void {
+    const targetVersion = (payload.targetVersion as string) ?? 'unknown';
 
-    // Actual restart is via systemd — agent exits and systemd restarts it
+    // Write restart-pending flag so we send update_reconnected AFTER restarting
+    const flagPath = join(dirname(process.env.BASTION_UPDATER_CONFIG || './config.json'), 'restart-pending.json');
+    try {
+      writeFileSync(
+        flagPath,
+        JSON.stringify({
+          component: this.config.component,
+          targetVersion,
+          restartedAt: new Date().toISOString(),
+        }),
+        'utf-8',
+      );
+    } catch {
+      // Non-fatal — worst case we reconnect without version verification
+    }
 
     // Exit so systemd restarts us on the new version
     process.exit(0);
+  }
+
+  /**
+   * Check for restart-pending flag and send update_reconnected with real version.
+   * Called after authentication completes on reconnect.
+   */
+  sendReconnectedIfPending(): boolean {
+    const flagPath = join(dirname(process.env.BASTION_UPDATER_CONFIG || './config.json'), 'restart-pending.json');
+    if (!existsSync(flagPath)) return false;
+
+    try {
+      const pending = JSON.parse(readFileSync(flagPath, 'utf-8'));
+      // Read the current version from the VERSION file in buildPath
+      let currentVersion = 'unknown';
+      try {
+        currentVersion = readFileSync(join(this.config.buildPath, 'VERSION'), 'utf-8').trim();
+      } catch {
+        // Fall back to config-derived version
+      }
+
+      this.send(
+        JSON.stringify({
+          type: 'update_reconnected',
+          id: randomUUID(),
+          timestamp: new Date().toISOString(),
+          sender: { id: this.config.agentId, type: 'updater', displayName: this.config.agentName },
+          payload: {
+            component: pending.component ?? this.config.component,
+            version: currentVersion,
+            previousVersion: pending.targetVersion ?? 'unknown',
+          },
+        }),
+      );
+
+      unlinkSync(flagPath);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private sendBuildStatus(

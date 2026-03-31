@@ -180,6 +180,8 @@ export interface AdminRoutesConfig {
   readonly updateOrchestrator?: import('./update-orchestrator.js').UpdateOrchestrator;
   /** Local git repo path for relay-side version checks (default: process.cwd()). */
   readonly localGitPath?: string;
+  /** Current relay version (read from VERSION file). Exposed via GET /api/update/status. */
+  readonly currentVersion?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -211,6 +213,7 @@ export class AdminRoutes {
   private readonly onUpdateMessage: ((type: string, payload: Record<string, unknown>) => void) | null;
   private readonly orchestrator: import('./update-orchestrator.js').UpdateOrchestrator | null;
   private readonly localGitPath: string;
+  private readonly currentVersion: string;
   private disclosureConfig: DisclosureConfig;
   private updateStatus: UpdateStatus;
 
@@ -225,6 +228,7 @@ export class AdminRoutes {
     this.onUpdateMessage = config.onUpdateMessage ?? null;
     this.orchestrator = config.updateOrchestrator ?? null;
     this.localGitPath = config.localGitPath ?? process.cwd();
+    this.currentVersion = config.currentVersion ?? 'unknown';
     this.updateStatus = { phase: 'idle', targetVersion: null, startedAt: null, component: null, error: null };
     this.disclosureConfig = {
       enabled: false,
@@ -799,6 +803,7 @@ export class AdminRoutes {
       status: 200,
       body: {
         ...this.updateStatus,
+        currentVersion: this.currentVersion,
         agents: orchStatus?.agents ?? [],
         prepareAcks: orchStatus?.prepareAcks ?? [],
         buildResults: orchStatus?.buildResults ?? {},
@@ -817,6 +822,11 @@ export class AdminRoutes {
 
     const previousPhase = this.updateStatus.phase;
     this.updateStatus = { phase: 'idle', targetVersion: null, startedAt: null, component: null, error: null };
+
+    // Cancel the orchestrator too — otherwise it continues its lifecycle unaware
+    if (this.orchestrator) {
+      this.orchestrator.cancel();
+    }
 
     this.audit.logEvent(AUDIT_EVENT_TYPES.UPDATE_FAILED, 'admin', {
       reason: 'cancelled_by_admin',

@@ -270,13 +270,13 @@ The desktop Human Client, relay, and AI client have been deployed and tested end
 
 ### Self-Update System (Beta)
 
-The self-update system is deployed and agents connect successfully, but the following issues are under investigation:
+The self-update system is deployed and agents connect successfully. The following items remain:
 
-- Version display in admin UI may show stale version (e.g., 0.5.0 when repo is 0.5.1) — version propagation needs audit
+- ~~Version display in admin UI showed stale version~~ — **FIXED in v0.5.2**: relay reads VERSION file and serves it via GET /api/update/status
+- ~~VERSION file centralisation~~ — **DONE in v0.5.2**: single source of truth, `pnpm run version:sync`
 - End-to-end update flow (Check → Build → Restart → Verify) has not completed a full cycle in production yet
 - Relay self-restart coordination is the most complex phase and is untested in production
 - First-time deployment requires manual steps — the setup script covers most but deployers should review the [deploy/update-agent/README.md](deploy/update-agent/README.md) carefully
-- VERSION file centralisation planned for v0.5.2 to eliminate version drift across package.json files
 
 See [GitHub Issues](https://github.com/Glorktelligence/Bastion/issues) for other items.
 

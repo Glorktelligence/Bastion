@@ -180,9 +180,9 @@ await group('API client: request formation and auth headers', async () => {
   check(requests[0].url === 'https://127.0.0.1:9444/api/health', 'correct URL');
   check(requests[0].opts.method === 'GET', 'GET method');
 
-  // GET requests don't include auth headers (read-only monitoring)
-  check(!requests[0].opts.headers['Authorization'], 'GET has no auth header');
-  check(!requests[0].opts.headers['X-TOTP'], 'GET has no TOTP header');
+  // All requests include auth headers (admin API requires authentication)
+  check(!!requests[0].opts.headers['Authorization'], 'GET includes auth header');
+  check(!!requests[0].opts.headers['X-TOTP'], 'GET includes TOTP header');
 
   await client.listProviders(false);
   check(requests[1].url === 'https://127.0.0.1:9444/api/providers?includeInactive=false', 'list with filter');

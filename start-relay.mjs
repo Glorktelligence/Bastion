@@ -28,6 +28,14 @@ const PORT = parseInt(process.env.BASTION_RELAY_PORT || '9443');
 const ADMIN_PORT = parseInt(process.env.BASTION_ADMIN_PORT || '9444');
 const AUDIT_DB = process.env.BASTION_AUDIT_DB || '/var/lib/bastion/audit.db';
 
+// Read current version from VERSION file (single source of truth)
+let CURRENT_VERSION = 'unknown';
+try {
+  CURRENT_VERSION = readFileSync(new URL('./VERSION', import.meta.url), 'utf-8').trim();
+} catch {
+  console.warn('[!] Could not read VERSION file — version will show as "unknown"');
+}
+
 // JWT secret — use env var or generate a random 256-bit key
 const jwtSecretEnv = process.env.BASTION_JWT_SECRET;
 const jwtSecret = jwtSecretEnv
@@ -87,6 +95,7 @@ function validateProjectSync(payload) {
 }
 
 console.log('=== Project Bastion — Relay Server ===');
+console.log(`Version: ${CURRENT_VERSION}`);
 console.log(`Port: ${PORT}`);
 console.log(`Admin: https://127.0.0.1:${ADMIN_PORT} (localhost only)`);
 console.log(`TLS:  ${TLS_CERT}`);
@@ -296,6 +305,7 @@ const adminRoutes = new AdminRoutes({
   statusProvider,
   extensionRegistry,
   updateOrchestrator,
+  currentVersion: CURRENT_VERSION,
   onDisclosureUpdate: (cfg) => updateDisclosureConfig(cfg),
   onUpdateMessage: (type, payload) => {
     if (!updaterConnectionId) {
@@ -933,7 +943,7 @@ relay.on('message', async (data, info) => {
     const p = msg.payload || {};
     if (msg.type === 'update_available') {
       updateOrchestrator.handleUpdateAvailable(p.availableVersion, p.commitHash);
-      adminRoutes.setUpdateStatus('preparing', { targetVersion: p.availableVersion });
+      adminRoutes.setUpdateStatus('checking', { targetVersion: p.availableVersion });
     } else if (msg.type === 'update_prepare_ack') {
       updateOrchestrator.handlePrepareAck(p.component);
     } else if (msg.type === 'update_build_status') {

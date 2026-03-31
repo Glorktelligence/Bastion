@@ -19,7 +19,16 @@ let isActive = $state(update.isActive.get());
 let repo = $state('Glorktelligence/Bastion');
 
 /** @type {string} */
-let currentVersion = $state('0.5.0');
+let currentVersion = $state('');
+
+/** @type {string[]} */
+let changelog = $state([]);
+
+/** @type {string|null} */
+let availableVersion = $state(null);
+
+/** @type {string} */
+let commitHash = $state('HEAD');
 
 /** @type {ReturnType<typeof setInterval> | null} */
 let pollTimer = null;
@@ -50,6 +59,10 @@ async function fetchStatus() {
 			agents: d.agents ?? [],
 			buildResults: d.buildResults ?? {},
 		});
+		// Sync currentVersion from relay if available (single source of truth)
+		if (d.currentVersion && !currentVersion) {
+			currentVersion = d.currentVersion;
+		}
 	}
 }
 
@@ -69,7 +82,19 @@ async function handleCheckForUpdates() {
 	update.setLoading(true);
 	const result = await service.client.checkForUpdate(repo, currentVersion);
 	if (result.ok) {
-		update.setStatus({ phase: 'checking' });
+		const d = result.data;
+		if (d.status === 'update_available') {
+			availableVersion = d.availableVersion ?? null;
+			commitHash = d.commitHash ?? 'HEAD';
+			changelog = Array.isArray(d.changelog) ? d.changelog : [];
+			update.setStatus({ phase: 'checking', targetVersion: d.availableVersion ?? null });
+		} else if (d.status === 'up_to_date') {
+			update.setStatus({ phase: 'idle' });
+			availableVersion = null;
+			changelog = [];
+		} else {
+			update.setStatus({ phase: 'checking' });
+		}
 		startPolling();
 	} else {
 		update.setError(result.error ?? 'Failed to check for updates');
@@ -87,7 +112,7 @@ async function handleExecuteUpdate() {
 	const result = await service.client.executeUpdate(
 		'relay',
 		state.targetVersion ?? '0.0.0',
-		'HEAD',
+		commitHash,
 		commands,
 	);
 	if (result.ok) {
@@ -208,6 +233,20 @@ function phaseClass(phase) {
 		</div>
 	</div>
 
+	<!-- Available Update -->
+	{#if availableVersion}
+		<div class="panel update-available-panel">
+			<h3>Update Available: v{availableVersion}</h3>
+			{#if changelog.length > 0}
+				<ul class="changelog">
+					{#each changelog as entry}
+						<li>{entry}</li>
+					{/each}
+				</ul>
+			{/if}
+		</div>
+	{/if}
+
 	<!-- Build Progress -->
 	{#if Object.keys(state.buildResults).length > 0}
 		<div class="panel">
@@ -323,4 +362,15 @@ function phaseClass(phase) {
 
 	.success-panel { border-color: #4ade80; }
 	.success-panel h3 { color: #4ade80; }
+
+	.update-available-panel { border-color: #f59e0b; }
+	.update-available-panel h3 { color: #f59e0b; }
+	.changelog {
+		list-style: none; padding: 0; margin: 0.5rem 0 0;
+		font-size: 0.8rem; color: var(--text-muted);
+	}
+	.changelog li {
+		padding: 0.2rem 0; border-bottom: 1px solid var(--border-default);
+	}
+	.changelog li:last-child { border-bottom: none; }
 </style>

@@ -17,11 +17,24 @@ All notable changes to Project Bastion are documented in this file.
 - **MEDIUM**: High-risk hours window now floor-enforced — cannot be shrunk below 6 hours
 - Settings store initialization now clamps all values to safety floors
 
+### Fixed (Self-Update System — end-to-end audit)
+- **CRITICAL**: Key exchange routing deadlock — human's key_exchange was sent to updater instead of AI when updater was connected (exclusive if/else)
+- Admin UI hardcoded version to `0.5.0` — now reads `currentVersion` from relay's `GET /api/update/status` endpoint
+- Admin UI showed no changelog or available version after check — now displays version and commit list
+- `cancelUpdate()` didn't call `orchestrator.cancel()` — orchestrator continued its lifecycle unaware
+- `update_available` prematurely set AdminRoutes phase to `'preparing'` — now correctly stays `'checking'`
+- Agent `update_prepare_ack` echoed back `targetVersion` as `currentVersion` — now reads actual version from VERSION file
+- Agent sent `update_reconnected` BEFORE `process.exit(0)` with `version:'pending-restart'`, never sent real version after restart — now writes restart-pending flag, sends real version from VERSION file after re-authentication
+- Admin UI hardcoded `commitHash: 'HEAD'` — now uses actual commit hash from check response
+- GET requests to admin API had no auth headers — all requests now include auth credentials
+
 ### Added
 - `MIN_COOLDOWN_DAYS` and `HIGH_RISK_HOURS_MIN_WINDOW` constants in `SAFETY_FLOORS`
 - `SENDER_TYPE_RESTRICTIONS` directional message enforcement in relay
 - `pendingChallenges` server-side wait timer tracking
 - `encryptedMessageQueue` for key exchange race condition handling
+- Relay reads VERSION file at startup, logs version, serves via `GET /api/update/status`
+- Agent `sendReconnectedIfPending()` — reads restart-pending flag after reconnect, sends real version
 
 ## [0.5.1] - 2026-03-30
 

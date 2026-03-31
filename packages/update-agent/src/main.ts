@@ -65,6 +65,10 @@ agent.on('connected', () => {
 
 agent.on('authenticated', () => {
   console.log('[✓] Authenticated — waiting for update commands');
+  // Check if we're reconnecting after an update_restart
+  if (agent.sendReconnectedIfPending()) {
+    console.log('[✓] Sent update_reconnected after restart (version from VERSION file)');
+  }
 });
 
 agent.on('disconnected', (code, reason) => {

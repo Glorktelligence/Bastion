@@ -130,8 +130,7 @@ export class AdminApiClient {
     body?: unknown,
   ): Promise<ApiResult<T>> {
     try {
-      const headers =
-        method === 'GET' || method === 'HEAD' ? { 'Content-Type': 'application/json' } : this.mutationHeaders();
+      const headers = this.mutationHeaders();
       const res = await this.fetchFn(`${this.baseUrl}${path}`, {
         method,
         headers,
