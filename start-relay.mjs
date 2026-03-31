@@ -595,9 +595,9 @@ relay.on('message', async (data, info) => {
       console.log(`[✓] AI client registered: ${identity.displayName}`);
     } else if (identity.type === 'updater') {
       updaterConnectionId = connId;
-      // Register with orchestrator: agentId=identity.id, component=identity.id
-      // The component name matches the agentId (e.g. "updater-relay", "updater-ai")
-      updateOrchestrator.registerAgent(connId, identity.id, identity.id);
+      // Register with orchestrator: derive component from agentId (e.g. "updater-relay" → "relay")
+      const component = identity.id.replace(/^updater-/, '') || identity.id;
+      updateOrchestrator.registerAgent(connId, identity.id, component);
       console.log(`[✓] Updater client registered: ${identity.displayName} (${identity.id})`);
     }
 

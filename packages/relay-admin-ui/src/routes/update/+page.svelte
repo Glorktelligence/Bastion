@@ -188,7 +188,7 @@ function phaseClass(phase) {
 					<div class="agent-card">
 						<span class="agent-dot"></span>
 						<span class="agent-name">{agent.component}</span>
-						<span class="agent-id">{agent.agentId}</span>
+						<span class="agent-id">({agent.agentId})</span>
 					</div>
 				{/each}
 			</div>

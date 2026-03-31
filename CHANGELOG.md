@@ -2,6 +2,12 @@
 
 All notable changes to Project Bastion are documented in this file.
 
+## [0.5.4] - 2026-03-31
+
+### Fixed
+- Admin UI: duplicate agent names on /update page — component and agentId were both set to identity.id, now component is derived (e.g. "updater-relay" → "relay")
+- First version deployed via the self-update system
+
 ## [0.5.3] - 2026-03-31
 
 ### Fixed
