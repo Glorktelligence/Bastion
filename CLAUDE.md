@@ -23,7 +23,7 @@ These are HARDCODED and NON-NEGOTIABLE. Never make them configurable. Never weak
 - Content scanning (13 dangerous patterns) on project_sync at relay + AI client.
 
 ### Protocol First
-- ALL message type changes start in `@bastion/protocol` package (81 message types, 45 error codes).
+- ALL message type changes start in `@bastion/protocol` package (81 message types, 48 error codes).
 - Other packages consume protocol types — they never define their own message structures.
 - Protocol extensions use namespaced message types (`namespace:type` format).
 - Protocol version bumps require an Architecture Decision Record in `docs/architecture/decisions/`.
@@ -33,7 +33,7 @@ These are HARDCODED and NON-NEGOTIABLE. Never make them configurable. Never weak
 - When working with Node.js native modules or database libraries, check compatibility with the current Node version BEFORE attempting installation. Run `node --version` first.
 - When a feature spans multiple packages (protocol → relay → client), implement ALL sides before considering the task complete. Explicitly call out if any package update is still missing.
 - **Startup script wiring**: Library code must be wired in `start-relay.mjs` and/or `start-ai-client.mjs`. All previously "built but not wired" patterns are resolved — don't create new ones.
-- Run `pnpm lint --write` then `pnpm lint` before committing. Run the full 13-file test suite.
+- Run `pnpm lint --write` then `pnpm lint` before committing. Run the full 14-file test suite.
 - Always write new code in TypeScript with proper type annotations. Check `tsconfig.json` before writing new files.
 - **Svelte 5 store subscriptions**: In `.svelte` route files, use `onMount()` (NOT `$effect()`) for `store.subscribe()` calls. Our custom stores call subscribers synchronously, and `$effect` tracks reactive reads — if a subscribe callback reads `$state` inside `$effect`, it creates an infinite loop (`effect_update_depth_exceeded`). `onMount` has no reactive tracking, so this cannot occur.
 - **Browser packages CANNOT import `@bastion/protocol` values** — only `import type` is safe. The protocol package re-exports `hash.ts` which uses `node:crypto`, breaking Vite browser builds. Affected: `client-human`, `relay-admin-ui`, `client-human-mobile`. Use Vite `define` for version (`__BASTION_VERSION__`), and hardcode safety floor values with comments referencing the protocol source. Node.js packages (`relay`, `client-ai`, `crypto`, `update-agent`) can import freely.
@@ -79,6 +79,7 @@ Startup scripts (root level):
 ## Error Codes
 Format: `BASTION-CXXX` — 45 codes across 8 categories:
 1XXX=Connection (7) | 2XXX=Auth (6) | 3XXX=Protocol (6) | 4XXX=Safety (6) | 5XXX=File (7) | 6XXX=Provider (6) | 7XXX=Config (5) | 8XXX=Budget (5)
+Total: 48 codes.
 
 ## Three Bastion Official Adapters
 All share `ANTHROPIC_API_KEY`. Each targets a different model with role-specific config.
@@ -91,5 +92,12 @@ All share `ANTHROPIC_API_KEY`. Each targets a different model with role-specific
 
 Env vars: `BASTION_SONNET_MODEL`, `BASTION_HAIKU_MODEL`, `BASTION_OPUS_MODEL` (override model IDs).
 
+## Soul Document
+The AI client's system prompt is a three-layer "soul document" (`packages/client-ai/src/provider/conversation-manager.ts`):
+- **Layer 0** — Immutable Core (~400 tokens): identity, environment, five boundaries
+- **Layer 1** — Values & Principles (~800 tokens): honesty, harmlessness, helpfulness, transparency, user sovereignty
+- **Layer 2** — Operational Guidance (~900 tokens): conversation mode, adapter identity, memory proposals, challenge support
+Compaction uses Layer 0 only (via `ConversationManager.getCoreContext()`).
+
 ## Tech Stack
-PNPM workspaces | TypeScript (ES2022/Node16) | Zod (validation) | node:test (testing, 2,879 tests) | Biome (linting) | WebSocket over TLS | tweetnacl + libsodium (E2E encryption) | node:sqlite DatabaseSync (audit) | SQLite (memories, budget) | jose (JWT) | Tauri + SvelteKit (desktop) | React Native (mobile)
+PNPM workspaces | TypeScript (ES2022/Node16) | Zod (validation) | node:test (testing, 2,896 tests) | Biome (linting) | WebSocket over TLS | tweetnacl + libsodium (E2E encryption) | node:sqlite DatabaseSync (audit) | SQLite (memories, budget) | jose (JWT) | Tauri + SvelteKit (desktop) | React Native (mobile)

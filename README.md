@@ -1,8 +1,8 @@
 # Project Bastion
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-2%2C879_passing-brightgreen.svg)](#run-tests)
-[![Packages](https://img.shields.io/badge/Packages-9-purple.svg)](#packages)
+[![Tests](https://img.shields.io/badge/Tests-2%2C896_passing-brightgreen.svg)](#run-tests)
+[![Packages](https://img.shields.io/badge/Packages-10-purple.svg)](#packages)
 [![Protocol](https://img.shields.io/badge/Protocol-81_message_types-orange.svg)](#protocol)
 [![Node](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-339933.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-3178C6.svg)](https://www.typescriptlang.org)
@@ -98,6 +98,7 @@ Most Human-AI interaction today happens through chat interfaces with no structur
 | `@bastion/client-human-mobile` | React Native mobile app — same protocol, mobile-native UI                           |
 | `@bastion/client-ai`           | Headless AI client for isolated VM — safety engine, provider adapter, file handling |
 | `@bastion/relay-admin-ui`      | SvelteKit admin panel — provider management, blocklist, quarantine viewer           |
+| `@bastion/update-agent`      | Self-update agent — connects to relay, executes whitelisted build commands          |
 | `@bastion/adapter-template`   | Community adapter reference template — build adapters for any AI provider           |
 
 ## The Three-Layer Safety Engine
@@ -134,19 +135,20 @@ pnpm build
 pnpm test
 
 # Individual packages
-node packages/tests/trace-test.mjs              # Protocol schema tests (233 checks)
-node packages/tests/integration-test.mjs         # Integration round-trip tests (82 checks)
+node packages/tests/trace-test.mjs              # Protocol schema tests (286 checks)
+node packages/tests/integration-test.mjs         # Integration round-trip tests (118 checks)
 node packages/tests/file-transfer-integration-test.mjs  # File transfer E2E (105 checks)
 node packages/relay/trace-test.mjs               # Relay tests (353 checks)
 node packages/relay/quarantine-trace-test.mjs    # Relay quarantine tests (105 checks)
 node packages/relay/file-transfer-trace-test.mjs # Relay file-transfer routing (96 checks)
 node packages/relay/admin-trace-test.mjs          # Admin auth, routes, extensions (312 checks)
 node packages/crypto/trace-test.mjs              # Crypto tests (134 checks)
-node packages/client-ai/trace-test.mjs           # AI client: safety, provider, memory, project, tools, challenge, budget (416 checks)
+node packages/client-ai/trace-test.mjs           # AI client: safety, provider, memory, project, tools, challenge, budget (420 checks)
 node packages/client-ai/file-handling-trace-test.mjs  # AI client file handling (155 checks)
 node packages/client-human/trace-test.mjs        # Desktop client tests (321 checks)
 node packages/client-human-mobile/trace-test.mjs # Mobile client tests (123 checks)
 node packages/relay-admin-ui/trace-test.mjs      # Admin UI: stores, API, data service (239 checks)
+node packages/update-agent/trace-test.mjs        # Update agent: config, commands, agent lifecycle (129 checks)
 ```
 
 ### Typecheck
@@ -233,10 +235,12 @@ Bastion includes deployment templates for self-hosted environments:
 | 4 | MCP tool integration with governed approval flow (JSON-RPC 2.0) | Deployed |
 | — | Multi-conversation persistence with hash-chained messages (SQLite) | Deployed |
 | — | Conversation compaction (AI summarises older messages, originals preserved) | Deployed |
-| — | Per-conversation model selection (Sonnet for chat, Haiku for compaction) | Deployed |
+| — | Three official Anthropic adapters: Sonnet (conversation), Haiku (compaction/game), Opus (research/dream) | Deployed |
+| — | Soul Document v1.0 — three-layer system prompt (identity, values, operational guidance) | Deployed |
 | — | Per-conversation tool trust isolation | Deployed |
 | — | Streaming responses (real-time AI typing with SSE) | Deployed |
-| — | Multi-adapter routing with AdapterRegistry (role-based selection) | Deployed |
+| — | Multi-adapter routing with AdapterRegistry (role-based model selection) | Deployed |
+| — | Self-update system with E2E encrypted commands, multi-agent orchestration | Deployed |
 | — | Community adapter template (@bastion/adapter-template) | Deployed |
 | — | File transfer pipeline with 3-stage custody chain (fully wired) | Deployed |
 | — | Protocol extension system with sandboxed UI iframes + message bridge | Deployed |
@@ -262,21 +266,19 @@ These cannot be disabled, bypassed, or configured away:
 
 ## Status
 
-**Pre-Release.** The protocol, crypto layer, relay, AI client, desktop client, admin UI, adapter template, and infrastructure templates are all implemented and tested across 2,879 passing tests.
+**Pre-Release (v0.5.9).** The protocol, crypto layer, relay, AI client, desktop client, admin UI, update agent, adapter template, and infrastructure templates are all implemented and tested across 2,896 passing tests in 14 test files.
 
-The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. E2E encryption is active with interoperable tweetnacl (browser) and libsodium (Node.js) implementations. The protocol is stable at 81 message types with 48 error codes across 8 categories. The reference implementation works.
+The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. E2E encryption is active with interoperable tweetnacl (browser) and libsodium (Node.js) implementations. The protocol is stable at 81 message types with 48 error codes across 8 categories. Three official Anthropic adapters (Sonnet, Haiku, Opus) provide role-based model selection. The reference implementation works.
 
 > **Mobile client note:** The React Native mobile client (`packages/client-human-mobile`) was built during the initial development phases and builds successfully, but has not been updated with Layer 2-4 features, the setup wizard, or Challenge Me More. Mobile client modernisation is on the roadmap.
 
 ### Self-Update System (Beta)
 
-The self-update system is deployed and agents connect successfully. The following items remain:
+The self-update system is deployed with multi-agent support (relay + AI VM agents). The setup script is idempotent (safe to rerun). Remaining items:
 
-- ~~Version display in admin UI showed stale version~~ — **FIXED in v0.5.2**: relay reads VERSION file and serves it via GET /api/update/status
-- ~~VERSION file centralisation~~ — **DONE in v0.5.2**: single source of truth, `pnpm run version:sync`
 - End-to-end update flow (Check → Build → Restart → Verify) has not completed a full cycle in production yet
 - Relay self-restart coordination is the most complex phase and is untested in production
-- First-time deployment requires manual steps — the setup script covers most but deployers should review the [deploy/update-agent/README.md](deploy/update-agent/README.md) carefully
+- First-time deployment requires manual steps — see [deploy/update-agent/README.md](deploy/update-agent/README.md)
 
 See [GitHub Issues](https://github.com/Glorktelligence/Bastion/issues) for other items.
 

@@ -335,20 +335,28 @@ BASTION_CONVERSATIONS_DB=/var/lib/bastion-ai/conversations.db
 # Streaming responses (set to 'false' to disable)
 BASTION_STREAMING=true
 
-# Adapter configuration
-BASTION_MODEL=claude-sonnet-4-20250514
+# Common adapter configuration
 BASTION_TEMPERATURE=1.0
 BASTION_API_ENDPOINT=https://api.anthropic.com
 BASTION_API_VERSION=2023-06-01
 BASTION_TIMEOUT=120000
-BASTION_PRICING_INPUT=3
-BASTION_PRICING_OUTPUT=15
 
-# Compaction adapter (optional — uses cheaper model for conversation summarisation)
-# Set to a different model to enable cost-optimised compaction
-# BASTION_COMPACTION_MODEL=claude-haiku-4-5-20251001
-# BASTION_COMPACTION_PRICING_INPUT=0.25
-# BASTION_COMPACTION_PRICING_OUTPUT=1.25
+# Three Official Adapters (all share ANTHROPIC_API_KEY)
+# Sonnet — default, conversation, task ($3/$15 per MTok)
+BASTION_SONNET_MODEL=claude-sonnet-4-20250514
+# BASTION_SONNET_PRICING_INPUT=3
+# BASTION_SONNET_PRICING_OUTPUT=15
+
+# Haiku — compaction, game ($0.80/$4 per MTok — 4x cheaper)
+BASTION_HAIKU_MODEL=claude-haiku-4-5-20251001
+# BASTION_HAIKU_PRICING_INPUT=0.8
+# BASTION_HAIKU_PRICING_OUTPUT=4
+
+# Opus — research, dream ($15/$75 per MTok, 8192 max tokens)
+BASTION_OPUS_MODEL=claude-opus-4-6
+# BASTION_OPUS_PRICING_INPUT=15
+# BASTION_OPUS_PRICING_OUTPUT=75
+# BASTION_OPUS_MAX_TOKENS=8192
 ```
 
 ```bash

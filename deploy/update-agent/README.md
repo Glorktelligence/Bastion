@@ -18,7 +18,7 @@ chmod +x setup-updater.sh
 sudo ./setup-updater.sh
 ```
 
-The script creates the `bastion-updater` system user, installs the sudoers whitelist, copies agent files, installs runtime dependencies (`ws`, `zod`), and installs the systemd service.
+The script is **idempotent** — safe to run multiple times. On first run it creates the user and installs everything. On subsequent runs it preserves `config.json`, overwrites agent files, and restarts the service. Run `sudo ./setup-updater.sh --help` for details.
 
 ## Manual Setup
 
