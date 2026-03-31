@@ -2,6 +2,21 @@
 
 All notable changes to Project Bastion are documented in this file.
 
+## [0.5.9] - 2026-03-31
+
+### Added
+- Three Bastion Official Anthropic Adapters:
+  - **Sonnet** — default, conversation, task (claude-sonnet-4, $3/$15 per MTok)
+  - **Haiku** — compaction, game (claude-haiku-4.5, $0.80/$4 per MTok, 4x cheaper)
+  - **Opus** — research, dream (claude-opus-4.6, $15/$75 per MTok, 8192 max tokens, 2x timeout)
+- Per-adapter env vars: `BASTION_SONNET_MODEL`, `BASTION_HAIKU_MODEL`, `BASTION_OPUS_MODEL` + pricing overrides
+- Provider registration now advertises all three adapters to the relay
+
+### Changed
+- Replaced old single adapter + optional compaction adapter with three dedicated adapters
+- Adapter registry routes operations to the correct model by role (conversation→Sonnet, compaction→Haiku, research→Opus)
+- All adapters share `ANTHROPIC_API_KEY` — deployers only need one API key
+
 ## [0.5.8] - 2026-03-31
 
 ### Added

@@ -80,5 +80,16 @@ Startup scripts (root level):
 Format: `BASTION-CXXX` — 45 codes across 8 categories:
 1XXX=Connection (7) | 2XXX=Auth (6) | 3XXX=Protocol (6) | 4XXX=Safety (6) | 5XXX=File (7) | 6XXX=Provider (6) | 7XXX=Config (5) | 8XXX=Budget (5)
 
+## Three Bastion Official Adapters
+All share `ANTHROPIC_API_KEY`. Each targets a different model with role-specific config.
+
+| Adapter | Model | Roles | Temperature | Pricing (in/out per MTok) |
+|---------|-------|-------|-------------|---------------------------|
+| **Sonnet** | claude-sonnet-4 | default, conversation, task | 1.0 | $3 / $15 |
+| **Haiku** | claude-haiku-4.5 | compaction, game | 0.3 | $0.80 / $4 |
+| **Opus** | claude-opus-4.6 | research, dream | 1.0 | $15 / $75 |
+
+Env vars: `BASTION_SONNET_MODEL`, `BASTION_HAIKU_MODEL`, `BASTION_OPUS_MODEL` (override model IDs).
+
 ## Tech Stack
 PNPM workspaces | TypeScript (ES2022/Node16) | Zod (validation) | node:test (testing, 2,879 tests) | Biome (linting) | WebSocket over TLS | tweetnacl + libsodium (E2E encryption) | node:sqlite DatabaseSync (audit) | SQLite (memories, budget) | jose (JWT) | Tauri + SvelteKit (desktop) | React Native (mobile)

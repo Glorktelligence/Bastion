@@ -36,20 +36,29 @@ const AI_CLIENT_ID = process.env.BASTION_AI_CLIENT_ID || 'ai-client-001';
 const AI_DISPLAY_NAME = process.env.BASTION_AI_DISPLAY_NAME || 'Claude (Bastion)';
 const PROVIDER_ID = process.env.BASTION_PROVIDER_ID || 'anthropic-bastion';
 const PROVIDER_NAME = process.env.BASTION_PROVIDER_NAME || 'Anthropic (Bastion Official)';
-const MODEL = process.env.BASTION_MODEL || 'claude-sonnet-4-20250514';
 const MAX_TOKENS = parseInt(process.env.BASTION_MAX_TOKENS || '4096', 10);
 const TEMPERATURE = parseFloat(process.env.BASTION_TEMPERATURE || '1.0');
 const API_ENDPOINT = process.env.BASTION_API_ENDPOINT || 'https://api.anthropic.com';
 const API_VERSION = process.env.BASTION_API_VERSION || '2023-06-01';
 const API_TIMEOUT = parseInt(process.env.BASTION_TIMEOUT || '120000', 10);
-const PRICING_INPUT = parseFloat(process.env.BASTION_PRICING_INPUT || '3');
-const PRICING_OUTPUT = parseFloat(process.env.BASTION_PRICING_OUTPUT || '15');
 const STREAMING_ENABLED = process.env.BASTION_STREAMING !== 'false';
-const COMPACTION_MODEL = process.env.BASTION_COMPACTION_MODEL || MODEL;
-const COMPACTION_PRICING_INPUT = parseFloat(process.env.BASTION_COMPACTION_PRICING_INPUT || String(PRICING_INPUT));
-const COMPACTION_PRICING_OUTPUT = parseFloat(process.env.BASTION_COMPACTION_PRICING_OUTPUT || String(PRICING_OUTPUT));
 const REJECT_UNAUTHORIZED = process.env.BASTION_TLS_REJECT_UNAUTHORIZED !== 'false' ? false : true;
 // Note: defaults to false (accept self-signed) — set BASTION_TLS_REJECT_UNAUTHORIZED=true for strict
+
+// Three Bastion Official Adapters — Sonnet, Haiku, Opus
+// All share ANTHROPIC_API_KEY. Each targets a different model with role-specific config.
+const SONNET_MODEL = process.env.BASTION_SONNET_MODEL || 'claude-sonnet-4-20250514';
+const SONNET_PRICING_INPUT = parseFloat(process.env.BASTION_SONNET_PRICING_INPUT || '3');
+const SONNET_PRICING_OUTPUT = parseFloat(process.env.BASTION_SONNET_PRICING_OUTPUT || '15');
+
+const HAIKU_MODEL = process.env.BASTION_HAIKU_MODEL || 'claude-haiku-4-5-20251001';
+const HAIKU_PRICING_INPUT = parseFloat(process.env.BASTION_HAIKU_PRICING_INPUT || '0.8');
+const HAIKU_PRICING_OUTPUT = parseFloat(process.env.BASTION_HAIKU_PRICING_OUTPUT || '4');
+
+const OPUS_MODEL = process.env.BASTION_OPUS_MODEL || 'claude-opus-4-6';
+const OPUS_PRICING_INPUT = parseFloat(process.env.BASTION_OPUS_PRICING_INPUT || '15');
+const OPUS_PRICING_OUTPUT = parseFloat(process.env.BASTION_OPUS_PRICING_OUTPUT || '75');
+const OPUS_MAX_TOKENS = parseInt(process.env.BASTION_OPUS_MAX_TOKENS || '8192', 10);
 
 if (!API_KEY) {
   console.error('[!] ANTHROPIC_API_KEY not set. Run with: node --env-file=.env start-ai-client.mjs');
@@ -66,60 +75,73 @@ console.log('=== Project Bastion — AI Client ===');
 console.log(`Relay: ${RELAY_URL}`);
 console.log(`Identity: ${AI_DISPLAY_NAME} (${AI_CLIENT_ID})`);
 console.log(`Provider: ${PROVIDER_NAME} (${PROVIDER_ID})`);
-console.log(`Model: ${MODEL}`);
+console.log(`Models: Sonnet=${SONNET_MODEL}, Haiku=${HAIKU_MODEL}, Opus=${OPUS_MODEL}`);
 console.log('');
 
 // ---------------------------------------------------------------------------
-// Anthropic adapter setup
+// Three Bastion Official Adapters — Sonnet, Haiku, Opus
 // ---------------------------------------------------------------------------
 
 const keyManager = createApiKeyManager(API_KEY);
 const adapterToolRegistry = createToolRegistry();
 
-const adapter = createAnthropicAdapter(keyManager, adapterToolRegistry, {
-  providerId: PROVIDER_ID,
-  providerName: PROVIDER_NAME,
-  model: MODEL,
+// Sonnet — default conversation and task adapter (balanced capability + cost)
+const sonnetAdapter = createAnthropicAdapter(keyManager, adapterToolRegistry, {
+  providerId: 'anthropic-sonnet',
+  providerName: 'Anthropic Sonnet (Bastion Official)',
+  model: SONNET_MODEL,
   maxTokens: MAX_TOKENS,
   temperature: TEMPERATURE,
   apiBaseUrl: API_ENDPOINT,
   apiVersion: API_VERSION,
   requestTimeoutMs: API_TIMEOUT,
-  pricingInputPerMTok: PRICING_INPUT,
-  pricingOutputPerMTok: PRICING_OUTPUT,
-  supportedModels: [MODEL],
+  pricingInputPerMTok: SONNET_PRICING_INPUT,
+  pricingOutputPerMTok: SONNET_PRICING_OUTPUT,
+  supportedModels: [SONNET_MODEL],
   systemPrompt: ConversationManager.getRoleContext(),
 });
 
-// Compaction adapter — uses cheaper model if configured
-const usesSeparateCompaction = COMPACTION_MODEL !== MODEL;
-const compactionAdapter = usesSeparateCompaction
-  ? createAnthropicAdapter(keyManager, adapterToolRegistry, {
-      providerId: `${PROVIDER_ID}-compaction`,
-      providerName: `${PROVIDER_NAME} (Compaction)`,
-      model: COMPACTION_MODEL,
-      maxTokens: MAX_TOKENS,
-      temperature: 0.3,
-      apiBaseUrl: API_ENDPOINT,
-      apiVersion: API_VERSION,
-      requestTimeoutMs: API_TIMEOUT,
-      pricingInputPerMTok: COMPACTION_PRICING_INPUT,
-      pricingOutputPerMTok: COMPACTION_PRICING_OUTPUT,
-      supportedModels: [COMPACTION_MODEL],
-      systemPrompt: ConversationManager.getCoreContext() + '\n\nYou are summarising a conversation. Produce concise, structured notes.',
-    })
-  : adapter;
+// Haiku — cost-efficient compaction and game adapter (4x cheaper than Sonnet)
+const haikuAdapter = createAnthropicAdapter(keyManager, adapterToolRegistry, {
+  providerId: 'anthropic-haiku',
+  providerName: 'Anthropic Haiku (Bastion Official)',
+  model: HAIKU_MODEL,
+  maxTokens: MAX_TOKENS,
+  temperature: 0.3,
+  apiBaseUrl: API_ENDPOINT,
+  apiVersion: API_VERSION,
+  requestTimeoutMs: API_TIMEOUT,
+  pricingInputPerMTok: HAIKU_PRICING_INPUT,
+  pricingOutputPerMTok: HAIKU_PRICING_OUTPUT,
+  supportedModels: [HAIKU_MODEL],
+  systemPrompt: ConversationManager.getCoreContext() + '\n\nYou are summarising a conversation. Produce concise, structured notes.',
+});
+
+// Opus — maximum capability for research and dream cycle
+const opusAdapter = createAnthropicAdapter(keyManager, adapterToolRegistry, {
+  providerId: 'anthropic-opus',
+  providerName: 'Anthropic Opus (Bastion Official)',
+  model: OPUS_MODEL,
+  maxTokens: OPUS_MAX_TOKENS,
+  temperature: TEMPERATURE,
+  apiBaseUrl: API_ENDPOINT,
+  apiVersion: API_VERSION,
+  requestTimeoutMs: API_TIMEOUT * 2, // Double timeout for deep research
+  pricingInputPerMTok: OPUS_PRICING_INPUT,
+  pricingOutputPerMTok: OPUS_PRICING_OUTPUT,
+  supportedModels: [OPUS_MODEL],
+  systemPrompt: ConversationManager.getRoleContext(),
+});
 
 // Adapter registry — routes operations to the appropriate adapter
 const adapterRegistry = new AdapterRegistry();
-adapterRegistry.registerAdapter(adapter, ['default', 'conversation', 'task']);
-if (usesSeparateCompaction) {
-  adapterRegistry.registerAdapter(compactionAdapter, ['compaction']);
-}
+adapterRegistry.registerAdapter(sonnetAdapter, ['default', 'conversation', 'task']);
+adapterRegistry.registerAdapter(haikuAdapter, ['compaction', 'game']);
+adapterRegistry.registerAdapter(opusAdapter, ['research', 'dream']);
 adapterRegistry.lock();
 
 const registeredAdapters = adapterRegistry.list();
-console.log(`[✓] Adapter registry: ${registeredAdapters.length} adapter${registeredAdapters.length !== 1 ? 's' : ''} registered`);
+console.log(`[✓] Adapter registry: ${registeredAdapters.length} adapters registered`);
 for (const ra of registeredAdapters) {
   console.log(`    → ${ra.adapter.providerId} [${ra.adapter.activeModel}] (${ra.roles.join(', ')})`);
 }
@@ -689,8 +711,8 @@ client.on('message', async (data) => {
       payload: {
         providerId: PROVIDER_ID,
         providerName: PROVIDER_NAME,
-        model: adapter.activeModel,
-        capabilities: adapter.capabilities,
+        model: sonnetAdapter.activeModel,
+        capabilities: { conversation: true, taskExecution: true, fileTransfer: true, streaming: STREAMING_ENABLED },
         adapters: adapterRegistry.list().map(ra => ({
           id: ra.adapter.providerId,
           name: ra.adapter.providerName,
