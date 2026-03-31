@@ -448,13 +448,23 @@ export class AdminRoutes {
     limit?: number;
     offset?: number;
   }): ApiResponse {
+    const limit = filters.limit ?? 100;
+    const offset = filters.offset ?? 0;
+
     const entries = this.audit.query({
       startTime: filters.startTime,
       endTime: filters.endTime,
       eventType: filters.eventType,
       sessionId: filters.sessionId,
-      limit: filters.limit ?? 100,
-      offset: filters.offset ?? 0,
+      limit,
+      offset,
+    });
+
+    const totalCount = this.audit.count({
+      startTime: filters.startTime,
+      endTime: filters.endTime,
+      eventType: filters.eventType,
+      sessionId: filters.sessionId,
     });
 
     return {
@@ -468,7 +478,10 @@ export class AdminRoutes {
           detail: typeof e.detail === 'string' ? JSON.parse(e.detail) : e.detail,
           chainHash: e.chainHash,
         })),
-        totalCount: entries.length,
+        totalCount,
+        page: Math.floor(offset / limit),
+        pageSize: limit,
+        hasMore: offset + entries.length < totalCount,
       },
     };
   }

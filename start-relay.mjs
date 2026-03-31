@@ -587,6 +587,12 @@ relay.on('message', async (data, info) => {
       });
     } catch (err) {
       console.error(`[!] JWT issuance failed: ${err.message}`);
+      auditLogger.logEvent('auth_failure', connId, {
+        clientId: identity.id,
+        clientType: identity.type,
+        displayName: identity.displayName,
+        reason: `JWT issuance failed: ${err.message}`,
+      });
       relay.send(connId, JSON.stringify({
         type: 'error',
         message: 'Authentication failed — could not issue token',
@@ -990,6 +996,16 @@ relay.on('message', async (data, info) => {
       adminRoutes.setUpdateStatus('preparing', { targetVersion: p.targetVersion });
     }
 
+    // Audit update lifecycle messages (metadata only)
+    if (sid) {
+      auditLogger.logEvent(msg.type, sid, {
+        messageType: msg.type,
+        component: p.component || p.targetComponent || null,
+        version: p.version || p.availableVersion || p.toVersion || null,
+        phase: p.phase || null,
+      });
+    }
+
     // Forward to updater or admin depending on sender
     // Relay cannot read encrypted payloads — it only routes and audits metadata
     const senderIsUpdater = [...updaterClients.values()].some((u) => u.connectionId === connId);
@@ -1213,7 +1229,11 @@ relay.on('message', async (data, info) => {
         console.log(`[✓] Token refreshed for ${connId.slice(0, 8)}`);
 
         const sid = sessionIds.get(connId);
-        if (sid) auditLogger.logEvent('auth_token_refresh', sid, {});
+        const refreshClient = router.getClient(connId);
+        if (sid) auditLogger.logEvent('auth_token_refresh', sid, {
+          clientId: refreshClient?.identity.id || 'unknown',
+          clientType: refreshClient?.identity.type || 'unknown',
+        });
       } else {
         relay.send(connId, JSON.stringify({
           type: 'error',
@@ -1289,6 +1309,13 @@ relay.on('disconnection', (info, code, reason) => {
   if (sid) {
     auditLogger.logEvent('session_ended', sid, { code, reason });
     sessionIds.delete(connId);
+  } else {
+    // Connection closed before authentication — still log it
+    auditLogger.logEvent('connection_closed', connId, {
+      code,
+      reason,
+      authenticated: false,
+    });
   }
 
   // Unregister from router (also unpairs)

@@ -191,6 +191,11 @@ function handleClearFilters() {
 				>{size}</button>
 			{/each}
 		</div>
+		<div class="page-range">
+			{@const rangeStart = state.currentPage * state.pageSize + 1}
+			{@const rangeEnd = Math.min(rangeStart + state.entries.length - 1, state.totalServerCount)}
+			<span class="page-label">Showing {state.totalServerCount === 0 ? '0' : `${rangeStart}\u2013${rangeEnd}`} of {state.totalServerCount.toLocaleString()} entries</span>
+		</div>
 		<div class="page-nav">
 			<button class="btn btn-sm" disabled={state.currentPage === 0} onclick={() => goToPage(state.currentPage - 1)}>Previous</button>
 			<span class="page-label">Page {state.currentPage + 1} of {pages}</span>
@@ -255,6 +260,6 @@ function handleClearFilters() {
 		display: flex; justify-content: space-between; align-items: center;
 		padding: 0.5rem 0; font-size: 0.85rem;
 	}
-	.page-size, .page-nav { display: flex; align-items: center; gap: 0.375rem; }
+	.page-size, .page-nav, .page-range { display: flex; align-items: center; gap: 0.375rem; }
 	.page-label { color: var(--text-muted); font-size: 0.8rem; }
 </style>

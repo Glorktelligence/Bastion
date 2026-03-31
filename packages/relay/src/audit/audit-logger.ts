@@ -47,6 +47,10 @@ export const AUDIT_EVENT_TYPES = {
   AUTH_TOKEN_REFRESH: 'auth_token_refresh',
   AUTH_TOKEN_EXPIRED: 'auth_token_expired',
 
+  // Connection lifecycle
+  CONNECTION_OPENED: 'connection_opened',
+  CONNECTION_CLOSED: 'connection_closed',
+
   // Session lifecycle
   SESSION_STARTED: 'session_started',
   SESSION_ENDED: 'session_ended',
@@ -249,6 +253,16 @@ export class AuditLogger {
   query(query: AuditQuery = {}): HashedAuditEntry[] {
     if (this.closed) throw new AuditLoggerError('Logger is closed');
     return this.store.query(query);
+  }
+
+  /**
+   * Count entries matching filters (no limit/offset).
+   *
+   * Used by the admin API to return the real totalCount for pagination.
+   */
+  count(query: Omit<AuditQuery, 'limit' | 'offset'>): number {
+    if (this.closed) throw new AuditLoggerError('Logger is closed');
+    return this.store.count(query);
   }
 
   /**

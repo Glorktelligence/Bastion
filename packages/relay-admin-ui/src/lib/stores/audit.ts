@@ -45,6 +45,8 @@ export interface AdminAuditState {
 // ---------------------------------------------------------------------------
 
 export const AUDIT_EVENT_TYPES = [
+  'connection_opened',
+  'connection_closed',
   'message_routed',
   'message_rejected',
   'message_rate_limited',
@@ -88,6 +90,25 @@ export const AUDIT_EVENT_TYPES = [
   'memory_proposed',
   'memory_decided',
   'project_sync',
+  'stream_started',
+  'stream_completed',
+  'conversation_created',
+  'conversation_switched',
+  'conversation_archived',
+  'conversation_deleted',
+  'compaction_triggered',
+  'compaction_completed',
+  'update_check',
+  'update_available',
+  'update_prepare',
+  'update_prepare_ack',
+  'update_execute',
+  'update_build_status',
+  'update_restart',
+  'update_reconnected',
+  'update_complete',
+  'update_failed',
+  'ai_disclosure_sent',
 ] as const;
 
 // ---------------------------------------------------------------------------

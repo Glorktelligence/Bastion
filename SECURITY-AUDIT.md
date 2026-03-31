@@ -451,3 +451,150 @@ All fixes verified:
 ---
 
 *Audit performed 2026-03-31. Fixes applied same day. Current: v0.5.9, 2,896 tests.*
+
+---
+
+## AUDIT 7: Audit Trail Completeness
+
+**Date**: 2026-03-31
+**Scope**: Verify every auditable event in `start-relay.mjs` triggers an `auditLogger.logEvent()` call with useful forensic detail.
+
+### Connection Events
+
+| Event | Event Type | Code Reference | Status |
+|-------|-----------|---------------|--------|
+| Client connect | `connection_opened` | `start-relay.mjs:483` | LOGGED |
+| Client disconnect (authenticated) | `session_ended` | `start-relay.mjs:1290` | LOGGED |
+| Client disconnect (unauthenticated) | `connection_closed` | `start-relay.mjs:1293` | **ADDED** (was missing) |
+| Session init / auth success | `auth_success` | `start-relay.mjs:631` | LOGGED |
+| Authentication failure (JWT) | `auth_failure` | `start-relay.mjs:590` | **ADDED** (was missing) |
+| MaliClaw rejection | `security_violation` | `start-relay.mjs:566` | LOGGED |
+| Token refresh | `auth_token_refresh` | `start-relay.mjs:1216` | LOGGED (detail **enriched** with clientId/clientType) |
+
+### Message Routing
+
+| Event | Event Type | Code Reference | Status |
+|-------|-----------|---------------|--------|
+| Human -> AI forwarded | `message_routed` | `start-relay.mjs:1267` | LOGGED |
+| AI -> Human forwarded | `message_routed` | `start-relay.mjs:1267` | LOGGED |
+| Sender type mismatch (BASTION-3003) | `security_violation` | `start-relay.mjs:761` | LOGGED |
+| Conversation create | `conversation_created` | `start-relay.mjs:949` | LOGGED |
+| Conversation switch | `conversation_switched` | `start-relay.mjs:950` | LOGGED |
+| Conversation archive | `conversation_archived` | `start-relay.mjs:951` | LOGGED |
+| Conversation delete | `conversation_deleted` | `start-relay.mjs:952` | LOGGED |
+| Compaction triggered | `compaction_triggered` | `start-relay.mjs:953` | LOGGED |
+| Compaction completed | `compaction_completed` | `start-relay.mjs:954` | LOGGED |
+| Stream started | `stream_started` | `start-relay.mjs:932` | LOGGED |
+| Stream completed | `stream_completed` | `start-relay.mjs:935` | LOGGED |
+
+### Key Exchange
+
+| Event | Event Type | Code Reference | Status |
+|-------|-----------|---------------|--------|
+| Key exchange forwarded | `key_exchange` | `start-relay.mjs:809` | LOGGED (metadata only — key material NOT logged) |
+
+### Security Events
+
+| Event | Event Type | Code Reference | Status |
+|-------|-----------|---------------|--------|
+| MaliClaw connection rejection | `security_violation` | `start-relay.mjs:566` | LOGGED |
+| Sender type mismatch | `security_violation` | `start-relay.mjs:761` | LOGGED |
+| project_sync content rejection | `security_violation` | `start-relay.mjs:879` | LOGGED |
+| Unauthorised file_request | `security_violation` | `start-relay.mjs:1152` | LOGGED |
+| AI disclosure sent | `ai_disclosure_sent` | `start-relay.mjs:429` | LOGGED |
+
+### File Transfer
+
+| Event | Event Type | Code Reference | Status |
+|-------|-----------|---------------|--------|
+| File submitted to quarantine | `file_submitted` | `start-relay.mjs:1076` | LOGGED |
+| Hash mismatch at submission | `file_hash_mismatch` | `start-relay.mjs:1094` | LOGGED |
+| File delivered | `file_delivered` | `start-relay.mjs:1168` | LOGGED |
+| Hash mismatch at delivery | `file_hash_mismatch` | `start-relay.mjs:1183` | LOGGED |
+
+### Provider Events
+
+| Event | Event Type | Code Reference | Status |
+|-------|-----------|---------------|--------|
+| Provider registered (self-register) | `provider_registered` | `start-relay.mjs:649` | LOGGED |
+| Provider approved (admin) | `provider_approved` | `admin-routes.ts:319` | LOGGED |
+| Provider revoked | `provider_deactivated` | `admin-routes.ts:348` | LOGGED |
+| Provider reactivated | `provider_approved` | `admin-routes.ts:373` | LOGGED |
+| MaliClaw blocked provider | `maliclaw_rejected` | `admin-routes.ts:297` | LOGGED |
+
+### Update Events
+
+| Event | Event Type | Code Reference | Status |
+|-------|-----------|---------------|--------|
+| Update check initiated | `update_check_initiated` | `admin-routes.ts:682` | LOGGED |
+| Update build started | `update_build_started` | `admin-routes.ts:789` | LOGGED |
+| Update cancelled | `update_failed` | `admin-routes.ts:831` | LOGGED (reason: cancelled_by_admin) |
+| Update lifecycle messages (all) | `update_*` (per type) | `start-relay.mjs:~997` | **ADDED** (was missing — no per-message audit) |
+
+### Memory Events
+
+| Event | Event Type | Code Reference | Status |
+|-------|-----------|---------------|--------|
+| Memory proposed | `memory_proposed` | `start-relay.mjs:911` | LOGGED |
+| Memory decided | `memory_decided` | `start-relay.mjs:911` | LOGGED |
+
+### Challenge Events
+
+| Event | Event Type | Code Reference | Status |
+|-------|-----------|---------------|--------|
+| Challenge status | `challenge_status` | `start-relay.mjs:778` | LOGGED |
+| Challenge config | `challenge_config` | `start-relay.mjs:778` | LOGGED |
+| Challenge config ack | `challenge_config_ack` | `start-relay.mjs:778` | LOGGED |
+
+### Budget Events
+
+| Event | Event Type | Code Reference | Status |
+|-------|-----------|---------------|--------|
+| Budget alert | `budget_alert` | `start-relay.mjs:825` | LOGGED |
+| Budget config changed | `budget_config_changed` | `start-relay.mjs:831` | LOGGED |
+| Budget status | `budget_status` | `start-relay.mjs:837` | LOGGED |
+
+### Tool Events
+
+| Event | Event Type | Code Reference | Status |
+|-------|-----------|---------------|--------|
+| Tool request/approved/denied/result/revoke/alert | Per message type | `start-relay.mjs:855` | LOGGED |
+
+### Project Sync Events
+
+| Event | Event Type | Code Reference | Status |
+|-------|-----------|---------------|--------|
+| project_sync (valid) | `project_sync` | `start-relay.mjs:895` | LOGGED |
+| project_sync (rejected) | `security_violation` | `start-relay.mjs:879` | LOGGED |
+
+### Context Update
+
+| Event | Event Type | Code Reference | Status |
+|-------|-----------|---------------|--------|
+| context_update forwarded | `context_update` | `start-relay.mjs:1017` | LOGGED |
+
+### Admin Events
+
+| Event | Event Type | Code Reference | Status |
+|-------|-----------|---------------|--------|
+| Admin login | Handled by `AdminServer` | `admin-server.ts` | LOGGED (via AdminServer auth flow) |
+| Audit query | `audit_query` | `start-relay.mjs:744` | LOGGED |
+| Capability matrix update | `config_change` | `admin-routes.ts:418` | LOGGED |
+| Session paired | `session_paired` | `start-relay.mjs:450` | LOGGED |
+
+### Summary of Fixes Applied
+
+| # | Gap | Severity | Fix |
+|---|-----|----------|-----|
+| 1 | Auth failure (JWT issuance) not audited | **MEDIUM** | Added `auth_failure` event on JWT error |
+| 2 | Unauthenticated disconnections not audited | **LOW** | Added `connection_closed` event for pre-auth disconnects |
+| 3 | Update lifecycle messages not individually audited | **MEDIUM** | Added per-message audit for all `update_*` types |
+| 4 | Token refresh detail empty | **LOW** | Enriched with `clientId` and `clientType` |
+
+### Pagination Bug (CRITICAL)
+
+| # | Bug | Impact | Fix |
+|---|-----|--------|-----|
+| 1 | `queryAudit()` returned `entries.length` as `totalCount` | Pagination showed page size as total count — admins could not navigate beyond first page | Added `count()` to AuditStore/AuditLogger; `queryAudit()` now returns real `totalCount`, `page`, `pageSize`, `hasMore` |
+| 2 | Admin UI detail column truncated at 80 chars | Forensic detail invisible to admins | Replaced with inline key fields + collapsible full JSON view |
+| 3 | Admin UI pagination missing "Showing X of Y" | No indication of total result set size | Added "Showing 1–25 of N entries" range display |

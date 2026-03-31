@@ -219,6 +219,42 @@ export class AuditStore {
   }
 
   /**
+   * Count entries matching the given filters (same WHERE clause as query(),
+   * but returns SELECT COUNT(*) instead of rows).
+   *
+   * Used by the admin API to return the real totalCount for pagination.
+   */
+  count(query: Omit<AuditQuery, 'limit' | 'offset'>): number {
+    if (!this.db) throw new AuditStoreError('Store is closed');
+
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (query.startTime) {
+      conditions.push('timestamp >= ?');
+      params.push(query.startTime);
+    }
+    if (query.endTime) {
+      conditions.push('timestamp <= ?');
+      params.push(query.endTime);
+    }
+    if (query.eventType) {
+      conditions.push('event_type = ?');
+      params.push(query.eventType);
+    }
+    if (query.sessionId) {
+      conditions.push('session_id = ?');
+      params.push(query.sessionId);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const sql = `SELECT COUNT(*) as cnt FROM audit_entries ${where}`;
+
+    const row = this.db.prepare(sql).all(...params) as unknown as { cnt: number }[];
+    return row[0]?.cnt ?? 0;
+  }
+
+  /**
    * Get all entries ordered by index. Use with caution on large stores.
    */
   getAllEntries(): HashedAuditEntry[] {
