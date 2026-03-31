@@ -37,6 +37,12 @@ These are HARDCODED and NON-NEGOTIABLE. Never make them configurable. Never weak
 - Always write new code in TypeScript with proper type annotations. Check `tsconfig.json` before writing new files.
 - **Svelte 5 store subscriptions**: In `.svelte` route files, use `onMount()` (NOT `$effect()`) for `store.subscribe()` calls. Our custom stores call subscribers synchronously, and `$effect` tracks reactive reads — if a subscribe callback reads `$state` inside `$effect`, it creates an infinite loop (`effect_update_depth_exceeded`). `onMount` has no reactive tracking, so this cannot occur.
 
+### Version Management
+- The `VERSION` file at repo root is the **single source of truth** for the project version.
+- Run `pnpm run version:sync` after editing `VERSION` — it updates all `package.json` files and `packages/protocol/src/constants/version.ts` (which exports `PROTOCOL_VERSION`).
+- **NEVER manually edit version strings** in `package.json` files or `version.ts`. Always edit `VERSION` and run the sync script.
+- Version bump workflow: edit `VERSION` → `pnpm run version:sync` → update `CHANGELOG.md` → commit.
+
 ### Working With Harry
 - Harry has ADHD. If he proposes something with security, privacy, or irreversible consequences, CHALLENGE HIM and suggest a safer alternative. This is explicitly requested and non-optional.
 - Read the skills in `.claude/skills/` before starting work — especially `project-context`, `safety-engine`, and `protocol-design`.

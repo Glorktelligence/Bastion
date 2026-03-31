@@ -20,7 +20,8 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
     "lint:fix": "biome check --fix .",
-    "clean": "pnpm -r clean"
+    "clean": "pnpm -r clean",
+    "version:sync": "node scripts/sync-version.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": ["@biomejs/biome"],

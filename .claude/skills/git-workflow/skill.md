@@ -204,14 +204,27 @@ Ready to push when resolved.
 
 ---
 
-## Protocol Version Bumps
+## Version Bumps
 
-Any breaking change to `@bastion/protocol` requires:
+The `VERSION` file at repo root is the **single source of truth**. NEVER edit version strings in `package.json` files or `version.ts` directly.
 
-1. Version bump in `packages/protocol/package.json`
-2. Architecture Decision Record in `docs/architecture/decisions/`
-3. Changelog entry
-4. Commit message: `feat(protocol)!: [breaking change description]`
+```bash
+# 1. Edit VERSION file (e.g. 0.5.3)
+# 2. Sync to all packages:
+pnpm run version:sync
+# 3. Update CHANGELOG.md
+# 4. Commit: "chore: bump version to vX.Y.Z"
+```
+
+This updates: root `package.json` + 10 sub-package `package.json` files + `packages/protocol/src/constants/version.ts` (exports `PROTOCOL_VERSION`).
+
+### Breaking Protocol Changes
+
+Any breaking change to `@bastion/protocol` additionally requires:
+
+1. Architecture Decision Record in `docs/architecture/decisions/`
+2. Changelog entry
+3. Commit message: `feat(protocol)!: [breaking change description]`
 
 ---
 
