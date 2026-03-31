@@ -436,7 +436,7 @@ No `PUT /api/config` or `PUT /api/safety` endpoint exists in `packages/relay/src
 | # | Observation | Location | Status |
 |---|-------------|----------|--------|
 | I-1 | Mobile client has no safety floor infrastructure | `packages/client-human-mobile/` | DEFERRED — mobile modernisation roadmap |
-| I-2 | Admin-UI hardcoded floor values | ~~`relay-admin-ui/src/lib/stores/config.ts:39-45`~~ | ✅ RESOLVED — now imports `SAFETY_FLOORS` from `@bastion/protocol`. Also added `CHALLENGE_THRESHOLD` and `DENIAL_THRESHOLD` to protocol `SAFETY_FLOORS` as authoritative source; human client `SAFETY_FLOOR_VALUES` now references protocol constants |
+| I-2 | Admin-UI hardcoded floor values | `relay-admin-ui/src/lib/stores/config.ts:40-47` | ACCEPTED — cannot import from `@bastion/protocol` in browser build (node:crypto breaks Vite). Values hardcoded with comments referencing protocol source. Human client (Tauri/Node) correctly imports from protocol. `CHALLENGE_THRESHOLD` and `DENIAL_THRESHOLD` added to protocol `SAFETY_FLOORS` as authoritative source |
 
 ---
 

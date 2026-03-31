@@ -9,7 +9,6 @@
  * Read-only view — modifications go through the admin API.
  */
 
-import { SAFETY_FLOORS } from '@bastion/protocol';
 import { type Readable, type Writable, derived, writable } from '../store.js';
 import type { ChainIntegritySummary, RelaySettingsSummary, SafetyFloorsSummary, TlsStatusSummary } from '../types.js';
 
@@ -38,9 +37,12 @@ function defaultRelaySettings(): RelaySettingsSummary {
 }
 
 function defaultSafetyFloors(): SafetyFloorsSummary {
+  // Cannot import SAFETY_FLOORS from @bastion/protocol — it pulls in hash.js
+  // which uses node:crypto, breaking Vite's browser build. Keep in sync manually.
+  // Source of truth: packages/protocol/src/constants/safety-levels.ts
   return {
-    challengeThreshold: SAFETY_FLOORS.CHALLENGE_THRESHOLD,
-    denialThreshold: SAFETY_FLOORS.DENIAL_THRESHOLD,
+    challengeThreshold: 0.6, // SAFETY_FLOORS.CHALLENGE_THRESHOLD
+    denialThreshold: 0.9, // SAFETY_FLOORS.DENIAL_THRESHOLD
     maxRiskScore: 1.0,
     description: 'Factory defaults — can be tightened but never lowered',
   };
