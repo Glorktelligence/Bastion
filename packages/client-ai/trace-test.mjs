@@ -1384,9 +1384,9 @@ async function run() {
 
     // System prompt without user context
     const prompt = cm.getSystemPrompt();
-    check('system prompt has role context', prompt.includes('Project Bastion'));
-    check('system prompt identifies Anthropic', prompt.includes('made by Anthropic'));
-    check('system prompt confirms API deployment', prompt.includes('official Anthropic API'));
+    check('system prompt has soul document', prompt.includes('Project Bastion'));
+    check('system prompt identifies Anthropic', prompt.includes('created by Anthropic'));
+    check('system prompt has five boundaries', prompt.includes('MALICLAW CLAUSE'));
     check('system prompt has no user context section', !prompt.includes('User Context'));
 
     // User context
@@ -1419,10 +1419,17 @@ async function run() {
 
     // Static role context
     const roleCtx = ConversationManager.getRoleContext();
-    check('static role context exists', roleCtx.includes('Project Bastion'));
-    check('role context identifies Anthropic', roleCtx.includes('made by Anthropic'));
-    check('role context mentions safety', roleCtx.includes('dangerous'));
-    check('role context has repo link', roleCtx.includes('github.com/Glorktelligence/Bastion'));
+    check('soul document contains Layer 0 identity', roleCtx.includes('created by Anthropic'));
+    check('soul document contains Layer 0 boundaries', roleCtx.includes('MALICLAW CLAUSE'));
+    check('soul document contains Layer 1 values', roleCtx.includes('HELPFULNESS'));
+    check('soul document contains Layer 2 guidance', roleCtx.includes('CONVERSATION MODE GUIDANCE'));
+    check('soul document mentions Project Bastion', roleCtx.includes('Project Bastion'));
+
+    // getCoreContext returns only Layer 0
+    const coreCtx = ConversationManager.getCoreContext();
+    check('core context has Layer 0', coreCtx.includes('MALICLAW CLAUSE'));
+    check('core context omits Layer 1', !coreCtx.includes('HELPFULNESS'));
+    check('core context omits Layer 2', !coreCtx.includes('CONVERSATION MODE GUIDANCE'));
   }
   console.log();
 

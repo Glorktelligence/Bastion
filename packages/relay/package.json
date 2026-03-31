@@ -1,6 +1,6 @@
 {
   "name": "@bastion/relay",
-  "version": "0.5.7",
+  "version": "0.5.8",
   "description": "WebSocket relay server with TLS, routing, audit, and quarantine for Project Bastion",
   "license": "Apache-2.0",
   "author": "Harry Smith <harry@glorktelligence.co.uk>",

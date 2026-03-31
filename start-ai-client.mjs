@@ -106,7 +106,7 @@ const compactionAdapter = usesSeparateCompaction
       pricingInputPerMTok: COMPACTION_PRICING_INPUT,
       pricingOutputPerMTok: COMPACTION_PRICING_OUTPUT,
       supportedModels: [COMPACTION_MODEL],
-      systemPrompt: 'You are a conversation summariser. Produce concise, structured notes.',
+      systemPrompt: ConversationManager.getCoreContext() + '\n\nYou are summarising a conversation. Produce concise, structured notes.',
     })
   : adapter;
 
@@ -222,7 +222,7 @@ async function summariseForCompaction(prompt) {
       target: 'conversation-compaction',
       priority: 'normal',
       parameters: {
-        _systemPrompt: 'You are a conversation summariser. Produce concise, structured notes.',
+        _systemPrompt: ConversationManager.getCoreContext() + '\n\nYou are summarising a conversation. Produce concise, structured notes.',
         _conversationHistory: [{ role: 'user', content: prompt }],
       },
       constraints: [],

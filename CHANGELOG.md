@@ -2,6 +2,19 @@
 
 All notable changes to Project Bastion are documented in this file.
 
+## [0.5.8] - 2026-03-31
+
+### Added
+- Soul Document v1.0 — Bastion's constitution in three layers
+  - Layer 0: Immutable Core (identity, environment, five boundaries)
+  - Layer 1: Values & Principles (honesty, harmlessness, helpfulness, transparency, user sovereignty, hierarchy respect, user vulnerability awareness)
+  - Layer 2: Operational Guidance (conversation mode, adapter identity, memory proposals, challenge support, budget awareness)
+- `ConversationManager.getCoreContext()` — returns Layer 0 only for compaction/minimal context
+
+### Changed
+- System prompt upgraded from basic role context to full three-layer soul document (~2,100 tokens)
+- Compaction uses Layer 0 only (minimal context for summarisation, saves ~1,700 tokens)
+
 ## [0.5.7] - 2026-03-31
 
 ### Fixed

@@ -192,11 +192,11 @@ A message sent through Bastion returns HTTP 400 from Anthropic: `messages.0: use
 
 | Aspect | Code Reference | Status |
 |--------|---------------|--------|
-| ROLE_CONTEXT (static) | `packages/client-ai/src/provider/conversation-manager.ts:56-70` (module-level `const`) | ENFORCED |
+| Soul Document layers (static) | `packages/client-ai/src/provider/conversation-manager.ts:56-180` (module-level `const` — SOUL_LAYER_0, SOUL_LAYER_1, SOUL_LAYER_2_CONVERSATION) | ENFORCED |
 | AI output always `conversation` type | `start-ai-client.mjs:1429-1435` | ENFORCED |
 | Relay sender-type validation | `start-relay.mjs:662-671, 748-749, 890-898` | **GAP FOUND** 🟡 |
 
-**Receipt**: System prompt modification by AI model is prevented because ROLE_CONTEXT is a module-level `const` (`conversation-manager.ts:56-70`) and AI output is always wrapped in `conversation` type messages (`start-ai-client.mjs:1429-1435`). Memory, user-context, and project-file content enters the system prompt, but requires human-initiated message types that the AI model cannot self-originate.
+**Receipt**: System prompt modification by AI model is prevented because the Soul Document layers (SOUL_LAYER_0, SOUL_LAYER_1, SOUL_LAYER_2_CONVERSATION) are module-level `const` strings (`conversation-manager.ts:56-180`) and AI output is always wrapped in `conversation` type messages (`start-ai-client.mjs:1429-1435`). Memory, user-context, and project-file content enters the system prompt, but requires human-initiated message types that the AI model cannot self-originate.
 
 **Defense-in-depth gap**: The relay does NOT validate sender type on `context_update`, `project_sync`, or `memory_proposal` forwarding. If the AI client process were compromised at the Node.js level (not just model output), it could send these message types through the relay.
 
