@@ -2,6 +2,15 @@
 
 All notable changes to Project Bastion are documented in this file.
 
+## [0.5.6] - 2026-03-31
+
+### Fixed
+- **CRITICAL**: Updater routing used single variable — only one agent received commands. Replaced `updaterConnectionId` with `updaterClients` Map tracking all connected updaters by agentId. `onUpdateMessage` now targets specific component or broadcasts to all. Key exchange forwarded to all updaters. Disconnect properly removes from Map.
+
+### Security
+- Update commands now correctly route to per-component agents (relay build → relay agent, AI build → AI agent)
+- Key exchange forwarded to ALL updater clients, not just the last one connected
+
 ## [0.5.5] - 2026-03-31
 
 ### Fixed
