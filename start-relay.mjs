@@ -749,19 +749,23 @@ relay.on('message', async (data, info) => {
 
   // ----- key_exchange: forward between paired clients (relay is zero-knowledge) -----
   if (msg.type === 'key_exchange') {
-    // Updater clients exchange keys — route between updater and human (admin)
-    if (connId === updaterConnectionId && humanConnectionId) {
-      relay.send(humanConnectionId, data);
-      console.log(`[→] key_exchange forwarded from updater to human ${humanConnectionId.slice(0, 8)}`);
-    } else if (connId === humanConnectionId && updaterConnectionId) {
-      relay.send(updaterConnectionId, data);
-      console.log(`[→] key_exchange forwarded from human to updater ${updaterConnectionId.slice(0, 8)}`);
+    if (connId === updaterConnectionId) {
+      // Updater → human only
+      if (humanConnectionId) {
+        relay.send(humanConnectionId, data);
+        console.log(`[→] key_exchange forwarded from updater to human ${humanConnectionId.slice(0, 8)}`);
+      }
     } else {
-      // Standard human↔AI key exchange
+      // Human or AI → forward to paired peer (standard key exchange)
       const peerId = router.getPeer(connId);
       if (peerId) {
         relay.send(peerId, data);
         console.log(`[→] key_exchange forwarded to peer ${peerId.slice(0, 8)} (relay sees public key only)`);
+      }
+      // Human → ALSO forward to updater (if connected, for update channel E2E)
+      if (connId === humanConnectionId && updaterConnectionId) {
+        relay.send(updaterConnectionId, data);
+        console.log(`[→] key_exchange also forwarded from human to updater ${updaterConnectionId.slice(0, 8)}`);
       }
     }
     const sid = sessionIds.get(connId);

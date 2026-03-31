@@ -391,13 +391,14 @@ No `PUT /api/config` or `PUT /api/safety` endpoint exists in `packages/relay/src
 
 ## Consolidated Resolution Summary
 
-### CRITICAL (3 findings — ALL RESOLVED)
+### CRITICAL (4 findings — ALL RESOLVED)
 
 | # | Finding | Fix | Status |
 |---|---------|-----|--------|
 | C-1 | Base64 encoding mismatch | ✅ RESOLVED — AI client now uses `sodium.base64_variants.ORIGINAL` for both encode (`start-ai-client.mjs:480`) and decode (`start-ai-client.mjs:665`), matching human client's `btoa()` standard base64 | ✅ |
 | C-2 | Key exchange race condition | ✅ RESOLVED — Added `keyExchangePending` flag and `encryptedMessageQueue` (`start-ai-client.mjs:348`). Encrypted messages are queued when cipher unavailable (`start-ai-client.mjs:648`), drained after key exchange completes (`start-ai-client.mjs:433`) | ✅ |
 | C-3 | MaliClaw not wired | ✅ RESOLVED — Imported `Allowlist` (`start-relay.mjs:18`), instantiated (`start-relay.mjs:187`), and wired `Allowlist.isMaliClawMatch()` check into `session_init` handler BEFORE JWT issuance (`start-relay.mjs:524`). Rejects with BASTION-1003 and closes connection (`start-relay.mjs:539`) | ✅ |
+| C-4 | Key exchange routing deadlock | ✅ RESOLVED — Relay's `key_exchange` routing used exclusive if/else: when an updater was connected, human's key_exchange was sent to updater INSTEAD of AI peer (`start-relay.mjs:756`). AI never received human's public key, cipher never established, encrypted message queue never drained. Fix: human's key_exchange always goes to paired AI peer first, then ALSO to updater if connected (`start-relay.mjs:751-770`) | ✅ |
 
 ### HIGH (1 finding — RESOLVED)
 
