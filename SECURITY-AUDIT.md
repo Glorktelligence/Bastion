@@ -104,11 +104,11 @@ A message sent through Bastion returns HTTP 400 from Anthropic: `messages.0: use
 | Admin UI enforcement | `packages/relay-admin-ui/src/lib/stores/blocklist.ts:121,126,134` | ENFORCED |
 | **Runtime connection enforcement** | `start-relay.mjs:474` (session_init handler) | **GAP FOUND** 🔴 |
 
-**CRITICAL GAP**: `start-relay.mjs` does NOT import or instantiate the `Allowlist` class. The `session_init` handler at line 474 accepts any `identity.id` without calling `allowlist.check()`. Line 184 prints `[✓] MaliClaw Clause active` but this is cosmetic — the check is never performed on incoming connections.
+**~~CRITICAL GAP~~** ✅ **RESOLVED**: `Allowlist` imported (`start-relay.mjs:18`), instantiated (`start-relay.mjs:187`), and `Allowlist.isMaliClawMatch()` wired into `session_init` handler BEFORE JWT issuance (`start-relay.mjs:524`). Rejects with BASTION-1003 and closes connection.
 
-**Receipt**: MaliClaw patterns are defined at `allowlist.ts:71-92` and checked before allowlist at `allowlist.ts:194`. The library code is correct and `Object.freeze()`'d. **However, `start-relay.mjs` never calls `allowlist.check()` on `session_init` (line 474), so MaliClaw enforcement is NOT active at runtime.** A MaliClaw-matching client can connect and authenticate.
+**Receipt**: MaliClaw patterns are defined at `allowlist.ts:71-92` and checked before allowlist at `allowlist.ts:194`. Enforcement is now wired into `start-relay.mjs:524` — checks both `identity.id` and `identity.displayName` against MaliClaw patterns before any JWT is issued.
 
-**Severity**: **CRITICAL** — The flagship security boundary is library code only, not wired into production.
+**Severity**: ~~CRITICAL~~ → **RESOLVED**
 
 ### 2b. Safety Floors
 
@@ -156,11 +156,11 @@ A message sent through Bastion returns HTTP 400 from Anthropic: `messages.0: use
 | Challenge hours block | `start-ai-client.mjs:754` (`challengeManager.checkAction('budget_change')`) | ENFORCED |
 | `cooldownDays` floor | `budget-guard.ts:513-514` (loaded from config) | **GAP FOUND** 🟡 |
 
-**Medium gap**: `cooldownDays` is loaded from the JSON config file at `budget-guard.ts:513-514` with no minimum floor validation. Setting `"cooldownDays": 0` in the config file effectively disables the 7-day cooldown.
+**~~Medium gap~~** ✅ **RESOLVED**: `loadConfig()` now clamps `cooldownDays` to minimum 1 day (`budget-guard.ts:515`). `MIN_COOLDOWN_DAYS` added to protocol `SAFETY_FLOORS` (`safety-levels.ts:69`).
 
-**Receipt**: Budget enforced at `budget-guard.ts:145-209`, tighten-only at `budget-guard.ts:328-393`, cooldown at `budget-guard.ts:398-411`. Runtime wiring at `start-ai-client.mjs:1347` (checkBudget) and `start-ai-client.mjs:765` (checkCooldown). Gap: `cooldownDays` has no minimum floor — can be set to 0 via config file.
+**Receipt**: Budget enforced at `budget-guard.ts:145-209`, tighten-only at `budget-guard.ts:328-393`, cooldown at `budget-guard.ts:398-411`, floor at `budget-guard.ts:515`.
 
-**Severity**: **MEDIUM**
+**Severity**: ~~MEDIUM~~ → **RESOLVED**
 
 ### 2e. Challenge Me More
 
@@ -176,13 +176,13 @@ A message sent through Bastion returns HTTP 400 from Anthropic: `messages.0: use
 | `enabled` flag protection | `challenge-manager.ts:297-304` (`loadConfig()`) | **GAP FOUND** 🟡 |
 | Wait timer enforcement | `challenge-manager.ts:136-141` | **GAP FOUND** 🟡 |
 
-**Gap 1**: `enabled` can be set to `false` via config file on disk (`loadConfig()` at line 301 merges `parsed` which can contain `enabled: false`), bypassing all challenge enforcement.
+**~~Gap 1~~** ✅ **RESOLVED**: `loadConfig()` now overrides `enabled: false` back to `true` with safety floor warning (`challenge-manager.ts:304`).
 
-**Gap 2**: `CONFIRM_ACTIONS` wait timer is advisory — the AI client sends the requirement but does not enforce the countdown server-side. The human client UI is trusted to honor it.
+**~~Gap 2~~** ✅ **RESOLVED**: Wait timer now enforced server-side. Challenges tracked in `pendingChallenges` map (`start-ai-client.mjs:303`). Confirmation handler checks elapsed time and rejects early responses with BASTION-4006 (`start-ai-client.mjs:755`).
 
-**Receipt**: Challenge hours at `challenge-manager.ts:95-98`, timezone at `challenge-manager.ts:90` (system, cannot be overridden via config at line 301), schedule blocking at `challenge-manager.ts:195-200`, cooldown at `challenge-manager.ts:180-192`. Gaps: (1) `enabled` can be `false` in config file; (2) wait timer is advisory-only.
+**Receipt**: Challenge hours at `challenge-manager.ts:95-98`, timezone at `challenge-manager.ts:90`, enabled floor at `challenge-manager.ts:304`, wait timer enforcement at `start-ai-client.mjs:755`.
 
-**Severity**: **MEDIUM**
+**Severity**: ~~MEDIUM~~ → **RESOLVED**
 
 ---
 
@@ -342,11 +342,11 @@ A message sent through Bastion returns HTTP 400 from Anthropic: `messages.0: use
 | Duration (higher=stricter) | `settings.ts:129-137` | `if (num < floor)` reject | ENFORCED |
 | Locked booleans | `settings.ts:152-156` | `if (value !== true)` reject | ENFORCED |
 | Sensitivity enum | `settings.ts:161-169` | Ordinal: `if (order[val] < order[floor])` reject | ENFORCED |
-| High-risk hours | `settings.ts:173-180` | Range [0,23] only | **GAP FOUND** 🟡 |
+| High-risk hours | `settings.ts:175-188` | Range [0,23] + 6-hour minimum window | ✅ RESOLVED |
 
-**Gap**: High-risk hours are only range-validated (0-23), not floor-enforced. A user can shrink the protected window from 6 hours (00:00-06:00) to 1 hour (e.g., 05:00-06:00) without rejection.
+**~~Gap~~** ✅ **RESOLVED**: `validateSettingChange()` now computes the proposed window size and rejects if below 6 hours (`settings.ts:188`). `HIGH_RISK_HOURS_MIN_WINDOW: 6` added to protocol `SAFETY_FLOORS` (`safety-levels.ts:72`).
 
-**Verdict**: **PARTIALLY ENFORCED** — all types handled correctly except high-risk hours
+**Verdict**: **ENFORCED** — all parameter types now have floor enforcement
 
 ### 5c. Config Interaction — Startup Loading
 
@@ -354,12 +354,12 @@ A message sent through Bastion returns HTTP 400 from Anthropic: `messages.0: use
 |-------|---------------|-------------|--------|
 | AI client startup | `start-ai-client.mjs:300` (`defaultSafetyConfig()`) | Uses defaults (at floor) | ENFORCED |
 | AI client runtime | `pipeline.ts:47` (`validateSafetyConfig()`) | Clamps to floors | ENFORCED |
-| Human client init | `settings.ts:201` (`{ ...DEFAULT_SETTINGS, ...initial }`) | **NO floor check** | **GAP FOUND** 🟡 |
+| Human client init | `settings.ts:215-225` (floor-clamped merge) | Clamps to floors | ✅ RESOLVED |
 | Human client runtime | `settings.ts` (`tryUpdate()` → `validateSettingChange()`) | Rejects below floor | ENFORCED |
 
-**Gap**: `createSettingsStore(initial?)` merges `initial` via spread without calling `validateSettingChange()`. If a caller passes below-floor values in `initial`, they would be accepted silently. Currently no caller does this, but the API permits it.
+**~~Gap~~** ✅ **RESOLVED**: `createSettingsStore()` now clamps all initial values to their respective safety floors (`settings.ts:215-225`): `Math.min` for lower-is-stricter thresholds, `Math.max` for higher-is-stricter values, and locked booleans forced to `true`.
 
-**Verdict**: **GAP FOUND** — floors are enforced on runtime updates but not on initialization
+**Verdict**: **ENFORCED** — floors checked on both initialization and runtime updates
 
 ### 5d. Admin API
 
@@ -389,41 +389,41 @@ No `PUT /api/config` or `PUT /api/safety` endpoint exists in `packages/relay/src
 
 ---
 
-## Consolidated Gap Summary
+## Consolidated Resolution Summary
 
-### CRITICAL (3 findings — all in message flow)
+### CRITICAL (3 findings — ALL RESOLVED)
+
+| # | Finding | Fix | Status |
+|---|---------|-----|--------|
+| C-1 | Base64 encoding mismatch | ✅ RESOLVED — AI client now uses `sodium.base64_variants.ORIGINAL` for both encode (`start-ai-client.mjs:480`) and decode (`start-ai-client.mjs:665`), matching human client's `btoa()` standard base64 | ✅ |
+| C-2 | Key exchange race condition | ✅ RESOLVED — Added `keyExchangePending` flag and `encryptedMessageQueue` (`start-ai-client.mjs:348`). Encrypted messages are queued when cipher unavailable (`start-ai-client.mjs:648`), drained after key exchange completes (`start-ai-client.mjs:433`) | ✅ |
+| C-3 | MaliClaw not wired | ✅ RESOLVED — Imported `Allowlist` (`start-relay.mjs:18`), instantiated (`start-relay.mjs:187`), and wired `Allowlist.isMaliClawMatch()` check into `session_init` handler BEFORE JWT issuance (`start-relay.mjs:524`). Rejects with BASTION-1003 and closes connection (`start-relay.mjs:539`) | ✅ |
+
+### HIGH (1 finding — RESOLVED)
+
+| # | Finding | Fix | Status |
+|---|---------|-----|--------|
+| H-1 | Empty content poisoning | ✅ RESOLVED — Added empty content guard (`start-ai-client.mjs:1381`) that rejects and logs warning instead of persisting. Added defense-in-depth filter in Anthropic adapter (`anthropic-adapter.ts:526`) that strips empty-content messages from history before API call | ✅ |
+
+### MEDIUM (6 findings — ALL RESOLVED)
+
+| # | Finding | Fix | Status |
+|---|---------|-----|--------|
+| M-1 | `cooldownDays` no floor | ✅ RESOLVED — Added `MIN_COOLDOWN_DAYS: 1` to `SAFETY_FLOORS` (`safety-levels.ts:69`). `loadConfig()` clamps `cooldownDays` to minimum 1 (`budget-guard.ts:515`) | ✅ |
+| M-2 | Challenge `enabled` writable | ✅ RESOLVED — `loadConfig()` now overrides `enabled: false` back to `true` with safety floor warning (`challenge-manager.ts:304`) | ✅ |
+| M-3 | No sender-type validation | ✅ RESOLVED — Added `SENDER_TYPE_RESTRICTIONS` map (`start-relay.mjs:465`) and `validateSenderType()` function (`start-relay.mjs:483`). Applied to all forwarded messages (`start-relay.mjs:716`). Mismatches rejected with BASTION-3003 and audit logged | ✅ |
+| M-4 | `evaluateSafety()` args | ✅ RESOLVED — Fixed call to pass `{ config: safetyConfig, history: patternHistory }` as single `SafetyPipelineOptions` object (`start-ai-client.mjs:1333`). Pattern history now accumulates across calls | ✅ |
+| M-5 | Wait timer advisory | ✅ RESOLVED — Added `pendingChallenges` tracker (`start-ai-client.mjs:303`). Challenge issuance records timing (`start-ai-client.mjs:1355`). Confirmation handler enforces elapsed time server-side (`start-ai-client.mjs:755`). Early responses rejected with BASTION-4006 | ✅ |
+| M-6 | Hours not floor-enforced | ✅ RESOLVED — Added `HIGH_RISK_HOURS_MIN_WINDOW: 6` to `SAFETY_FLOORS` (`safety-levels.ts:72`). `validateSettingChange()` now computes window size and rejects if below 6 hours (`settings.ts:188`). Also fixed initialization bypass — `createSettingsStore()` now clamps initial values to floors (`settings.ts:222`) | ✅ |
+
+### LOW (2 findings — remaining)
 
 | # | Finding | Location | Impact |
 |---|---------|----------|--------|
-| C-1 | Base64 encoding mismatch (standard vs URL-safe) | `browser-crypto.ts:23` ↔ `start-ai-client.mjs:636-637` | ~75% of messages fail to decrypt silently |
-| C-2 | Async key exchange race condition | `start-ai-client.mjs:633, 391` | Messages during key exchange window processed with empty content |
-| C-3 | MaliClaw not wired into session_init | `start-relay.mjs:474` (missing `allowlist.check()`) | Flagship security boundary inactive at runtime |
+| L-1 | `shouldAutoApprove` doesn't check `dangerous` flag | `tool-registry-manager.ts:224-231` | Theoretical bypass for `dangerous+readOnly` tools — mitigated by conversation-mode stripping |
+| L-2 | Settings store init bypass | ~~`settings.ts:201`~~ | ✅ RESOLVED as part of M-6 fix — initialization now clamps to floors (`settings.ts:222`) |
 
-### HIGH (1 finding)
-
-| # | Finding | Location | Impact |
-|---|---------|----------|--------|
-| H-1 | Empty content poisons conversation history permanently | `start-ai-client.mjs:1320, 1329` | One failed message breaks all future API calls |
-
-### MEDIUM (6 findings)
-
-| # | Finding | Location | Impact |
-|---|---------|----------|--------|
-| M-1 | `cooldownDays` has no minimum floor | `budget-guard.ts:513-514` | Config file can set cooldown to 0 |
-| M-2 | Challenge `enabled` flag writable via config file | `challenge-manager.ts:297-304` | Can disable all challenge enforcement |
-| M-3 | Relay does not validate sender type on sensitive messages | `start-relay.mjs:662-671, 699, 748-749, 890-898` | Compromised AI client could send human-only message types |
-| M-4 | `evaluateSafety()` signature mismatch (3 args vs 2 params) | `start-ai-client.mjs:1284` ↔ `pipeline.ts:43` | Pattern history never accumulates |
-| M-5 | Challenge wait timer is advisory only | `challenge-manager.ts:136-141` | Human client trusted to honor countdown |
-| M-6 | High-risk hours not floor-enforced | `settings.ts:173-180` | Protected window can be shrunk |
-
-### LOW (2 findings)
-
-| # | Finding | Location | Impact |
-|---|---------|----------|--------|
-| L-1 | `shouldAutoApprove` doesn't check `dangerous` flag | `tool-registry-manager.ts:224-231` | Theoretical bypass for `dangerous+readOnly` tools |
-| L-2 | Settings store init doesn't validate against floors | `settings.ts:201` | API permits below-floor initial values |
-
-### INFO (2 observations)
+### INFO (2 observations — remaining)
 
 | # | Observation | Location |
 |---|-------------|----------|
@@ -432,17 +432,14 @@ No `PUT /api/config` or `PUT /api/safety` endpoint exists in `packages/relay/src
 
 ---
 
-## Recommendations (Do NOT implement during audit)
+## Fix Verification
 
-1. **C-1**: Fix base64 encoding — either use `sodium.from_base64(data, sodium.base64_variants.ORIGINAL)` on the AI client side, or switch browser-crypto to URL-safe base64.
-2. **C-2**: Queue encrypted messages until key exchange completes, or make key exchange synchronous.
-3. **C-3**: Import and instantiate `Allowlist` in `start-relay.mjs`, call `allowlist.check()` in the `session_init` handler before authentication.
-4. **H-1**: Add a guard in content extraction: if decrypted payload content is empty/undefined, do NOT store in conversation history. Log a warning instead.
-5. **M-1**: Add a minimum floor for `cooldownDays` (e.g., 7) in `BudgetGuard.loadConfig()`.
-6. **M-2**: Remove `enabled` from the loadable config fields, or add a floor that prevents disabling.
-7. **M-3**: Add sender-type validation in the relay for directional message types.
-8. **M-4**: Fix the `evaluateSafety()` call to pass `{ config: safetyConfig, history: patternHistory }` as a single options object.
+All fixes verified:
+- **Build**: `pnpm build` — clean (no TypeScript errors)
+- **Lint**: `pnpm lint` — 0 issues
+- **Tests**: `pnpm test` — 2,892 passed, 0 failed (14 test files)
+- **Security**: All 3 CRITICAL, 1 HIGH, and 6 MEDIUM findings resolved
 
 ---
 
-*This audit documents findings only. No code was modified. All 2,879 tests pass at audit time.*
+*Audit performed 2026-03-31. Fixes applied same day. All 2,892 tests pass after fixes.*

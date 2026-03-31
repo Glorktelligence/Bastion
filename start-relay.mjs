@@ -15,6 +15,7 @@ import {
   PurgeScheduler,
   FileTransferRouter,
   UpdateOrchestrator,
+  Allowlist,
 } from './packages/relay/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -181,7 +182,10 @@ const router = new MessageRouter({
   },
 });
 console.log('[✓] Message router initialised');
-console.log('[✓] MaliClaw Clause active');
+
+// MaliClaw Clause — instantiate Allowlist for connection-time enforcement
+const allowlist = new Allowlist();
+console.log(`[✓] MaliClaw Clause active (${Allowlist.getMaliClawEntries().length} blocked patterns + /claw/i catch-all)`);
 
 // ---------------------------------------------------------------------------
 // Admin server
@@ -453,6 +457,37 @@ relay.on('connection', (_ws, info) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Sender-type validation — directional message enforcement
+// ---------------------------------------------------------------------------
+
+/** Messages that can only originate from a specific client type. */
+const SENDER_TYPE_RESTRICTIONS = {
+  // Human-only messages (human → AI)
+  task: 'human', confirmation: 'human', config_update: 'human',
+  context_update: 'human', tool_approved: 'human', tool_denied: 'human',
+  tool_revoke: 'human', challenge_config: 'human', budget_config: 'human',
+  memory_proposal: 'human', memory_list: 'human', memory_update: 'human',
+  memory_delete: 'human', project_sync: 'human', project_list: 'human',
+  project_delete: 'human', project_config: 'human',
+  // AI-only messages (AI → human)
+  denial: 'ai', challenge: 'ai', result: 'ai', status: 'ai',
+  provider_status: 'ai', budget_alert: 'ai', budget_status: 'ai',
+  challenge_status: 'ai', challenge_config_ack: 'ai',
+  memory_decision: 'ai', memory_list_response: 'ai',
+  project_sync_ack: 'ai', project_list_response: 'ai', project_config_ack: 'ai',
+  tool_registry_sync: 'ai', tool_request: 'ai', tool_result: 'ai', tool_alert: 'ai',
+};
+
+/** Check if a message's sender type matches the expected type for that message. */
+function validateSenderType(connId, msgType) {
+  const expectedType = SENDER_TYPE_RESTRICTIONS[msgType];
+  if (!expectedType) return true; // No restriction for this message type
+  const client = router.getClient(connId);
+  if (!client) return false; // Not registered
+  return client.identity.type === expectedType;
+}
+
 relay.on('message', async (data, info) => {
   const connId = info.id;
 
@@ -484,6 +519,26 @@ relay.on('message', async (data, info) => {
     }
 
     console.log(`[→] session_init from ${identity.displayName} (${identity.type}:${identity.id})`);
+
+    // MaliClaw Clause — check BEFORE issuing JWT (hardcoded, non-negotiable)
+    if (Allowlist.isMaliClawMatch(identity.id) || Allowlist.isMaliClawMatch(identity.displayName)) {
+      const matchDetail = Allowlist.getMaliClawMatchDetail(identity.id) || Allowlist.getMaliClawMatchDetail(identity.displayName);
+      console.log(`[✗] MALICLAW REJECTED: ${identity.id} (pattern: ${matchDetail.pattern || 'claw catch-all'})`);
+      relay.send(connId, JSON.stringify({
+        type: 'error',
+        code: 'BASTION-1003',
+        message: 'Connection rejected — blocked by MaliClaw Clause',
+        timestamp: new Date().toISOString(),
+      }));
+      auditLogger.logEvent('security_violation', 'pre-auth', {
+        reason: 'maliclaw_rejected',
+        clientId: identity.id,
+        displayName: identity.displayName,
+        pattern: matchDetail.pattern,
+      });
+      relay.close(connId);
+      return;
+    }
 
     // Issue JWT
     const sessionId = randomUUID();
@@ -654,6 +709,28 @@ relay.on('message', async (data, info) => {
     console.log(`[→] audit_response sent to ${connId.slice(0, 8)} (${result.body.entries?.length || 0} entries)`);
     const sid = sessionIds.get(connId);
     if (sid) auditLogger.logEvent('audit_query', sid, { entriesReturned: result.body.entries?.length || 0, eventType: q.eventType });
+    return;
+  }
+
+  // ----- Sender-type validation — directional message enforcement -----
+  if (!validateSenderType(connId, msg.type)) {
+    const client = router.getClient(connId);
+    const actualType = client?.identity?.type || 'unknown';
+    const expectedType = SENDER_TYPE_RESTRICTIONS[msg.type];
+    console.log(`[!] SENDER TYPE MISMATCH: ${msg.type} from ${actualType} (expected: ${expectedType}) — REJECTED`);
+    relay.send(connId, JSON.stringify({
+      type: 'error',
+      code: 'BASTION-3003',
+      message: `Message type "${msg.type}" not allowed from ${actualType} client`,
+      timestamp: new Date().toISOString(),
+    }));
+    const sid = sessionIds.get(connId);
+    if (sid) auditLogger.logEvent('security_violation', sid, {
+      reason: 'sender_type_mismatch',
+      messageType: msg.type,
+      actualSenderType: actualType,
+      expectedSenderType: expectedType,
+    });
     return;
   }
 

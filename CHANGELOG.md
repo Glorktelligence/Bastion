@@ -2,6 +2,27 @@
 
 All notable changes to Project Bastion are documented in this file.
 
+## [0.5.2] - 2026-03-31
+
+### Security (Audit Fixes — see SECURITY-AUDIT.md)
+- **CRITICAL**: Fixed base64 encoding mismatch between human client (`btoa()` standard) and AI client (`sodium.from_base64()` URL-safe) — AI client now uses `sodium.base64_variants.ORIGINAL` for both encode and decode
+- **CRITICAL**: Fixed key exchange race condition — encrypted messages are now queued until E2E cipher is established, then drained in order
+- **CRITICAL**: MaliClaw Clause wired into `session_init` handler — all connections now checked BEFORE JWT issuance, not just library code
+- **HIGH**: Empty content guard — empty/undefined decrypted payloads are no longer persisted to conversation history; defense-in-depth filter added to Anthropic adapter
+- **MEDIUM**: Budget Guard `cooldownDays` now has minimum floor of 1 day (cannot be set to 0 via config)
+- **MEDIUM**: Challenge Me More `enabled` flag now has safety floor of `true` — cannot be disabled via config file
+- **MEDIUM**: Relay now validates sender type on directional messages — AI clients cannot send human-only message types and vice versa
+- **MEDIUM**: Fixed `evaluateSafety()` call site — pattern history now correctly accumulates across safety evaluations
+- **MEDIUM**: Challenge wait timer now enforced server-side — early confirmation responses rejected with BASTION-4006
+- **MEDIUM**: High-risk hours window now floor-enforced — cannot be shrunk below 6 hours
+- Settings store initialization now clamps all values to safety floors
+
+### Added
+- `MIN_COOLDOWN_DAYS` and `HIGH_RISK_HOURS_MIN_WINDOW` constants in `SAFETY_FLOORS`
+- `SENDER_TYPE_RESTRICTIONS` directional message enforcement in relay
+- `pendingChallenges` server-side wait timer tracking
+- `encryptedMessageQueue` for key exchange race condition handling
+
 ## [0.5.1] - 2026-03-30
 
 ### Fixed

@@ -520,7 +520,11 @@ export function createAnthropicAdapter(
         : null;
 
       const messages = history
-        ? [...history.map((m) => ({ role: m.role, content: m.content }))]
+        ? [
+            ...history
+              .map((m) => ({ role: m.role, content: m.content }))
+              .filter((m) => m.content && m.content.trim().length > 0),
+          ]
         : [{ role: 'user', content: formatTaskMessage(task) }];
 
       const requestBody: Record<string, unknown> = {

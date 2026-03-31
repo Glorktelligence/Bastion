@@ -299,6 +299,8 @@ const registeredPurgeTasks = new Set();
 
 const safetyConfig = defaultSafetyConfig();
 const patternHistory = createPatternHistory();
+/** Pending challenges — correlationId → { issuedAt, waitSeconds } for wait timer enforcement. */
+const pendingChallenges = new Map();
 console.log('[✓] Safety engine armed (3-layer evaluation)');
 
 // ---------------------------------------------------------------------------
@@ -342,6 +344,8 @@ function sendBudgetStatus() {
 
 let ownKeyPair = null;
 let e2eCipher = null; // { nextSendKey(), nextReceiveKey(), destroy() }
+let keyExchangePending = false; // true while key exchange is in progress
+const encryptedMessageQueue = []; // queued messages awaiting key exchange completion
 
 // KDF constants — must match human client's browser-crypto.ts
 const KDF_CHAIN_STEP = new Uint8Array([0x01]);
@@ -426,7 +430,18 @@ async function handleKeyExchange(peerPublicKeyB64) {
       receiveChainKey.fill(0);
     },
   };
+  keyExchangePending = false;
   console.log('[✓] E2E session established — interoperable ratchet active');
+
+  // Drain the encrypted message queue now that cipher is available
+  if (encryptedMessageQueue.length > 0) {
+    console.log(`[~] Draining ${encryptedMessageQueue.length} queued encrypted message(s)`);
+    const queued = encryptedMessageQueue.splice(0, encryptedMessageQueue.length);
+    for (const queuedData of queued) {
+      // Re-emit through the message handler (now with cipher available)
+      client.ws?.emit('message', queuedData);
+    }
+  }
 }
 
 /** Messages that must stay plaintext — relay or pre-key-exchange control messages. */
@@ -462,8 +477,8 @@ async function sendSecure(envelope) {
       type: envelope.type,
       timestamp: envelope.timestamp,
       sender: envelope.sender,
-      encryptedPayload: sodium.to_base64(ciphertext),
-      nonce: sodium.to_base64(nonce),
+      encryptedPayload: sodium.to_base64(ciphertext, sodium.base64_variants.ORIGINAL),
+      nonce: sodium.to_base64(nonce, sodium.base64_variants.ORIGINAL),
     };
     return client.send(JSON.stringify(encrypted));
   } catch (err) {
@@ -629,12 +644,26 @@ client.on('message', async (data) => {
     }
   }
 
+  // Queue encrypted messages if key exchange is still in progress
+  if (msg.encryptedPayload && !e2eCipher) {
+    if (keyExchangePending) {
+      console.log(`[~] Queuing encrypted message (key exchange pending) — type: ${msg.type}`);
+      encryptedMessageQueue.push(data);
+      return;
+    }
+    // No key exchange in progress and no cipher — reject
+    console.error(`[!] Encrypted message received but no E2E cipher available — dropping (type: ${msg.type})`);
+    return;
+  }
+
   // Decrypt if this is an encrypted envelope (has encryptedPayload field)
   if (msg.encryptedPayload && e2eCipher) {
     try {
       const sodium = await ensureSodium();
-      const nonce = sodium.from_base64(msg.nonce);
-      const ciphertext = sodium.from_base64(msg.encryptedPayload);
+      // Use ORIGINAL base64 variant (standard with +, /, = padding) to match
+      // the human client's btoa() encoding in browser-crypto.ts
+      const nonce = sodium.from_base64(msg.nonce, sodium.base64_variants.ORIGINAL);
+      const ciphertext = sodium.from_base64(msg.encryptedPayload, sodium.base64_variants.ORIGINAL);
       const { key } = e2eCipher.nextReceiveKey();
       const plaintext = sodium.crypto_secretbox_open_easy(ciphertext, nonce, key);
       key.fill(0);
@@ -691,6 +720,7 @@ client.on('message', async (data) => {
     console.log(`[~] Peer status: ${msg.status}`);
     if (msg.status === 'active') {
       // Peer is connected — initiate E2E key exchange
+      keyExchangePending = true;
       sendKeyExchange();
     }
     return;
@@ -714,7 +744,26 @@ client.on('message', async (data) => {
   // Handle confirmation — human approved/modified/cancelled a challenged task
   if (msg.type === 'confirmation') {
     const decision = msg.payload?.decision || msg.decision;
+    const correlationId = msg.correlationId || msg.payload?.correlationId;
     console.log(`[←] Challenge response: ${decision}`);
+
+    // Server-side wait timer enforcement
+    if (correlationId && pendingChallenges.has(correlationId)) {
+      const challenge = pendingChallenges.get(correlationId);
+      const elapsedMs = Date.now() - challenge.issuedAt;
+      const requiredMs = challenge.waitSeconds * 1000;
+      if (elapsedMs < requiredMs && decision !== 'cancel') {
+        const remainingSec = Math.ceil((requiredMs - elapsedMs) / 1000);
+        console.log(`[!] Challenge response TOO EARLY: ${elapsedMs}ms elapsed, ${requiredMs}ms required — REJECTED`);
+        client.send(JSON.stringify({
+          type: 'error', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+          payload: { code: 'BASTION-4006', message: `Challenge wait timer not met — ${remainingSec}s remaining` },
+        }));
+        return;
+      }
+      pendingChallenges.delete(correlationId);
+    }
+
     if (decision === 'cancel') {
       console.log('[~] Task cancelled by human');
     } else if (decision === 'approve' || decision === 'modify') {
@@ -1281,7 +1330,7 @@ client.on('message', async (data) => {
     console.log(`[←] Task: ${payload.action} → ${payload.target} (priority: ${payload.priority})`);
 
     // Safety evaluation
-    const safetyResult = evaluateSafety(payload, safetyConfig, patternHistory);
+    const safetyResult = evaluateSafety(payload, { config: safetyConfig, history: patternHistory });
     const safetyResponse = generateSafetyResponse(payload, safetyResult);
 
     if (safetyResponse.type === 'denial') {
@@ -1299,12 +1348,18 @@ client.on('message', async (data) => {
 
     if (safetyResponse.type === 'challenge') {
       console.log(`[?] CHALLENGE by Layer ${safetyResult.decidingLayer}: ${safetyResponse.payload.reason}`);
+      const challengeId = randomUUID();
+      // Determine wait time: use challenge hours wait if active, otherwise 5s minimum
+      const challengeAction = challengeManager.checkAction('dangerous_tool_approval');
+      const waitSeconds = ('confirm' in challengeAction && challengeAction.waitSeconds) ? challengeAction.waitSeconds : 5;
+      pendingChallenges.set(msg.correlationId || msg.id, { issuedAt: Date.now(), waitSeconds });
       const challengeMsg = JSON.stringify({
         type: 'challenge',
-        id: randomUUID(),
+        id: challengeId,
         timestamp: new Date().toISOString(),
         sender: IDENTITY,
-        payload: safetyResponse.payload,
+        correlationId: msg.correlationId || msg.id,
+        payload: { ...safetyResponse.payload, waitSeconds },
       });
       client.send(challengeMsg);
       // Wait for confirmation — don't execute yet
@@ -1321,6 +1376,12 @@ client.on('message', async (data) => {
       ? `Task: ${(msg.payload || msg).action} on ${(msg.payload || msg).target}`
       : (msg.payload?.content || msg.content || '');
     const senderName = msg.sender?.displayName || 'Unknown';
+
+    // Guard: reject empty content — do NOT persist to conversation history
+    if (!content || content.trim().length === 0) {
+      console.warn(`[!] Empty content from ${senderName} — NOT persisting (would poison conversation history)`);
+      return;
+    }
 
     console.log(`[←] ${senderName}: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`);
 

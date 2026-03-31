@@ -511,7 +511,13 @@ export class BudgetGuard {
         this.config.lastBudgetChange = parsed.lastBudgetChange;
       }
       if (typeof parsed.cooldownDays === 'number') {
-        this.config.cooldownDays = parsed.cooldownDays;
+        // Safety floor: cooldownDays cannot be set below MIN_COOLDOWN_DAYS (1)
+        if (parsed.cooldownDays < 1) {
+          console.warn(`[!] Budget Guard: cooldownDays ${parsed.cooldownDays} below floor — clamped to 1`);
+          this.config.cooldownDays = 1;
+        } else {
+          this.config.cooldownDays = parsed.cooldownDays;
+        }
       }
     } catch {
       // File doesn't exist — use defaults

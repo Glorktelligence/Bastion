@@ -97,7 +97,11 @@ const SENSITIVITY_ORDER: Record<PatternSensitivity, number> = {
  * Validate that a setting change tightens (or maintains) security.
  * Returns `{ ok: true }` if valid, `{ ok: false, reason }` if it would lower below floor.
  */
-export function validateSettingChange(key: keyof SafetySettings, value: unknown): SettingUpdateResult {
+export function validateSettingChange(
+  key: keyof SafetySettings,
+  value: unknown,
+  currentSettings?: SafetySettings,
+): SettingUpdateResult {
   const floor = SAFETY_FLOOR_VALUES[key];
 
   switch (key) {
@@ -169,12 +173,21 @@ export function validateSettingChange(key: keyof SafetySettings, value: unknown)
       return { ok: true };
     }
 
-    // Hours: just validate range
+    // Hours: validate range and enforce minimum window size (6 hours floor)
     case 'highRiskHoursStart':
     case 'highRiskHoursEnd': {
       const num = value as number;
       if (typeof num !== 'number' || num < 0 || num > 23 || !Number.isInteger(num)) {
         return { ok: false, reason: `${key} must be an integer between 0 and 23` };
+      }
+      // Enforce minimum 6-hour high-risk window (safety floor)
+      if (currentSettings) {
+        const proposedStart = key === 'highRiskHoursStart' ? num : currentSettings.highRiskHoursStart;
+        const proposedEnd = key === 'highRiskHoursEnd' ? num : currentSettings.highRiskHoursEnd;
+        const window = proposedEnd > proposedStart ? proposedEnd - proposedStart : 24 - proposedStart + proposedEnd; // handles wrap-around (e.g., 22:00-06:00)
+        if (window < 6) {
+          return { ok: false, reason: `High-risk hours window cannot be less than 6 hours (proposed: ${window}h)` };
+        }
       }
       return { ok: true };
     }
@@ -198,7 +211,20 @@ export function createSettingsStore(initial?: Partial<SafetySettings>): {
   resetToDefaults(): void;
   markSaved(): void;
 } {
-  const mergedSettings: SafetySettings = { ...DEFAULT_SETTINGS, ...initial };
+  // Merge initial settings with floor validation — no below-floor values allowed
+  const rawMerged = { ...DEFAULT_SETTINGS, ...initial };
+  const mergedSettings: SafetySettings = {
+    ...rawMerged,
+    // Clamp numeric values to their floors
+    challengeThreshold: Math.min(rawMerged.challengeThreshold, SAFETY_FLOOR_VALUES.challengeThreshold),
+    denialThreshold: Math.min(rawMerged.denialThreshold, SAFETY_FLOOR_VALUES.denialThreshold),
+    timeOfDayWeight: Math.max(rawMerged.timeOfDayWeight, SAFETY_FLOOR_VALUES.timeOfDayWeight),
+    gracePeriodMs: Math.max(rawMerged.gracePeriodMs, SAFETY_FLOOR_VALUES.gracePeriodMs),
+    auditRetentionDays: Math.max(rawMerged.auditRetentionDays, SAFETY_FLOOR_VALUES.auditRetentionDays),
+    // Locked booleans
+    irreversibleAlwaysChallenge: true,
+    fileQuarantineEnabled: true,
+  };
 
   const store = writable<SettingsStoreState>({
     settings: mergedSettings,
@@ -225,13 +251,17 @@ export function createSettingsStore(initial?: Partial<SafetySettings>): {
         SENSITIVITY_ORDER[s.patternDeviationSensitivity] <= SENSITIVITY_ORDER[f.patternDeviationSensitivity],
       gracePeriodMs: s.gracePeriodMs <= f.gracePeriodMs,
       auditRetentionDays: s.auditRetentionDays <= f.auditRetentionDays,
-      highRiskHoursStart: true, // no strict floor check for hours
-      highRiskHoursEnd: true,
+      highRiskHoursStart: s.highRiskHoursStart === f.highRiskHoursStart,
+      highRiskHoursEnd: s.highRiskHoursEnd === f.highRiskHoursEnd,
     } as Record<keyof SafetySettings, boolean>;
   });
 
   function tryUpdate(key: keyof SafetySettings, value: unknown): SettingUpdateResult {
-    const result = validateSettingChange(key, value);
+    let currentState: SettingsStoreState | undefined;
+    store.subscribe((s) => {
+      currentState = s;
+    })();
+    const result = validateSettingChange(key, value, currentState?.settings);
     if (!result.ok) {
       store.update((s) => ({ ...s, error: result.reason ?? null }));
       return result;

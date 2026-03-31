@@ -299,6 +299,11 @@ export class ChallengeManager {
       const raw = readFileSync(this.configPath, 'utf-8');
       const parsed = JSON.parse(raw);
       this.config = { ...DEFAULT_CONFIG, ...parsed, timezone: this.config.timezone };
+      // Safety floor: Challenge Me More cannot be disabled via config file
+      if (this.config.enabled === false) {
+        console.warn('[!] Challenge Me More cannot be disabled — safety floor enforced (enabled=true)');
+        this.config.enabled = true;
+      }
     } catch {
       // File doesn't exist — use defaults
     }

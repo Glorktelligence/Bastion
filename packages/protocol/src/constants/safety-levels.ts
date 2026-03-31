@@ -64,6 +64,12 @@ export const SAFETY_FLOORS = {
   /** Audit log retention: default 365 days, minimum 90 days. */
   AUDIT_RETENTION_DEFAULT_DAYS: 365,
   AUDIT_RETENTION_FLOOR_DAYS: 90,
+
+  /** Budget Guard cooldown minimum: 1 day (cannot be set to 0 via config). */
+  MIN_COOLDOWN_DAYS: 1,
+
+  /** High-risk hours minimum window: 6 hours. Cannot shrink below floor. */
+  HIGH_RISK_HOURS_MIN_WINDOW: 6,
 } as const;
 
 /** Pattern deviation sensitivity levels. */
