@@ -2,6 +2,23 @@
 
 All notable changes to Project Bastion are documented in this file.
 
+## [0.5.3] - 2026-03-31
+
+### Fixed
+- Key exchange routing deadlock when updater client connected (C-4)
+- Self-update: version display hardcoded in admin UI (now reads from relay VERSION file)
+- Self-update: `update_reconnected` sent before `process.exit` (now uses restart-pending flag file)
+- Self-update: `cancelUpdate()` orphaned orchestrator state
+- Self-update: phase state transition errors (`update_available` → `checking` not `preparing`)
+- Self-update: `prepare_ack` echoed target version instead of actual current version
+- Self-update: no changelog display in admin UI (now shows commit list)
+- Self-update: hardcoded commit hash `HEAD` (now uses actual hash from check response)
+- Self-update: GET requests to admin API missing auth headers
+- Setup script now idempotent (safe to rerun for manual updates)
+
+### Changed
+- Version management centralised to VERSION file + `pnpm run version:sync`
+
 ## [0.5.2] - 2026-03-31
 
 ### Security (Audit Fixes — see SECURITY-AUDIT.md)

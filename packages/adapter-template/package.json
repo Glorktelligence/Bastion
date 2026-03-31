@@ -1,6 +1,6 @@
 {
   "name": "@bastion/adapter-template",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Reference template for building Bastion AI provider adapters",
   "license": "Apache-2.0",
   "author": "Harry Smith <harry@glorktelligence.co.uk>",
