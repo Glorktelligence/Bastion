@@ -1,0 +1,14 @@
+{
+  "_example": true,
+  "_description": "Example skill — not loaded in production. Shows git workflow skill pattern.",
+  "id": "git-workflow",
+  "name": "Git Workflow",
+  "description": "Conventional commits, co-author attribution, branch management",
+  "version": "1.0.0",
+  "author": "Bastion Project",
+  "triggers": ["commit", "push", "git", "merge", "branch", "pull request"],
+  "modes": ["conversation", "task"],
+  "alwaysLoad": false,
+  "estimatedTokens": 350,
+  "contentFile": "skill.md"
+}

@@ -324,6 +324,36 @@ export const ExtensionListResponsePayloadSchema = z.object({
   totalCount: z.number().int().nonnegative(),
 });
 
+// --- Skills System (Layer 5) ---
+
+export const SkillListPayloadSchema = z.object({
+  includeContent: z.boolean().optional(),
+});
+
+export const SkillListResponsePayloadSchema = z.object({
+  skills: z.array(
+    z.object({
+      id: z.string().min(1),
+      name: z.string().min(1),
+      description: z.string(),
+      version: z.string(),
+      author: z.string(),
+      triggers: z.array(z.string()),
+      modes: z.array(z.string()),
+      alwaysLoad: z.boolean().optional(),
+      estimatedTokens: z.number().int().nonnegative(),
+    }),
+  ),
+  totalCount: z.number().int().nonnegative(),
+  totalEstimatedTokens: z.number().int().nonnegative(),
+});
+
+export const SkillConfigPayloadSchema = z.object({
+  skillId: z.string().min(1),
+  alwaysLoad: z.boolean().optional(),
+  enabled: z.boolean().optional(),
+});
+
 export const ProjectSyncPayloadSchema = z.object({
   path: z.string().min(1),
   content: z.string(),
@@ -750,6 +780,9 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.MEMORY_DELETE]: MemoryDeletePayloadSchema,
   [MESSAGE_TYPES.EXTENSION_QUERY]: ExtensionQueryPayloadSchema,
   [MESSAGE_TYPES.EXTENSION_LIST_RESPONSE]: ExtensionListResponsePayloadSchema,
+  [MESSAGE_TYPES.SKILL_LIST]: SkillListPayloadSchema,
+  [MESSAGE_TYPES.SKILL_LIST_RESPONSE]: SkillListResponsePayloadSchema,
+  [MESSAGE_TYPES.SKILL_CONFIG]: SkillConfigPayloadSchema,
   [MESSAGE_TYPES.PROJECT_SYNC]: ProjectSyncPayloadSchema,
   [MESSAGE_TYPES.PROJECT_SYNC_ACK]: ProjectSyncAckPayloadSchema,
   [MESSAGE_TYPES.PROJECT_LIST]: ProjectListPayloadSchema,

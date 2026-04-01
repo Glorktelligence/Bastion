@@ -59,6 +59,7 @@ export {
   McpClientAdapter,
   ChallengeManager,
   BudgetGuard,
+  SkillStore,
   validateParameters,
 } from './provider/index.js';
 export type {
@@ -105,6 +106,10 @@ export type {
   ChallengeSchedule,
   ChallengeCooldowns,
   ChallengeResult,
+  SkillManifest,
+  LoadedSkill,
+  SkillStoreConfig,
+  SkillMode,
   BudgetLimits,
   BudgetGuardConfig,
   BudgetCheckResult,

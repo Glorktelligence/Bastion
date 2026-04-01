@@ -24,6 +24,7 @@ import {
   ConversationStore,
   CompactionManager,
   AdapterRegistry,
+  SkillStore,
 } from './packages/client-ai/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -182,6 +183,22 @@ const projectStore = new ProjectStore({ rootDir: PROJECT_DIR });
 console.log(`[✓] Project store initialised (${projectStore.fileCount} files, dir: ${PROJECT_DIR})`);
 
 // ---------------------------------------------------------------------------
+// Skill store — Layer 5 skills system
+// ---------------------------------------------------------------------------
+
+const SKILLS_DIR = process.env.BASTION_SKILLS_DIR || './skills';
+const skillStore = new SkillStore({ skillsDir: SKILLS_DIR });
+const skillLoadResult = skillStore.loadFromDirectory();
+if (skillLoadResult.loaded.length > 0) {
+  console.log(`[✓] Skills loaded: ${skillLoadResult.loaded.join(', ')}`);
+}
+if (skillLoadResult.errors.length > 0) {
+  for (const err of skillLoadResult.errors) console.error(`[!] Skill error: ${err}`);
+}
+skillStore.lock();
+console.log(`[✓] Skill registry locked (${skillStore.skillCount} skills, ${skillStore.triggerCount} triggers)`);
+
+// ---------------------------------------------------------------------------
 // Challenge Me More — temporal governance (must be created before ConversationManager)
 // ---------------------------------------------------------------------------
 
@@ -199,6 +216,7 @@ const conversationManager = new ConversationManager({
   memoryStore,
   projectStore,
   challengeManager,
+  skillStore,
 });
 console.log(`[✓] Conversation manager initialised (budget: ${conversationManager.estimateTokenCount() || 0} base tokens)`);
 if (conversationManager.getUserContext()) {
@@ -1055,6 +1073,17 @@ client.on('message', async (data) => {
     return;
   }
 
+  // Handle skill_list — return all loaded skills
+  if (msg.type === 'skill_list') {
+    const manifests = skillStore.listManifests();
+    client.send(JSON.stringify({
+      type: 'skill_list_response', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+      payload: { skills: manifests, totalCount: manifests.length, totalEstimatedTokens: skillStore.totalEstimatedTokens },
+    }));
+    console.log(`[→] Skill list: ${manifests.length} skills`);
+    return;
+  }
+
   // Handle context_update — update user context file
   if (msg.type === 'context_update') {
     const content = msg.payload?.content ?? msg.content ?? '';
@@ -1475,7 +1504,7 @@ client.on('message', async (data) => {
         target: content,
         priority: msg.type === 'task' ? ((msg.payload || msg).priority || 'normal') : 'normal',
         parameters: {
-          _systemPrompt: conversationManager.getSystemPrompt(activeConversationId),
+          _systemPrompt: conversationManager.getSystemPrompt(activeConversationId, content),
           _conversationHistory: conversationManager.getMessages(),
         },
         constraints: [],

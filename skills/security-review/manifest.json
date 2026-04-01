@@ -1,0 +1,14 @@
+{
+  "_example": true,
+  "_description": "Example skill — not loaded in production. Shows skill authors the manifest pattern.",
+  "id": "security-review",
+  "name": "Security Review",
+  "description": "Challenge risky actions, check for irreversible consequences, suggest safer alternatives",
+  "version": "1.0.0",
+  "author": "Bastion Project",
+  "triggers": ["deploy", "delete", "production", "sudo", "irreversible", "rm -rf", "chmod", "force push"],
+  "modes": ["conversation", "task"],
+  "alwaysLoad": false,
+  "estimatedTokens": 400,
+  "contentFile": "skill.md"
+}

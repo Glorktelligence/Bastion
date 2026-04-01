@@ -3,7 +3,7 @@
 // See LICENSE file for full terms
 
 /**
- * All 81 message types in the Bastion protocol.
+ * All 84 message types in the Bastion protocol.
  *
  * Core spec (13): task, conversation, challenge, confirmation, denial,
  *   status, result, error, audit, file_manifest, file_offer, file_request, heartbeat
@@ -115,6 +115,11 @@ export const MESSAGE_TYPES = {
 
   // --- Streaming ---
   CONVERSATION_STREAM: 'conversation_stream',
+
+  // --- Skills System (Layer 5) ---
+  SKILL_LIST: 'skill_list',
+  SKILL_LIST_RESPONSE: 'skill_list_response',
+  SKILL_CONFIG: 'skill_config',
 
   // --- AI Disclosure (regulatory transparency) ---
   AI_DISCLOSURE: 'ai_disclosure',

@@ -14,6 +14,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import type { ChallengeManager } from './challenge-manager.js';
 import type { MemoryStore } from './memory-store.js';
 import type { ProjectStore } from './project-store.js';
+import type { SkillStore } from './skill-store.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,6 +36,8 @@ export interface ConversationManagerConfig {
   readonly projectStore?: ProjectStore;
   /** Optional challenge manager for temporal context injection. */
   readonly challengeManager?: ChallengeManager;
+  /** Optional skill store for Layer 5 skills injection. */
+  readonly skillStore?: SkillStore;
 }
 
 // ---------------------------------------------------------------------------
@@ -163,6 +166,7 @@ export class ConversationManager {
   private readonly memoryStore: MemoryStore | null;
   private readonly projectStore: ProjectStore | null;
   private readonly challengeManager: ChallengeManager | null;
+  private readonly skillStore: SkillStore | null;
   private messages: ConversationMessage[];
   private userContext: string;
 
@@ -172,6 +176,7 @@ export class ConversationManager {
     this.memoryStore = config?.memoryStore ?? null;
     this.projectStore = config?.projectStore ?? null;
     this.challengeManager = config?.challengeManager ?? null;
+    this.skillStore = config?.skillStore ?? null;
     this.messages = [];
     this.userContext = '';
     this.loadUserContext();
@@ -193,8 +198,12 @@ export class ConversationManager {
     this.enforceTokenBudget();
   }
 
-  /** Get the assembled system prompt (soul layers + memories + user context + project). */
-  getSystemPrompt(activeConversationId?: string | null): string {
+  /**
+   * Get the assembled system prompt (soul layers + skills + memories + user context + project).
+   * @param activeConversationId — for scoped memory retrieval
+   * @param currentMessage — current user message for skill trigger matching
+   */
+  getSystemPrompt(activeConversationId?: string | null, currentMessage?: string): string {
     const parts = [
       SOUL_LAYER_0,
       SOUL_LAYER_1,
@@ -214,6 +223,23 @@ The user has configured these hours because they know they may be more impulsive
 Support the challenge system. Push back on risky requests. The sober user who set these boundaries is the user who matters.`;
       }
       parts.push(temporal);
+    }
+
+    // Layer 5: Skill index (always present when skills are loaded, ~50 tokens)
+    if (this.skillStore) {
+      const index = this.skillStore.getSkillIndex();
+      if (index) parts.push(index);
+
+      // Triggered + always-loaded skills based on current message
+      const mode = 'conversation';
+      const alwaysLoaded = this.skillStore.getAlwaysLoadedSkills(mode);
+      const triggered = currentMessage ? this.skillStore.getTriggeredSkills(currentMessage, mode) : [];
+      const allSkills = [...alwaysLoaded, ...triggered];
+
+      if (allSkills.length > 0) {
+        const skillContent = allSkills.map((s) => `=== Skill: ${s.manifest.name} ===\n${s.content}`).join('\n\n');
+        parts.push(`--- Active Skills (${allSkills.length}) ---\n${skillContent}`);
+      }
     }
 
     // Layer 2: persistent memories — hybrid set (10 global + 10 conversation-scoped)

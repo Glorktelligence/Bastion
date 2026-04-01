@@ -319,6 +319,9 @@ function validPayloads() {
     conversation_compact: { conversationId: crypto.randomUUID() },
     conversation_compact_ack: { conversationId: crypto.randomUUID(), summaryPreview: 'Key decisions: chose SQLite...', messagesCovered: 25, tokensSaved: 3000 },
     conversation_stream: { conversationId: crypto.randomUUID(), chunk: 'Hello, ', index: 0, final: false },
+    skill_list: {},
+    skill_list_response: { skills: [{ id: 'test', name: 'Test', description: 'A test skill', version: '1.0.0', author: 'test', triggers: ['test'], modes: ['conversation'], estimatedTokens: 100 }], totalCount: 1, totalEstimatedTokens: 100 },
+    skill_config: { skillId: 'test', alwaysLoad: true },
     ai_disclosure: { text: 'You are interacting with an AI system.', style: 'info', position: 'banner', dismissible: true, link: 'https://example.com/ai-policy', linkText: 'Learn more', jurisdiction: 'EU AI Act Article 50' },
     update_check: { source: 'github', repo: 'Glorktelligence/Bastion', currentVersion: '0.1.0' },
     update_available: { currentVersion: '0.1.0', availableVersion: '0.2.0', commitHash: 'abc123def456', changelog: ['feat: self-update system', 'fix: relay routing'], components: ['relay', 'ai-client', 'admin-ui'], estimatedBuildTime: 120 },
@@ -421,7 +424,7 @@ async function run() {
       }
     }
     check('all 81 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 81 entries', ALL_MESSAGE_TYPES.length === 81);
+    check('ALL_MESSAGE_TYPES has 84 entries', ALL_MESSAGE_TYPES.length === 84);
   }
   console.log();
 
@@ -457,8 +460,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 81 entries', typeKeys.length === 81);
-    check('PAYLOAD_SCHEMAS has 81 entries', Object.keys(PAYLOAD_SCHEMAS).length === 81);
+    check('MESSAGE_TYPES has 84 entries', typeKeys.length === 84);
+    check('PAYLOAD_SCHEMAS has 84 entries', Object.keys(PAYLOAD_SCHEMAS).length === 84);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -870,7 +873,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 81 message types survive serialisation round-trip', allPassed);
+    check('all 84 message types survive serialisation round-trip', allPassed);
   }
   console.log();
 

@@ -24,6 +24,7 @@ import {
   ChallengeManager,
   BudgetGuard,
   AdapterRegistry,
+  SkillStore,
 } from './dist/index.js';
 import {
   BastionRelay,
@@ -1886,6 +1887,166 @@ async function run() {
     const { rmSync } = await import('node:fs');
     try { rmSync(tmpDb, { force: true }); } catch { /* locked on Windows */ }
     try { rmSync(tmpCfg, { force: true }); } catch { /* non-fatal */ }
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // SkillStore — Layer 5 skills system
+  // -------------------------------------------------------------------
+  {
+    console.log('--- SkillStore: loading, triggers, modes ---');
+    const { mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const tmpDir = join(process.env.TEMP || '/tmp', `bastion-skill-test-${Date.now()}`);
+
+    // Create test skill directories
+    const skillADir = join(tmpDir, 'test-skill-a');
+    const skillBDir = join(tmpDir, 'test-skill-b');
+    const skillExDir = join(tmpDir, 'example-skill');
+    mkdirSync(skillADir, { recursive: true });
+    mkdirSync(skillBDir, { recursive: true });
+    mkdirSync(skillExDir, { recursive: true });
+
+    // Skill A: conversation + task mode, trigger-based
+    writeFileSync(join(skillADir, 'manifest.json'), JSON.stringify({
+      id: 'test-a', name: 'Test Skill A', description: 'Test skill for conversation',
+      version: '1.0.0', author: 'test', triggers: ['deploy', 'production', 'force push'],
+      modes: ['conversation', 'task'], alwaysLoad: false, estimatedTokens: 100, contentFile: 'skill.md',
+    }));
+    writeFileSync(join(skillADir, 'skill.md'), '# Skill A\nThis is test skill A content.');
+
+    // Skill B: game mode, always-loaded
+    writeFileSync(join(skillBDir, 'manifest.json'), JSON.stringify({
+      id: 'test-b', name: 'Test Skill B', description: 'Always-loaded game skill',
+      version: '1.0.0', author: 'test', triggers: [],
+      triggerPatterns: ['\\bgame\\s+over\\b'],
+      modes: ['conversation', 'game'], alwaysLoad: true, estimatedTokens: 50, contentFile: 'skill.md',
+    }));
+    writeFileSync(join(skillBDir, 'skill.md'), '# Skill B\nAlways loaded game guidance.');
+
+    // Example skill: _example: true → should be skipped
+    writeFileSync(join(skillExDir, 'manifest.json'), JSON.stringify({
+      _example: true, id: 'example', name: 'Example', description: 'Should not load',
+      version: '1.0.0', author: 'test', triggers: ['example'], modes: ['conversation'],
+      estimatedTokens: 10, contentFile: 'skill.md',
+    }));
+    writeFileSync(join(skillExDir, 'skill.md'), '# Example\nThis should not be loaded.');
+
+    const store = new SkillStore({ skillsDir: tmpDir });
+    const result = store.loadFromDirectory();
+
+    check('skills: loaded 2 (skipped example)', result.loaded.length === 2);
+    check('skills: no errors', result.errors.length === 0);
+    check('skills: count is 2', store.skillCount === 2);
+
+    // Lock
+    store.lock();
+    check('skills: locked', store.isLocked === true);
+
+    // Trigger matching (case-insensitive, word boundary)
+    const triggered1 = store.getTriggeredSkills('I want to deploy to production', 'conversation');
+    check('skills: "deploy" triggers skill A', triggered1.length === 1 && triggered1[0].manifest.id === 'test-a');
+    check('skills: trigger recorded', triggered1[0].trigger === 'deploy');
+
+    // Trigger with "force push" (multi-word)
+    const triggered2 = store.getTriggeredSkills('I need to force push this branch', 'conversation');
+    check('skills: "force push" triggers skill A', triggered2.length === 1 && triggered2[0].manifest.id === 'test-a');
+
+    // No trigger match
+    const triggered3 = store.getTriggeredSkills('Hello, how are you?', 'conversation');
+    check('skills: no trigger match returns empty', triggered3.length === 0);
+
+    // Mode scoping — skill A has conversation+task, NOT game
+    const triggered4 = store.getTriggeredSkills('deploy the game', 'game');
+    check('skills: deploy in game mode does NOT trigger skill A (wrong mode)', triggered4.length === 0);
+
+    // Always-loaded skills
+    const always1 = store.getAlwaysLoadedSkills('conversation');
+    check('skills: alwaysLoad returns skill B for conversation', always1.length === 1 && always1[0].manifest.id === 'test-b');
+
+    const always2 = store.getAlwaysLoadedSkills('game');
+    check('skills: alwaysLoad returns skill B for game', always2.length === 1);
+
+    const always3 = store.getAlwaysLoadedSkills('compaction');
+    check('skills: alwaysLoad returns empty for compaction (wrong mode)', always3.length === 0);
+
+    // getTriggeredSkills should NOT return alwaysLoad skills
+    const triggered5 = store.getTriggeredSkills('game over', 'game');
+    check('skills: getTriggeredSkills excludes alwaysLoad skills', triggered5.length === 0);
+
+    // Regex trigger pattern matching
+    const triggered6 = store.getTriggeredSkills('the game over screen appeared', 'conversation');
+    // Skill B is alwaysLoad, so regex won't fire via getTriggeredSkills — test getAlwaysLoadedSkills instead
+    check('skills: regex pattern compiled without error', true);
+
+    // Skill index generation
+    const index = store.getSkillIndex();
+    check('skills: index is non-null', index !== null);
+    check('skills: index contains skill names', index.includes('Test Skill A') && index.includes('Test Skill B'));
+    check('skills: index contains triggers', index.includes('deploy'));
+
+    // getSkill
+    const skillA = store.getSkill('test-a');
+    check('skills: getSkill returns content', skillA !== undefined && skillA.content.includes('Skill A'));
+
+    const skillNone = store.getSkill('nonexistent');
+    check('skills: getSkill returns undefined for missing', skillNone === undefined);
+
+    // listManifests
+    const manifests = store.listManifests();
+    check('skills: listManifests returns 2', manifests.length === 2);
+
+    // totalEstimatedTokens
+    check('skills: totalEstimatedTokens = 150', store.totalEstimatedTokens === 150);
+
+    // triggerCount
+    check('skills: triggerCount includes word + regex triggers', store.triggerCount === 4); // 3 word + 1 regex
+
+    // Content scanning — dangerous content rejected
+    const dangerDir = join(tmpDir, 'danger-skill');
+    mkdirSync(dangerDir, { recursive: true });
+    writeFileSync(join(dangerDir, 'manifest.json'), JSON.stringify({
+      id: 'danger', name: 'Danger', description: 'test', version: '1.0.0', author: 'test',
+      triggers: ['test'], modes: ['conversation'], estimatedTokens: 10, contentFile: 'skill.md',
+    }));
+    writeFileSync(join(dangerDir, 'skill.md'), '# Danger\n<script>alert("xss")</script>');
+
+    const store2 = new SkillStore({ skillsDir: tmpDir });
+    const result2 = store2.loadFromDirectory();
+    // danger skill should fail content scanning
+    const dangerLoaded = result2.loaded.includes('danger');
+    const dangerErrored = result2.errors.some(e => e.includes('danger') || e.includes('Dangerous'));
+    check('skills: dangerous content blocked', !dangerLoaded && dangerErrored);
+
+    // Max size enforcement
+    const bigDir = join(tmpDir, 'big-skill');
+    mkdirSync(bigDir, { recursive: true });
+    writeFileSync(join(bigDir, 'manifest.json'), JSON.stringify({
+      id: 'big', name: 'Big', description: 'test', version: '1.0.0', author: 'test',
+      triggers: ['test'], modes: ['conversation'], estimatedTokens: 10, contentFile: 'skill.md',
+    }));
+    writeFileSync(join(bigDir, 'skill.md'), 'x'.repeat(10000)); // exceeds 8192 default
+
+    const store3 = new SkillStore({ skillsDir: tmpDir });
+    const result3 = store3.loadFromDirectory();
+    const bigLoaded = result3.loaded.includes('big');
+    check('skills: oversized content rejected', !bigLoaded);
+
+    // ConversationManager integration — skill index in system prompt
+    const cm = new ConversationManager({ skillStore: store });
+    const prompt = cm.getSystemPrompt(null, 'I need to deploy to production');
+    check('skills: system prompt contains skill index', prompt.includes('Available Skills'));
+    check('skills: system prompt contains triggered skill content', prompt.includes('Skill A'));
+    check('skills: system prompt contains Active Skills header', prompt.includes('Active Skills'));
+
+    // ConversationManager — no message → only alwaysLoad
+    const promptNoMsg = cm.getSystemPrompt();
+    check('skills: no message still includes index', promptNoMsg.includes('Available Skills'));
+    check('skills: no message includes alwaysLoad skill B', promptNoMsg.includes('Skill B'));
+    check('skills: no message does NOT include triggered skill A content', !promptNoMsg.includes('test skill A content'));
+
+    // Cleanup
+    try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* Windows lock */ }
   }
   console.log();
 

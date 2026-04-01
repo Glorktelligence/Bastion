@@ -81,6 +81,10 @@ export { McpClientAdapter, validateParameters } from './mcp-client-adapter.js';
 export type { McpTool, McpCallResult, McpClientConfig } from './mcp-client-adapter.js';
 export type { ProjectFile, ProjectConfig, ProjectStoreConfig, ProjectSaveResult } from './project-store.js';
 
+// Skill Store
+export { SkillStore } from './skill-store.js';
+export type { SkillManifest, LoadedSkill, SkillStoreConfig, SkillMode } from './skill-store.js';
+
 // Budget Guard
 export { BudgetGuard } from './budget-guard.js';
 export type {

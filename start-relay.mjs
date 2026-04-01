@@ -544,12 +544,14 @@ const SENDER_TYPE_RESTRICTIONS = {
   memory_proposal: 'human', memory_list: 'human', memory_update: 'human',
   memory_delete: 'human', project_sync: 'human', project_list: 'human',
   project_delete: 'human', project_config: 'human',
+  skill_list: 'human', skill_config: 'human',
   // AI-only messages (AI → human)
   denial: 'ai', challenge: 'ai', result: 'ai', status: 'ai',
   provider_status: 'ai', budget_alert: 'ai', budget_status: 'ai',
   challenge_status: 'ai', challenge_config_ack: 'ai',
   memory_decision: 'ai', memory_list_response: 'ai',
   project_sync_ack: 'ai', project_list_response: 'ai', project_config_ack: 'ai',
+  skill_list_response: 'ai',
   tool_registry_sync: 'ai', tool_request: 'ai', tool_result: 'ai', tool_alert: 'ai',
   // Updater-only messages (updater ↔ relay) — must NEVER reach AI or human clients
   update_available: 'updater', up_to_date: 'updater', update_prepare_ack: 'updater',
@@ -967,6 +969,18 @@ relay.on('message', async (data, info) => {
           messageType: msg.type,
         });
       }
+    }
+    return;
+  }
+
+  // ----- skill_* messages: forward between paired clients -----
+  if (msg.type === 'skill_list' || msg.type === 'skill_list_response' || msg.type === 'skill_config') {
+    const peerId = router.getPeer(connId);
+    if (peerId) {
+      relay.send(peerId, data);
+      console.log(`[→] ${msg.type} forwarded to peer ${peerId.slice(0, 8)}`);
+      const sid = sessionIds.get(connId);
+      if (sid) auditLogger.logEvent(msg.type, sid, { messageType: msg.type });
     }
     return;
   }
