@@ -251,6 +251,9 @@ export class BastionUpdateAgent extends EventEmitter<AgentEvents> {
   private handleUpdateCheck(): void {
     const buildPath = this.config.buildPath;
     const component = this.config.component;
+    // Use buildUser for git commands — the repo is owned by buildUser, not the agent process user
+    const sudo = this.config.buildUser ? `sudo -u ${this.config.buildUser} ` : '';
+    const execOpts = { encoding: 'utf-8' as const, env: { PATH: '/usr/bin:/bin' } };
 
     // Read current version
     let currentVersion = 'unknown';
@@ -260,27 +263,30 @@ export class BastionUpdateAgent extends EventEmitter<AgentEvents> {
       // VERSION file may not exist
     }
 
-    // Git fetch (best-effort — may be offline)
+    // Git fetch — run as buildUser who owns the repo (no stderr suppression)
+    let fetchFailed = false;
     try {
-      execSync(`git -C ${buildPath} fetch --quiet 2>/dev/null`, {
+      execSync(`${sudo}git -C ${buildPath} fetch --quiet`, {
+        ...execOpts,
         timeout: 30_000,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
       });
-    } catch {
-      // Fetch failed — check local state anyway
+    } catch (err) {
+      fetchFailed = true;
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[!] git fetch failed (buildUser: ${this.config.buildUser ?? 'none'}): ${msg}`);
+      // Still try to check local state
     }
 
-    // Check for new commits
+    // Check for new commits — run as buildUser
     let ahead = '';
     try {
-      ahead = execSync(`git -C ${buildPath} log HEAD..origin/main --oneline 2>/dev/null`, {
+      ahead = execSync(`${sudo}git -C ${buildPath} log HEAD..origin/main --oneline`, {
+        ...execOpts,
         timeout: 10_000,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
       }).trim();
-    } catch {
-      // git log failed — report up_to_date
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[!] git log failed (buildUser: ${this.config.buildUser ?? 'none'}): ${msg}`);
     }
 
     if (!ahead) {
@@ -290,7 +296,7 @@ export class BastionUpdateAgent extends EventEmitter<AgentEvents> {
           id: randomUUID(),
           timestamp: new Date().toISOString(),
           sender: { id: this.config.agentId, type: 'updater', displayName: this.config.agentName },
-          payload: { component, currentVersion },
+          payload: { component, currentVersion, fetchFailed },
         }),
       );
       return;
@@ -299,13 +305,12 @@ export class BastionUpdateAgent extends EventEmitter<AgentEvents> {
     const commits = ahead.split('\n').filter((l) => l.length > 0);
     const commitHash = commits[0]?.split(' ')[0] ?? 'unknown';
 
-    // Try to read remote VERSION
+    // Try to read remote VERSION — run as buildUser
     let remoteVersion = 'unknown';
     try {
-      remoteVersion = execSync(`git -C ${buildPath} show origin/main:VERSION 2>/dev/null`, {
+      remoteVersion = execSync(`${sudo}git -C ${buildPath} show origin/main:VERSION`, {
+        ...execOpts,
         timeout: 5_000,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
       }).trim();
     } catch {
       remoteVersion = `${currentVersion}+${commits.length}`;

@@ -229,6 +229,8 @@ export class AdminRoutes {
   private updateStatus: UpdateStatus;
   /** Cached challenge status from AI client (updated via setChallengeStatus). */
   private challengeStatus: Record<string, unknown> | null;
+  /** Last version check result (cached for admin UI display). */
+  private lastCheckResult: Record<string, unknown> | null;
 
   constructor(config: AdminRoutesConfig) {
     this.registry = config.providerRegistry;
@@ -246,6 +248,7 @@ export class AdminRoutes {
     this.disclosureConfigPath = config.disclosureConfigPath ?? null;
     this.updateStatus = { phase: 'idle', targetVersion: null, startedAt: null, component: null, error: null };
     this.challengeStatus = null;
+    this.lastCheckResult = null;
     this.disclosureConfig = config.initialDisclosureConfig ?? {
       enabled: false,
       text: 'You are interacting with an AI system powered by {provider} ({model}).',
@@ -867,7 +870,12 @@ export class AdminRoutes {
     return { status: 200, body: { status: 'building', targetComponent, version } };
   }
 
-  /** Get the current update status, enriched with orchestrator data. */
+  /** Cache the last version check result for admin UI display. */
+  setCheckResult(result: Record<string, unknown>): void {
+    this.lastCheckResult = { ...result, cachedAt: new Date().toISOString() };
+  }
+
+  /** Get the current update status, enriched with orchestrator data + last check result. */
   getUpdateStatus(): ApiResponse {
     const orchStatus = this.orchestrator?.getStatus();
     return {
@@ -875,6 +883,7 @@ export class AdminRoutes {
       body: {
         ...this.updateStatus,
         currentVersion: this.currentVersion,
+        checkResult: this.lastCheckResult,
         agents: orchStatus?.agents ?? [],
         prepareAcks: orchStatus?.prepareAcks ?? [],
         buildResults: orchStatus?.buildResults ?? {},

@@ -1055,8 +1055,10 @@ relay.on('message', async (data, info) => {
     if (msg.type === 'update_available') {
       updateOrchestrator.handleUpdateAvailable(p.availableVersion, p.commitHash);
       adminRoutes.setUpdateStatus('checking', { targetVersion: p.availableVersion });
+      adminRoutes.setCheckResult({ status: 'update_available', component: p.component, currentVersion: p.currentVersion, availableVersion: p.availableVersion, commitHash: p.commitHash, commitCount: p.commitCount });
     } else if (msg.type === 'up_to_date') {
       adminRoutes.setUpdateStatus('idle', {});
+      adminRoutes.setCheckResult({ status: 'up_to_date', component: p.component, currentVersion: p.currentVersion, fetchFailed: p.fetchFailed });
       console.log(`[✓] Agent reports ${p.component || 'unknown'} is up to date (v${p.currentVersion || 'unknown'})`);
     } else if (msg.type === 'update_prepare_ack') {
       updateOrchestrator.handlePrepareAck(p.component);

@@ -30,8 +30,16 @@ let availableVersion = $state(null);
 /** @type {string} */
 let commitHash = $state('HEAD');
 
+/** @type {Record<string, unknown>|null} */
+let checkResult = $state(null);
+
+/** @type {Array<Record<string, unknown>>} */
+let updateHistory = $state([]);
+
 /** @type {ReturnType<typeof setInterval> | null} */
 let pollTimer = null;
+
+const PHASE_ORDER = ['checking', 'preparing', 'building', 'restarting', 'verifying', 'complete'];
 
 onMount(() => {
 	const unsub1 = update.store.subscribe((s) => { state = s; });
@@ -39,6 +47,7 @@ onMount(() => {
 
 	// Initial fetch
 	fetchStatus();
+	fetchHistory();
 
 	return () => {
 		unsub1();
@@ -63,6 +72,25 @@ async function fetchStatus() {
 		if (d.currentVersion && !currentVersion) {
 			currentVersion = d.currentVersion;
 		}
+		// Cache check result for display
+		if (d.checkResult) {
+			checkResult = d.checkResult;
+			if (d.checkResult.status === 'update_available') {
+				availableVersion = d.checkResult.availableVersion ?? null;
+				commitHash = d.checkResult.commitHash ?? 'HEAD';
+			}
+		}
+	}
+}
+
+async function fetchHistory() {
+	const result = await service.client.queryAudit({
+		eventType: 'update_check',
+		limit: 10,
+		offset: 0,
+	});
+	if (result.ok && result.data?.entries) {
+		updateHistory = result.data.entries;
 	}
 }
 
@@ -233,16 +261,56 @@ function phaseClass(phase) {
 		</div>
 	</div>
 
-	<!-- Available Update -->
-	{#if availableVersion}
-		<div class="panel update-available-panel">
-			<h3>Update Available: v{availableVersion}</h3>
-			{#if changelog.length > 0}
-				<ul class="changelog">
-					{#each changelog as entry}
-						<li>{entry}</li>
-					{/each}
-				</ul>
+	<!-- Version Check Result -->
+	{#if checkResult}
+		<div class="panel" class:update-available-panel={checkResult.status === 'update_available'}>
+			{#if checkResult.status === 'update_available'}
+				<h3>Update Available: v{checkResult.availableVersion}</h3>
+				<div class="check-details">
+					<span>Current: v{checkResult.currentVersion}</span>
+					<span>Available: v{checkResult.availableVersion}</span>
+					{#if checkResult.commitCount}
+						<span>{checkResult.commitCount} new commit{checkResult.commitCount > 1 ? 's' : ''}</span>
+					{/if}
+					{#if checkResult.commitHash}
+						<span class="mono">{String(checkResult.commitHash).slice(0, 8)}</span>
+					{/if}
+				</div>
+				{#if changelog.length > 0}
+					<ul class="changelog">
+						{#each changelog as entry}
+							<li>{entry}</li>
+						{/each}
+					</ul>
+				{/if}
+			{:else if checkResult.status === 'up_to_date'}
+				<h3>Up to Date</h3>
+				<p class="muted">v{checkResult.currentVersion} — no updates available{checkResult.fetchFailed ? ' (fetch failed — showing local state)' : ''}</p>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- Phase Progress Indicator -->
+	{#if state.phase !== 'idle'}
+		<div class="panel">
+			<h3>Update Progress</h3>
+			<div class="phase-progress">
+				{#each PHASE_ORDER as phase, i}
+					{@const currentIdx = PHASE_ORDER.indexOf(state.phase)}
+					{@const isDone = i < currentIdx || state.phase === 'complete'}
+					{@const isCurrent = phase === state.phase}
+					{@const isFailed = state.phase === 'failed' && i === currentIdx}
+					<div class="phase-step" class:done={isDone} class:current={isCurrent} class:failed={isFailed}>
+						<span class="phase-dot">{isDone ? '\u2713' : isFailed ? '\u2717' : i + 1}</span>
+						<span class="phase-name">{phaseLabel(phase)}</span>
+					</div>
+					{#if i < PHASE_ORDER.length - 1}
+						<div class="phase-connector" class:done={isDone}></div>
+					{/if}
+				{/each}
+			</div>
+			{#if state.startedAt}
+				<p class="muted" style="margin-top:0.5rem">Started: {new Date(state.startedAt).toLocaleString()}</p>
 			{/if}
 		</div>
 	{/if}
@@ -276,6 +344,24 @@ function phaseClass(phase) {
 			{#if state.startedAt}
 				<p class="muted">Started: {new Date(state.startedAt).toLocaleString()}</p>
 			{/if}
+		</div>
+	{/if}
+
+	<!-- Update History (from audit trail) -->
+	{#if updateHistory.length > 0}
+		<div class="panel">
+			<h3>Recent Update Activity</h3>
+			<div class="history-list">
+				{#each updateHistory as event}
+					<div class="history-row">
+						<span class="history-time">{new Date(event.timestamp || event.createdAt).toLocaleString()}</span>
+						<span class="history-type">{event.eventType || event.type}</span>
+						{#if event.metadata?.version || event.metadata?.component}
+							<span class="muted">{event.metadata?.component ?? ''} {event.metadata?.version ?? ''}</span>
+						{/if}
+					</div>
+				{/each}
+			</div>
 		</div>
 	{/if}
 </div>
@@ -373,4 +459,50 @@ function phaseClass(phase) {
 		padding: 0.2rem 0; border-bottom: 1px solid var(--border-default);
 	}
 	.changelog li:last-child { border-bottom: none; }
+
+	/* Check result details */
+	.check-details {
+		display: flex; gap: 1rem; font-size: 0.8rem; color: var(--text-muted);
+		margin-bottom: 0.5rem; flex-wrap: wrap;
+	}
+	.mono { font-family: monospace; }
+
+	/* Phase progress indicator */
+	.phase-progress {
+		display: flex; align-items: center; gap: 0;
+		overflow-x: auto; padding: 0.25rem 0;
+	}
+	.phase-step {
+		display: flex; flex-direction: column; align-items: center;
+		gap: 0.25rem; min-width: 80px; font-size: 0.75rem;
+	}
+	.phase-dot {
+		width: 28px; height: 28px; border-radius: 50%;
+		display: flex; align-items: center; justify-content: center;
+		font-size: 0.75rem; font-weight: 700;
+		background: var(--bg-primary); color: var(--text-muted);
+		border: 2px solid var(--border-default);
+	}
+	.phase-step.done .phase-dot { background: #1a3a2a; color: #4ade80; border-color: #4ade80; }
+	.phase-step.current .phase-dot { background: var(--accent-muted); color: var(--accent-secondary); border-color: var(--accent-primary); }
+	.phase-step.failed .phase-dot { background: #3a1a1a; color: #f87171; border-color: #f87171; }
+	.phase-name { color: var(--text-muted); }
+	.phase-step.current .phase-name { color: var(--accent-secondary); font-weight: 600; }
+	.phase-step.done .phase-name { color: #4ade80; }
+	.phase-connector {
+		flex: 1; height: 2px; min-width: 20px;
+		background: var(--border-default); margin-bottom: 1.25rem;
+	}
+	.phase-connector.done { background: #4ade80; }
+
+	/* Update history */
+	.history-list { display: flex; flex-direction: column; gap: 0.25rem; }
+	.history-row {
+		display: flex; gap: 0.75rem; align-items: center;
+		padding: 0.375rem 0.5rem; font-size: 0.8rem;
+		border-bottom: 1px solid var(--border-default);
+	}
+	.history-row:last-child { border-bottom: none; }
+	.history-time { color: var(--text-muted); font-size: 0.75rem; min-width: 150px; }
+	.history-type { font-weight: 500; color: var(--text-primary); }
 </style>
