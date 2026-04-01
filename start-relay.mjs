@@ -312,6 +312,32 @@ if (resumedUpdate) {
   console.log('[✓] Update orchestrator initialised (no pending update)');
 }
 
+// ---------------------------------------------------------------------------
+// AI Disclosure — must be loaded BEFORE AdminRoutes (needs disclosureConfig)
+// Precedence: file > env vars > defaults.
+// ---------------------------------------------------------------------------
+
+const DISCLOSURE_CONFIG_PATH = process.env.BASTION_DISCLOSURE_CONFIG_PATH || '/var/lib/bastion/disclosure-config.json';
+const savedDisclosureConfig = AdminRoutes.loadDisclosureConfig(DISCLOSURE_CONFIG_PATH);
+
+let disclosureConfig;
+if (savedDisclosureConfig) {
+  disclosureConfig = savedDisclosureConfig;
+  console.log(`[✓] Disclosure config loaded from file (${DISCLOSURE_CONFIG_PATH})`);
+} else {
+  disclosureConfig = {
+    enabled: process.env.BASTION_DISCLOSURE_ENABLED === 'true',
+    text: process.env.BASTION_DISCLOSURE_TEXT || 'You are interacting with an AI system powered by {provider} ({model}).',
+    style: process.env.BASTION_DISCLOSURE_STYLE || 'info',
+    position: process.env.BASTION_DISCLOSURE_POSITION || 'banner',
+    dismissible: process.env.BASTION_DISCLOSURE_DISMISSIBLE !== 'false',
+    link: process.env.BASTION_DISCLOSURE_LINK || undefined,
+    linkText: process.env.BASTION_DISCLOSURE_LINK_TEXT || undefined,
+    jurisdiction: process.env.BASTION_DISCLOSURE_JURISDICTION || undefined,
+  };
+  console.log('[✓] Disclosure config from env vars (no saved config)');
+}
+
 const adminRoutes = new AdminRoutes({
   providerRegistry,
   auditLogger,
@@ -398,35 +424,8 @@ function sendProviderStatus(targetConnectionId) {
 }
 
 // ---------------------------------------------------------------------------
-// AI Disclosure — relay-configurable transparency banner (default: OFF)
-// Precedence: file > env vars > defaults.
-// File lives in /var/lib/bastion/ (outside git) so self-updates don't overwrite it.
+// AI Disclosure — helper functions (config loaded above, before AdminRoutes)
 // ---------------------------------------------------------------------------
-
-const DISCLOSURE_CONFIG_PATH = process.env.BASTION_DISCLOSURE_CONFIG_PATH || '/var/lib/bastion/disclosure-config.json';
-
-// Try loading persisted disclosure config first
-const savedDisclosureConfig = AdminRoutes.loadDisclosureConfig(DISCLOSURE_CONFIG_PATH);
-
-/** @type {{ enabled: boolean; text: string; style: string; position: string; dismissible: boolean; link?: string; linkText?: string; jurisdiction?: string }} */
-let disclosureConfig;
-
-if (savedDisclosureConfig) {
-  disclosureConfig = savedDisclosureConfig;
-  console.log(`[✓] Disclosure config loaded from file (${DISCLOSURE_CONFIG_PATH})`);
-} else {
-  disclosureConfig = {
-    enabled: process.env.BASTION_DISCLOSURE_ENABLED === 'true',
-    text: process.env.BASTION_DISCLOSURE_TEXT || 'You are interacting with an AI system powered by {provider} ({model}).',
-    style: process.env.BASTION_DISCLOSURE_STYLE || 'info',
-    position: process.env.BASTION_DISCLOSURE_POSITION || 'banner',
-    dismissible: process.env.BASTION_DISCLOSURE_DISMISSIBLE !== 'false',
-    link: process.env.BASTION_DISCLOSURE_LINK || undefined,
-    linkText: process.env.BASTION_DISCLOSURE_LINK_TEXT || undefined,
-    jurisdiction: process.env.BASTION_DISCLOSURE_JURISDICTION || undefined,
-  };
-  console.log('[✓] Disclosure config from env vars (no saved config)');
-}
 
 /** Substitute {provider} and {model} template vars with current values. */
 function resolveDisclosureText(text) {
