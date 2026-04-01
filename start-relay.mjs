@@ -719,7 +719,7 @@ relay.on('message', async (data, info) => {
     return;
   }
 
-  // ----- extension_query: return loaded extensions -----
+  // ----- extension_query: return loaded extensions (with inline UI HTML) -----
   if (msg.type === 'extension_query') {
     const exts = extensionRegistry.getAllExtensions();
     relay.send(connId, JSON.stringify({
@@ -728,13 +728,28 @@ relay.on('message', async (data, info) => {
       timestamp: new Date().toISOString(),
       sender: { id: 'relay', type: 'relay', displayName: 'Bastion Relay' },
       payload: {
-        extensions: exts.map(e => ({
-          namespace: e.namespace,
-          name: e.name,
-          version: e.version,
-          messageTypes: e.messageTypes.map(mt => mt.name),
-          ui: e.ui || null,
-        })),
+        extensions: exts.map(e => {
+          // For extensions with UI, read HTML files and include content inline
+          let ui = null;
+          if (e.ui && e.ui.pages.length > 0) {
+            ui = {
+              pages: e.ui.pages.map(page => ({
+                ...page,
+                components: page.components.map(comp => {
+                  const html = extensionRegistry.readUIFile(e.namespace, comp.file);
+                  return { ...comp, html: html || null };
+                }),
+              })),
+            };
+          }
+          return {
+            namespace: e.namespace,
+            name: e.name,
+            version: e.version,
+            messageTypes: e.messageTypes.map(mt => mt.name),
+            ui,
+          };
+        }),
         totalCount: exts.length,
       },
     }));

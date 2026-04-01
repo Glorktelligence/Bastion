@@ -17,7 +17,7 @@
  * The colon separator distinguishes extension types from core protocol types.
  */
 
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 // ---------------------------------------------------------------------------
@@ -128,6 +128,8 @@ const HARD_CAP_TYPES = 250;
 
 export class ExtensionRegistry {
   private readonly extensions: Map<string, ExtensionDefinition> = new Map();
+  /** Maps namespace → base directory path (for resolving UI file paths). */
+  private readonly extensionPaths: Map<string, string> = new Map();
   private totalMessageTypes = 0;
   private locked = false;
 
@@ -148,6 +150,7 @@ export class ExtensionRegistry {
 
   /**
    * Load extensions from a directory of JSON files.
+   * Scans top-level JSON files and one level of subdirectories.
    * Call this once at startup, then call lock().
    */
   loadFromDirectory(dirPath: string): { loaded: string[]; errors: string[] } {
@@ -158,10 +161,29 @@ export class ExtensionRegistry {
       return { loaded, errors };
     }
 
-    const files = readdirSync(dirPath).filter((f) => f.endsWith('.json'));
+    // Collect all manifest candidates: top-level JSON + subdirectory JSON files
+    const candidates: Array<{ filePath: string; basePath: string; label: string }> = [];
 
-    for (const file of files) {
-      const filePath = join(dirPath, file);
+    const entries = readdirSync(dirPath);
+    for (const entry of entries) {
+      const fullPath = join(dirPath, entry);
+      try {
+        const stat = statSync(fullPath);
+        if (stat.isFile() && entry.endsWith('.json')) {
+          candidates.push({ filePath: fullPath, basePath: dirPath, label: entry });
+        } else if (stat.isDirectory()) {
+          // Scan one level of subdirectories for JSON manifests
+          const subFiles = readdirSync(fullPath).filter((f) => f.endsWith('.json'));
+          for (const sf of subFiles) {
+            candidates.push({ filePath: join(fullPath, sf), basePath: fullPath, label: `${entry}/${sf}` });
+          }
+        }
+      } catch {
+        // Skip unreadable entries
+      }
+    }
+
+    for (const { filePath, basePath, label } of candidates) {
       try {
         const raw = readFileSync(filePath, 'utf-8');
         const def = JSON.parse(raw) as Record<string, unknown>;
@@ -171,12 +193,13 @@ export class ExtensionRegistry {
 
         const result = this.register(def);
         if (result.ok) {
+          this.extensionPaths.set(result.extension.namespace, basePath);
           loaded.push(result.extension.namespace);
         } else {
-          errors.push(`${file}: ${result.error}`);
+          errors.push(`${label}: ${result.error}`);
         }
       } catch (err) {
-        errors.push(`${file}: ${err instanceof Error ? err.message : String(err)}`);
+        errors.push(`${label}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
@@ -436,5 +459,26 @@ export class ExtensionRegistry {
   /** Check if a message type string is a namespaced extension type. */
   isExtensionType(messageType: string): boolean {
     return messageType.includes(':');
+  }
+
+  /**
+   * Read a UI file for an extension.
+   * The filePath is relative to the extension's base directory (e.g. "ui/turn-submit.html").
+   * Returns null if the file doesn't exist, path is invalid, or not an HTML file.
+   */
+  readUIFile(namespace: string, filePath: string): string | null {
+    const basePath = this.extensionPaths.get(namespace);
+    if (!basePath) return null;
+
+    // Security: no path traversal, only .html files
+    if (filePath.includes('..') || filePath.startsWith('/') || filePath.startsWith('\\')) return null;
+    if (!filePath.endsWith('.html')) return null;
+
+    const fullPath = join(basePath, filePath);
+    try {
+      return readFileSync(fullPath, 'utf-8');
+    } catch {
+      return null;
+    }
   }
 }

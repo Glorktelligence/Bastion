@@ -1,6 +1,5 @@
 {
-  "_example": true,
-  "_description": "Example extension with UI — not loaded in production. Shows extension authors the pattern for declaring UI components.",
+  "_description": "Example extension with UI — demonstrates the pattern for declaring UI components with inline content delivery.",
   "namespace": "game",
   "name": "Example Game Extension",
   "version": "0.1.0",

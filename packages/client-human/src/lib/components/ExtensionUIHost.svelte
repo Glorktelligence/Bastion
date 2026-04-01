@@ -51,22 +51,26 @@ $effect(() => {
 });
 
 function prepareHTML(comp: ExtensionUIComponentInfo): string | null {
-  // For now, extension UI files are not loaded from disk — they'd come from
-  // the relay or a pre-packaged bundle. This placeholder creates a minimal
-  // host document. Real implementation would fetch the file content.
-  const placeholder = `<!DOCTYPE html>
+  // Use inline HTML from relay if available, otherwise show placeholder
+  const content = comp.html
+    ? comp.html
+    : `<!DOCTYPE html>
 <html><head><style>body { font-family: system-ui; color: #e0e0e0; background: transparent; padding: 8px; margin: 0; font-size: 14px; }</style></head>
-<body><p>Extension component: <strong>${comp.name}</strong></p><p style="color:#888;font-size:12px;">${comp.description}</p></body></html>`;
+<body><p>Extension component: <strong>${comp.name}</strong></p><p style="color:#888;font-size:12px;">${comp.description}</p><p style="color:#555;font-size:11px;">No UI content loaded from relay.</p></body></html>`;
 
-  // Scan for blocked patterns
-  const scan = scanExtensionHTML(placeholder);
+  // Scan for blocked patterns (security gate — applies to all content)
+  const scan = scanExtensionHTML(content);
   if (!scan.safe) {
     errors.set(comp.id, `Blocked: ${scan.violations.join(', ')}`);
     return null;
   }
 
-  // Inject bridge script
-  return placeholder.replace('</head>', `${BRIDGE_SCRIPT}</head>`);
+  // Inject bridge script before </head>
+  if (content.includes('</head>')) {
+    return content.replace('</head>', `${BRIDGE_SCRIPT}</head>`);
+  }
+  // If no </head> tag, wrap with minimal structure
+  return `<!DOCTYPE html><html><head>${BRIDGE_SCRIPT}</head><body>${content}</body></html>`;
 }
 
 function onIframeLoad(comp: ExtensionUIComponentInfo, iframe: HTMLIFrameElement): void {

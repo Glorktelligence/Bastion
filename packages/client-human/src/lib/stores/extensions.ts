@@ -27,6 +27,8 @@ export interface ExtensionUIComponentInfo {
   readonly size: { minHeight: string; maxHeight: string };
   readonly placement: 'main' | 'full-page' | 'sidebar' | 'settings-tab';
   readonly dangerous: boolean;
+  /** Inline HTML content loaded by the relay from the extension's UI file. */
+  readonly html?: string | null;
 }
 
 export interface ExtensionUIPageInfo {
