@@ -118,7 +118,22 @@ export const VALID_COMMAND_TYPES = Object.keys(COMMAND_MAP) as ReadonlyArray<str
 // ---------------------------------------------------------------------------
 
 const DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes
-const RESTRICTED_ENV = { PATH: '/usr/bin:/bin' };
+
+/**
+ * Build a restricted environment for command execution.
+ * PATH is locked down, but HOME must be set for the buildUser
+ * so that pnpm/corepack can find their cache directories.
+ */
+function buildRestrictedEnv(config: AgentConfig): Record<string, string> {
+  const env: Record<string, string> = { PATH: '/usr/bin:/bin:/usr/local/bin' };
+  if (config.buildUser) {
+    // Set HOME for the target user so corepack/pnpm cache works
+    env.HOME = `/home/${config.buildUser}`;
+  } else {
+    env.HOME = process.env.HOME ?? '/root';
+  }
+  return env;
+}
 
 /**
  * Execute a whitelisted command.
@@ -140,12 +155,13 @@ export function executeCommand(type: string, config: AgentConfig, options?: Comm
 
   const cmd = COMMAND_MAP[type]!(config, options);
   const timeoutMs = config.commandTimeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const env = buildRestrictedEnv(config);
   const start = Date.now();
 
   try {
     const output = execSync(cmd, {
       timeout: timeoutMs,
-      env: RESTRICTED_ENV,
+      env,
       encoding: 'utf-8',
       maxBuffer: 10 * 1024 * 1024, // 10 MB
     });
