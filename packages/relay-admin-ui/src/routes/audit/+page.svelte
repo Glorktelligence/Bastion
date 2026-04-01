@@ -2,6 +2,7 @@
 // Audit Log Explorer — Advanced filtering for relay audit events
 // Supports: date range, event type, session ID, pagination, JSON export
 
+import { onMount } from 'svelte';
 import AuditEventRow from '$lib/components/AuditEventRow.svelte';
 import { createAdminAuditStore, AUDIT_EVENT_TYPES } from '$lib/stores/audit.js';
 import { createSharedService } from '$lib/api/service-instance.js';
@@ -15,7 +16,7 @@ let state = $state(audit.store.get());
 /** @type {number} */
 let pages = $state(audit.pageCount.get());
 
-$effect(() => {
+onMount(() => {
 	const unsub1 = audit.store.subscribe((s) => { state = s; });
 	const unsub2 = audit.pageCount.subscribe((p) => { pages = p; });
 
@@ -192,9 +193,7 @@ function handleClearFilters() {
 			{/each}
 		</div>
 		<div class="page-range">
-			{@const rangeStart = state.currentPage * state.pageSize + 1}
-			{@const rangeEnd = Math.min(rangeStart + state.entries.length - 1, state.totalServerCount)}
-			<span class="page-label">Showing {state.totalServerCount === 0 ? '0' : `${rangeStart}\u2013${rangeEnd}`} of {state.totalServerCount.toLocaleString()} entries</span>
+			<span class="page-label">Showing {state.totalServerCount === 0 ? '0' : `${state.currentPage * state.pageSize + 1}\u2013${Math.min(state.currentPage * state.pageSize + state.entries.length, state.totalServerCount)}`} of {state.totalServerCount.toLocaleString()} entries</span>
 		</div>
 		<div class="page-nav">
 			<button class="btn btn-sm" disabled={state.currentPage === 0} onclick={() => goToPage(state.currentPage - 1)}>Previous</button>
