@@ -187,6 +187,8 @@ export interface AdminRoutesConfig {
   readonly initialDisclosureConfig?: DisclosureConfig;
   /** Path to persist disclosure config. When set, PUT /api/disclosure writes to this file. */
   readonly disclosureConfigPath?: string;
+  /** Callback to forward challenge config changes to AI client. Returns true if forwarded. */
+  readonly onChallengeConfigUpdate?: (schedule: Record<string, unknown>, cooldowns: Record<string, unknown>) => boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,8 +222,13 @@ export class AdminRoutes {
   private readonly localGitPath: string;
   private readonly currentVersion: string;
   private readonly disclosureConfigPath: string | null;
+  private readonly onChallengeConfigUpdate:
+    | ((schedule: Record<string, unknown>, cooldowns: Record<string, unknown>) => boolean)
+    | null;
   private disclosureConfig: DisclosureConfig;
   private updateStatus: UpdateStatus;
+  /** Cached challenge status from AI client (updated via setChallengeStatus). */
+  private challengeStatus: Record<string, unknown> | null;
 
   constructor(config: AdminRoutesConfig) {
     this.registry = config.providerRegistry;
@@ -232,11 +239,13 @@ export class AdminRoutes {
     this.extensionRegistry = config.extensionRegistry ?? null;
     this.onDisclosureUpdate = config.onDisclosureUpdate ?? null;
     this.onUpdateMessage = config.onUpdateMessage ?? null;
+    this.onChallengeConfigUpdate = config.onChallengeConfigUpdate ?? null;
     this.orchestrator = config.updateOrchestrator ?? null;
     this.localGitPath = config.localGitPath ?? process.cwd();
     this.currentVersion = config.currentVersion ?? 'unknown';
     this.disclosureConfigPath = config.disclosureConfigPath ?? null;
     this.updateStatus = { phase: 'idle', targetVersion: null, startedAt: null, component: null, error: null };
+    this.challengeStatus = null;
     this.disclosureConfig = config.initialDisclosureConfig ?? {
       enabled: false,
       text: 'You are interacting with an AI system powered by {provider} ({model}).',
@@ -907,6 +916,11 @@ export class AdminRoutes {
     if (detail?.error !== undefined) this.updateStatus.error = detail.error;
   }
 
+  /** Cache the latest challenge status from AI client (called by relay on challenge_status messages). */
+  setChallengeStatus(status: Record<string, unknown>): void {
+    this.challengeStatus = { ...status, cachedAt: new Date().toISOString() };
+  }
+
   // -------------------------------------------------------------------------
   // HTTP request handling
   // -------------------------------------------------------------------------
@@ -1054,6 +1068,39 @@ export class AdminRoutes {
         });
         if (this.onDisclosureUpdate) this.onDisclosureUpdate(updated);
         result = { status: 200, body: { ...updated, saved: true } };
+      } else if (method === 'GET' && path === '/api/challenge') {
+        // Return cached challenge status from AI client
+        if (this.challengeStatus) {
+          result = { status: 200, body: this.challengeStatus };
+        } else {
+          result = { status: 200, body: { active: false, note: 'No challenge status received from AI client yet' } };
+        }
+      } else if (method === 'PUT' && path === '/api/challenge') {
+        const body = await readJsonBody(req);
+        // Safety floor: Challenge Me More cannot be disabled
+        if (body.enabled === false) {
+          result = { status: 400, body: { error: 'Challenge Me More cannot be disabled — safety floor enforced' } };
+        } else if (!body.schedule || !body.cooldowns) {
+          result = { status: 400, body: { error: 'Missing required fields: schedule, cooldowns' } };
+        } else if (this.challengeStatus && this.challengeStatus.active === true) {
+          result = { status: 409, body: { error: 'Cannot modify challenge config during active challenge hours' } };
+        } else if (this.onChallengeConfigUpdate) {
+          const forwarded = this.onChallengeConfigUpdate(body.schedule, body.cooldowns);
+          if (forwarded) {
+            this.audit.logEvent(AUDIT_EVENT_TYPES.CONFIG_CHANGE, 'admin', {
+              changeType: 'challenge_config',
+              changedBy: adminUsername,
+            });
+            result = {
+              status: 200,
+              body: { forwarded: true, note: 'Challenge config forwarded to AI client — await challenge_config_ack' },
+            };
+          } else {
+            result = { status: 503, body: { error: 'No AI client connected to forward challenge config' } };
+          }
+        } else {
+          result = { status: 503, body: { error: 'Challenge config forwarding not available' } };
+        }
       } else {
         result = { status: 404, body: { error: 'Not found', path, method } };
       }

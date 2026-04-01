@@ -27,6 +27,8 @@ export interface SafetyPipelineOptions {
   readonly config?: Partial<SafetyConfig>;
   readonly history?: PatternHistory;
   readonly now?: Date;
+  /** If provided, overrides Layer 2 time_of_day with ChallengeManager's isActive() state. */
+  readonly challengeActive?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,8 +66,8 @@ export function evaluateSafety(task: TaskPayload, options?: SafetyPipelineOption
     };
   }
 
-  // 3. Layer 2 — Contextual Evaluation
-  const layer2 = evaluateLayer2(task, config, history, options?.now);
+  // 3. Layer 2 — Contextual Evaluation (challengeActive unifies with ChallengeManager)
+  const layer2 = evaluateLayer2(task, config, history, options?.now, options?.challengeActive);
 
   // 4. Layer 3 — Completeness (ALWAYS runs if L1 passed)
   const layer3 = evaluateLayer3(task);

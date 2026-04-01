@@ -173,6 +173,22 @@ function evaluateBehaviouralDeviation(task: TaskPayload, history: PatternHistory
   };
 }
 
+/**
+ * Evaluate time_of_day using ChallengeManager's isActive() state.
+ * This unifies Layer 2 and ChallengeManager so they always agree.
+ */
+function evaluateTimeOfDayFromChallenge(config: SafetyConfig, challengeActive: boolean): Layer2Factor {
+  const weight = Math.max(config.timeOfDayWeight, SAFETY_FLOORS.TIME_OF_DAY_WEIGHT_FLOOR);
+  return {
+    name: 'time_of_day',
+    triggered: challengeActive,
+    weight: challengeActive ? weight : 0,
+    detail: challengeActive
+      ? 'Challenge Me More is ACTIVE — ChallengeManager reports high-risk hours'
+      : 'Challenge Me More is inactive — outside challenge hours',
+  };
+}
+
 function evaluateTimeOfDay(_task: TaskPayload, config: SafetyConfig, now: Date): Layer2Factor {
   const hour = now.getHours();
   const { highRiskHoursStart, highRiskHoursEnd } = config;
@@ -267,12 +283,15 @@ function evaluateCascadingEffects(task: TaskPayload): Layer2Factor {
  * @param config - User-adjustable safety configuration (floors enforced)
  * @param history - Pattern history for behavioural deviation detection
  * @param now - Optional current time for testable time-of-day evaluation
+ * @param challengeActive - If provided, overrides time_of_day with ChallengeManager state.
+ *   This unifies Layer 2 and ChallengeManager's definition of "high-risk hours."
  */
 export function evaluateLayer2(
   task: TaskPayload,
   config: SafetyConfig,
   history: PatternHistory,
   now?: Date,
+  challengeActive?: boolean,
 ): Layer2Result {
   const effectiveNow = now ?? new Date();
 
@@ -280,7 +299,9 @@ export function evaluateLayer2(
     evaluateReversibility(task),
     evaluateScopeIntentMismatch(task),
     evaluateBehaviouralDeviation(task, history, config),
-    evaluateTimeOfDay(task, config, effectiveNow),
+    challengeActive !== undefined
+      ? evaluateTimeOfDayFromChallenge(config, challengeActive)
+      : evaluateTimeOfDay(task, config, effectiveNow),
     evaluateResourceImpact(task),
     evaluateCascadingEffects(task),
   ];

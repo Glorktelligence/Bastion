@@ -1367,8 +1367,8 @@ client.on('message', async (data) => {
     const payload = msg.payload || msg;
     console.log(`[←] Task: ${payload.action} → ${payload.target} (priority: ${payload.priority})`);
 
-    // Safety evaluation
-    const safetyResult = evaluateSafety(payload, { config: safetyConfig, history: patternHistory });
+    // Safety evaluation — challengeActive unifies Layer 2 time_of_day with ChallengeManager
+    const safetyResult = evaluateSafety(payload, { config: safetyConfig, history: patternHistory, challengeActive: challengeManager.isActive() });
     const safetyResponse = generateSafetyResponse(payload, safetyResult);
 
     if (safetyResponse.type === 'denial') {

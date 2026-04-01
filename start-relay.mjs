@@ -380,6 +380,22 @@ const adminRoutes = new AdminRoutes({
       console.log(`[→] ${type} sent to updater ${agentId} (${info.component})`);
     }
   },
+  onChallengeConfigUpdate: (schedule, cooldowns) => {
+    // Forward challenge_config to the connected AI client via relay
+    if (!aiConnectionId) {
+      console.log('[!] No AI client connected — cannot forward challenge_config');
+      return false;
+    }
+    relay.send(aiConnectionId, JSON.stringify({
+      type: 'challenge_config',
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: { id: 'relay', type: 'relay', displayName: 'Bastion Relay' },
+      payload: { schedule, cooldowns },
+    }));
+    console.log('[→] challenge_config forwarded to AI client from admin');
+    return true;
+  },
 });
 console.log('[✓] Admin routes initialised (live status provider wired)');
 
@@ -818,8 +834,12 @@ relay.on('message', async (data, info) => {
   }
 
   // ----- memory_proposal / memory_decision: forward between paired clients -----
-  // ----- challenge_* messages: forward between paired clients -----
+  // ----- challenge_* messages: forward between paired clients + cache for admin API -----
   if (msg.type === 'challenge_status' || msg.type === 'challenge_config' || msg.type === 'challenge_config_ack') {
+    // Cache challenge_status for admin API (GET /api/challenge)
+    if (msg.type === 'challenge_status' && msg.payload) {
+      adminRoutes.setChallengeStatus(msg.payload);
+    }
     const peerId = router.getPeer(connId);
     if (peerId) {
       relay.send(peerId, data);

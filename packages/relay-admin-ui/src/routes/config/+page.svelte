@@ -66,6 +66,68 @@ let auditFields = $derived([
 	{ label: 'Last Verified', value: state.auditChainIntegrity.lastVerifiedAt ?? '\u2014' },
 ]);
 
+// --- Challenge Me More config ---
+let chalActive = $state(false);
+let chalTimezone = $state('');
+let chalWeekdayStart = $state('22:00');
+let chalWeekdayEnd = $state('06:00');
+let chalWeekendStart = $state('23:00');
+let chalWeekendEnd = $state('08:00');
+let chalBudgetDays = $state(7);
+let chalScheduleDays = $state(7);
+let chalToolDays = $state(1);
+let chalLastChange = $state('');
+let chalNote = $state('');
+let chalSaving = $state(false);
+let chalSaved = $state(false);
+let chalError = $state('');
+let chalLoaded = $state(false);
+
+onMount(() => {
+	service.client.getChallengeStatus().then(result => {
+		if (!result.ok) return;
+		const d = result.data;
+		chalActive = Boolean(d.active);
+		chalTimezone = d.timezone || '';
+		if (d.schedule) {
+			chalWeekdayStart = d.schedule.weekdays?.start || '22:00';
+			chalWeekdayEnd = d.schedule.weekdays?.end || '06:00';
+			chalWeekendStart = d.schedule.weekends?.start || '23:00';
+			chalWeekendEnd = d.schedule.weekends?.end || '08:00';
+		}
+		if (d.cooldowns) {
+			chalBudgetDays = d.cooldowns.budgetChangeDays ?? 7;
+			chalScheduleDays = d.cooldowns.scheduleChangeDays ?? 7;
+			chalToolDays = d.cooldowns.toolRegistrationDays ?? 1;
+		}
+		if (d.lastChanges?.schedule_change) chalLastChange = d.lastChanges.schedule_change;
+		if (d.note) chalNote = d.note;
+		chalLoaded = true;
+	});
+});
+
+async function saveChallengeConfig() {
+	chalSaving = true;
+	chalError = '';
+	chalSaved = false;
+	try {
+		const result = await service.client.updateChallengeConfig(
+			{ weekdays: { start: chalWeekdayStart, end: chalWeekdayEnd }, weekends: { start: chalWeekendStart, end: chalWeekendEnd } },
+			{ budgetChangeDays: chalBudgetDays, scheduleChangeDays: chalScheduleDays, toolRegistrationDays: chalToolDays },
+		);
+		if (!result.ok) {
+			chalError = result.data?.error || result.error || `HTTP ${result.status}`;
+		} else {
+			chalSaved = true;
+			setTimeout(() => { chalSaved = false; }, 3000);
+		}
+	} catch (e) {
+		chalError = e instanceof Error ? e.message : String(e);
+	} finally {
+		chalSaving = false;
+	}
+}
+
 // --- AI Disclosure Banner config ---
 let discEnabled = $state(false);
 let discText = $state('You are interacting with an AI system powered by {provider} ({model}).');
@@ -151,6 +213,82 @@ const DISC_STYLE_ICONS = { info: 'ℹ️', legal: '🤖', warning: '⚠️' };
 		</div>
 		<ConfigPanel title="TLS Status" fields={tlsFields} />
 		<ConfigPanel title="Audit Chain Integrity" fields={auditFields} />
+	</div>
+
+	<!-- Challenge Me More — Temporal Governance -->
+	<div class="challenge-section">
+		<h3>Challenge Me More &mdash; Temporal Governance</h3>
+		<p class="note">Restricts impulsive actions during user-configured vulnerable hours. Cannot be disabled (safety floor).</p>
+
+		<div class="chal-status">
+			<span class="chal-badge" class:chal-active={chalActive} class:chal-inactive={!chalActive}>
+				{chalActive ? 'ACTIVE' : 'Inactive'}
+			</span>
+			{#if chalTimezone}
+				<span class="chal-tz">Timezone: {chalTimezone} (AI VM system time)</span>
+			{/if}
+		</div>
+
+		{#if chalLoaded}
+		<div class="chal-form">
+			<div class="chal-grid">
+				<div class="chal-group">
+					<span class="disc-label">Weekday Hours</span>
+					<div class="chal-range">
+						<input type="text" class="chal-time" bind:value={chalWeekdayStart} placeholder="22:00" />
+						<span>to</span>
+						<input type="text" class="chal-time" bind:value={chalWeekdayEnd} placeholder="06:00" />
+					</div>
+				</div>
+				<div class="chal-group">
+					<span class="disc-label">Weekend Hours</span>
+					<div class="chal-range">
+						<input type="text" class="chal-time" bind:value={chalWeekendStart} placeholder="23:00" />
+						<span>to</span>
+						<input type="text" class="chal-time" bind:value={chalWeekendEnd} placeholder="08:00" />
+					</div>
+				</div>
+			</div>
+
+			<div class="chal-grid">
+				<div class="chal-group">
+					<span class="disc-label">Budget change cooldown (days)</span>
+					<input type="number" class="chal-time" bind:value={chalBudgetDays} min="1" max="30" />
+				</div>
+				<div class="chal-group">
+					<span class="disc-label">Schedule change cooldown (days)</span>
+					<input type="number" class="chal-time" bind:value={chalScheduleDays} min="1" max="30" />
+				</div>
+				<div class="chal-group">
+					<span class="disc-label">Tool registration cooldown (days)</span>
+					<input type="number" class="chal-time" bind:value={chalToolDays} min="1" max="30" />
+				</div>
+			</div>
+
+			{#if chalLastChange}
+				<p class="chal-meta">Last schedule change: {chalLastChange}</p>
+			{/if}
+
+			<div class="chal-warnings">
+				<p>Cannot modify during active challenge hours</p>
+				<p>7-day cooldown between schedule changes</p>
+				<p>Challenge Me More cannot be disabled</p>
+				<p>Minimum 6-hour challenge window</p>
+			</div>
+
+			{#if chalError}
+				<p class="error">{chalError}</p>
+			{/if}
+
+			<button class="disc-save" onclick={saveChallengeConfig} disabled={chalSaving || chalActive}>
+				{chalSaving ? 'Saving...' : chalSaved ? 'Saved!' : chalActive ? 'Blocked — Challenge Hours Active' : 'Save Challenge Config'}
+			</button>
+		</div>
+		{:else if !chalNote}
+			<p class="note">Loading challenge status from AI client...</p>
+		{:else}
+			<p class="note">{chalNote}</p>
+		{/if}
 	</div>
 
 	<!-- AI Disclosure Banner Configuration -->
@@ -270,6 +408,34 @@ const DISC_STYLE_ICONS = { info: 'ℹ️', legal: '🤖', warning: '⚠️' };
 		color: var(--status-error);
 		margin-bottom: 1rem;
 	}
+
+	/* Challenge Me More */
+	.challenge-section { margin-top: 2rem; }
+	.challenge-section h3 { font-size: 1.125rem; margin-bottom: 0.5rem; }
+	.chal-status { display: flex; align-items: center; gap: 0.75rem; margin: 0.75rem 0; }
+	.chal-badge {
+		font-size: 0.75rem; font-weight: 600; padding: 0.125rem 0.5rem;
+		border-radius: 999px;
+	}
+	.chal-active { background: color-mix(in srgb, var(--status-success) 15%, transparent); color: var(--status-success); }
+	.chal-inactive { background: color-mix(in srgb, var(--text-muted) 15%, transparent); color: var(--text-muted); }
+	.chal-tz { font-size: 0.8rem; color: var(--text-muted); }
+	.chal-form { display: flex; flex-direction: column; gap: 0.75rem; max-width: 600px; }
+	.chal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; }
+	.chal-group { display: flex; flex-direction: column; gap: 0.25rem; }
+	.chal-range { display: flex; align-items: center; gap: 0.375rem; font-size: 0.85rem; }
+	.chal-time {
+		width: 80px; padding: 0.375rem 0.5rem; font-size: 0.85rem;
+		border: 1px solid var(--border-default); border-radius: 0.375rem;
+		background: var(--bg-surface); color: var(--text-primary); font-family: monospace;
+	}
+	.chal-meta { font-size: 0.75rem; color: var(--text-muted); }
+	.chal-warnings {
+		font-size: 0.75rem; color: var(--status-warning);
+		display: flex; flex-direction: column; gap: 0.125rem;
+	}
+	.chal-warnings p { margin: 0; }
+	.chal-warnings p::before { content: '\26A0\FE0F  '; }
 
 	/* AI Disclosure */
 	.disclosure-section { margin-top: 2rem; }

@@ -62,6 +62,9 @@ const DEFAULT_CONFIG: ChallengeConfig = {
   lastChanges: {},
 };
 
+/** Safety floor: minimum challenge window in hours. */
+const MIN_CHALLENGE_WINDOW_HOURS = 6;
+
 const BLOCKED_ACTIONS = ['budget_change', 'new_mcp_registration', 'challenge_schedule_change'];
 const CONFIRM_ACTIONS: Record<string, { waitSeconds: number; message: string }> = {
   dangerous_tool_approval: {
@@ -97,13 +100,16 @@ export class ChallengeManager {
     return this.isWithinSchedule(new Date());
   }
 
-  /** Get the current challenge status for sending to human client. */
+  /** Get the current challenge status (includes full config for admin API caching). */
   getStatus(): {
     active: boolean;
     timezone: string;
     currentTime: string;
     periodEnd: string | null;
     restrictions: string[];
+    schedule: ChallengeSchedule;
+    cooldowns: ChallengeCooldowns;
+    lastChanges: Record<string, string>;
   } {
     const now = new Date();
     const active = this.isActive();
@@ -113,6 +119,9 @@ export class ChallengeManager {
       currentTime: now.toISOString(),
       periodEnd: active ? this.getPeriodEnd(now) : null,
       restrictions: active ? [...BLOCKED_ACTIONS, ...Object.keys(CONFIRM_ACTIONS)] : [],
+      schedule: { ...this.config.schedule },
+      cooldowns: { ...this.config.cooldowns },
+      lastChanges: { ...this.config.lastChanges },
     };
   }
 
@@ -200,6 +209,24 @@ export class ChallengeManager {
       };
     }
 
+    // Safety floor: minimum 6-hour challenge window
+    const weekdayWindow = this.computeWindowHours(schedule.weekdays.start, schedule.weekdays.end);
+    const weekendWindow = this.computeWindowHours(schedule.weekends.start, schedule.weekends.end);
+    if (weekdayWindow < MIN_CHALLENGE_WINDOW_HOURS) {
+      return {
+        accepted: false,
+        reason: `Weekday challenge window too short: ${weekdayWindow}h (minimum ${MIN_CHALLENGE_WINDOW_HOURS}h)`,
+        cooldownExpires: null,
+      };
+    }
+    if (weekendWindow < MIN_CHALLENGE_WINDOW_HOURS) {
+      return {
+        accepted: false,
+        reason: `Weekend challenge window too short: ${weekendWindow}h (minimum ${MIN_CHALLENGE_WINDOW_HOURS}h)`,
+        cooldownExpires: null,
+      };
+    }
+
     this.config.schedule = schedule;
     this.config.cooldowns = cooldowns;
     this.config.lastChanges.schedule_change = new Date().toISOString();
@@ -272,6 +299,13 @@ export class ChallengeManager {
     // Return the end time as today or tomorrow
     const dateStr = now.toISOString().split('T')[0];
     return `${dateStr}T${period.end}:00`;
+  }
+
+  private computeWindowHours(start: string, end: string): number {
+    const s = this.timeToMinutes(start);
+    const e = this.timeToMinutes(end);
+    const mins = e > s ? e - s : 1440 - s + e; // handles wrap-around (e.g. 22:00-06:00 = 480 min)
+    return mins / 60;
   }
 
   private getCooldownKey(actionType: string): string | null {

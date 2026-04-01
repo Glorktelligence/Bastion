@@ -338,4 +338,21 @@ export class AdminApiClient {
   async updateDisclosure(config: Record<string, unknown>): Promise<ApiResult> {
     return this.request('PUT', '/api/disclosure', config);
   }
+
+  // -------------------------------------------------------------------------
+  // Challenge Me More — Temporal Governance
+  // -------------------------------------------------------------------------
+
+  /** Get cached challenge status from AI client. */
+  async getChallengeStatus(): Promise<ApiResult> {
+    return this.request('GET', '/api/challenge');
+  }
+
+  /** Update challenge config (forwarded to AI client). */
+  async updateChallengeConfig(
+    schedule: Record<string, unknown>,
+    cooldowns: Record<string, unknown>,
+  ): Promise<ApiResult> {
+    return this.request('PUT', '/api/challenge', { schedule, cooldowns });
+  }
 }
