@@ -1,6 +1,6 @@
 {
   "name": "@bastion/client-human",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Tauri + SvelteKit desktop client for Project Bastion — human-side messaging, challenge review, and task submission",
   "license": "Apache-2.0",
   "author": "Harry Smith <harry@glorktelligence.co.uk>",

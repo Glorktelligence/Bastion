@@ -2,6 +2,55 @@
 
 All notable changes to Project Bastion are documented in this file.
 
+## [0.7.1] - 2026-04-01
+
+### Changed
+- Documentation refresh — README updated to reflect v0.7.1 features (84 message types, 2,945+ tests, Skills System, adapter hints, Soul Document)
+- CHANGELOG entries added for v0.6.0, v0.7.0, v0.7.1
+- JSDoc added to adapter-registry.ts (getCheapestByRole, getMostCapableByRole, resolveHint) and agent.ts (handleUpdateCheck)
+- SECURITY-AUDIT.md updated with 3 new findings from v0.6.0 session
+
+### Fixed
+- Self-update agent: `handleUpdateCheck()` git commands now use `sudo -u buildUser` (was running without sudo, failing silently due to `2>/dev/null`)
+- Admin UI update page: added phase progress indicator, version check result caching, update history panel
+- `getUpdateStatus()` now includes `checkResult` from last version check
+
+## [0.7.0] - 2026-04-01
+
+### Added
+- **Layer 5: Skills System** — contextual knowledge loading with trigger matching
+  - SkillStore class: manifest loading, word/regex triggers, mode scoping, content scanning, lock-after-startup
+  - ConversationManager.getSystemPrompt() accepts optional currentMessage for trigger matching
+  - Skill index (~50 tokens) always in system prompt; triggered skills loaded on demand
+  - 3 new protocol message types: `skill_list`, `skill_list_response`, `skill_config` (84 total)
+  - Example skills: security-review, git-workflow (shipped with `_example: true`)
+  - 30 new tests for skills system
+
+### Changed
+- Protocol version: 84 message types (was 81)
+- Version bump to 0.7.0
+
+## [0.6.0] - 2026-04-01
+
+### Added
+- AI Disclosure config persistence — `PUT /api/disclosure` writes to `/var/lib/bastion/disclosure-config.json`. Precedence: file > env vars > defaults. Survives self-update (outside git repo).
+- Challenge Me More temporal injection — `ConversationManager.getSystemPrompt()` injects temporal context block showing current challenge status. Claude knows when challenge hours are active.
+- Self-update agent `update_check` handler — agent runs git fetch + log, responds with `update_available` or `up_to_date`. Relay routes `up_to_date` to admin status.
+- Adapter hint system — `getCheapestByRole()`, `getMostCapableByRole()`, `resolveHint()` on AdapterRegistry. Extensions declare `adapterHint` per message type.
+- Extension UI content delivery — relay reads HTML files and includes inline in `extension_list_response`. Client renders in sandboxed iframe with bridge script injection. ExtensionRegistry scans subdirectories.
+- Challenge Me More unification — Layer 2 `evaluateTimeOfDay()` and ChallengeManager now always agree via `challengeActive` parameter.
+- Admin UI: Challenge Me More config section with schedule, cooldowns, status badge, 5 hardened immutability guards.
+- Admin API: `GET/PUT /api/challenge` endpoints with relay-side caching and AI client forwarding.
+- Sonnet adapter gains `'game'` role alongside Haiku.
+- `RegisteredAdapter` stores `pricingInputPerMTok` for efficient hint resolution.
+- Persistence audit documented in startup scripts (what survives restart).
+- ChallengeManager.updateConfig() enforces minimum 6-hour window.
+- ChallengeManager.getStatus() returns full config for admin API caching.
+- 15 new adapter hint tests.
+
+### Fixed
+- Audit trail UI `{@const}` placement for Svelte 5 compliance (fixed in prior session, verified).
+
 ## [0.5.9] - 2026-03-31
 
 ### Added

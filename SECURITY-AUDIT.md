@@ -1,10 +1,10 @@
 # Security Audit — Project Bastion
 
-**Date**: 2026-03-31
+**Date**: 2026-03-31 (original), 2026-04-01 (v0.6.0–v0.7.1 addendum)
 **Auditors**: Harry Smith, Claude (Opus 4.6)
 **Scope**: Full security audit of messaging flow, immutable boundaries, AI self-permission, file quarantine, and safety floors
-**Commit**: 3635848 (main)
-**Status**: Audit only — no fixes applied
+**Commit**: 3635848 (original), 266bbe1 (addendum)
+**Status**: All findings resolved
 
 ---
 
@@ -598,3 +598,39 @@ All fixes verified:
 | 1 | `queryAudit()` returned `entries.length` as `totalCount` | Pagination showed page size as total count — admins could not navigate beyond first page | Added `count()` to AuditStore/AuditLogger; `queryAudit()` now returns real `totalCount`, `page`, `pageSize`, `hasMore` |
 | 2 | Admin UI detail column truncated at 80 chars | Forensic detail invisible to admins | Replaced with inline key fields + collapsible full JSON view |
 | 3 | Admin UI pagination missing "Showing X of Y" | No indication of total result set size | Added "Showing 1–25 of N entries" range display |
+
+---
+
+## ADDENDUM: v0.6.0–v0.7.1 Findings (2026-04-01)
+
+### Finding A-1: Self-Update Agent Git Commands Without Sudo (HIGH)
+
+**Issue:** `handleUpdateCheck()` in `packages/update-agent/src/agent.ts` ran `git fetch`, `git log`, and `git show` as the agent process user (`bastion-updater`) without `sudo -u buildUser`. The git repo is owned by `bastion`/`bastion-ai`. Commands failed silently because `2>/dev/null` hid stderr and catch blocks swallowed errors, causing false "up to date" reports.
+
+**Fix:** All git commands in `handleUpdateCheck()` now use `sudo -u ${config.buildUser}` prefix (consistent with command-executor.ts). Removed `2>/dev/null`. Errors are logged to console. Added `RESTRICTED_ENV` (PATH=/usr/bin:/bin). The `up_to_date` response includes a `fetchFailed` flag so the admin UI can warn if the check used stale local state.
+
+**Commit:** 266bbe1
+
+### Finding A-2: AI Disclosure Config Not Persisted (MEDIUM)
+
+**Issue:** `PUT /api/disclosure` updated in-memory config only. On relay restart, config reverted to env vars. The response said `{ saved: true }` which was misleading.
+
+**Fix:** Disclosure config persists to `/var/lib/bastion/disclosure-config.json` (configurable via `BASTION_DISCLOSURE_CONFIG_PATH`). On startup, file takes precedence over env vars. File lives outside the git repo, so self-updates don't overwrite admin configuration.
+
+**Commit:** fc3f3a5
+
+### Finding A-3: Layer 2 and ChallengeManager Time Window Disagreement (MEDIUM)
+
+**Issue:** Two separate time-of-day systems with different configurations. Layer 2's `evaluateTimeOfDay()` used `SafetyConfig.highRiskHoursStart/End` (default 0–6). ChallengeManager used its own schedule with weekday/weekend distinction (default weekdays 22:00–06:00, weekends 23:00–08:00). At 23:00 on a weekday, ChallengeManager was ACTIVE but Layer 2's time_of_day factor was NOT triggered.
+
+**Fix:** `evaluateLayer2()` accepts an optional `challengeActive` parameter. When provided, it overrides the old highRiskHours config with ChallengeManager's `isActive()` state. `evaluateSafety()` passes `challengeActive` through pipeline options. `start-ai-client.mjs` passes `challengeManager.isActive()`. Both systems now always agree.
+
+**Commit:** 1a6b965
+
+### Addendum Summary
+
+| # | Finding | Severity | Fix Commit |
+|---|---------|----------|------------|
+| A-1 | Self-update git commands without sudo | **HIGH** | 266bbe1 |
+| A-2 | Disclosure config not persisted | **MEDIUM** | fc3f3a5 |
+| A-3 | Layer 2 / ChallengeManager time disagreement | **MEDIUM** | 1a6b965 |

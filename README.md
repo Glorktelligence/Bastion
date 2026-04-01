@@ -1,9 +1,9 @@
 # Project Bastion
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-2%2C896_passing-brightgreen.svg)](#run-tests)
+[![Tests](https://img.shields.io/badge/Tests-2%2C945_passing-brightgreen.svg)](#run-tests)
 [![Packages](https://img.shields.io/badge/Packages-10-purple.svg)](#packages)
-[![Protocol](https://img.shields.io/badge/Protocol-81_message_types-orange.svg)](#protocol)
+[![Protocol](https://img.shields.io/badge/Protocol-84_message_types-orange.svg)](#protocol)
 [![Node](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-339933.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-3178C6.svg)](https://www.typescriptlang.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -80,7 +80,9 @@ Most Human-AI interaction today happens through chat interfaces with no structur
                                 │                      │
                                 │  ┌────────────────┐  │
                                 │  │ Safety Engine   │  │
-                                │  │ Provider Adapter│  │
+                                │  │ 3 Adapters      │  │
+                                │  │ Soul Document   │  │
+                                │  │ Skill Store     │  │
                                 │  │ Tool Registry   │  │
                                 │  │ File Handler    │  │
                                 │  └────────────────┘  │
@@ -96,8 +98,8 @@ Most Human-AI interaction today happens through chat interfaces with no structur
 | `@bastion/relay`               | WebSocket server, message routing, JWT auth, audit logging, file quarantine          |
 | `@bastion/client-human`        | Tauri + SvelteKit desktop app — messaging, challenge review, file transfers         |
 | `@bastion/client-human-mobile` | React Native mobile app — same protocol, mobile-native UI                           |
-| `@bastion/client-ai`           | Headless AI client for isolated VM — safety engine, provider adapter, file handling |
-| `@bastion/relay-admin-ui`      | SvelteKit admin panel — provider management, blocklist, quarantine viewer           |
+| `@bastion/client-ai`           | Headless AI client for isolated VM — safety engine, 3 adapters, skills, file handling |
+| `@bastion/relay-admin-ui`      | SvelteKit admin panel — provider management, blocklist, quarantine, update lifecycle |
 | `@bastion/update-agent`      | Self-update agent — connects to relay, executes whitelisted build commands          |
 | `@bastion/adapter-template`   | Community adapter reference template — build adapters for any AI provider           |
 
@@ -135,7 +137,7 @@ pnpm build
 pnpm test
 
 # Individual packages
-node packages/tests/trace-test.mjs              # Protocol schema tests (286 checks)
+node packages/tests/trace-test.mjs              # Protocol schema tests (289 checks)
 node packages/tests/integration-test.mjs         # Integration round-trip tests (118 checks)
 node packages/tests/file-transfer-integration-test.mjs  # File transfer E2E (105 checks)
 node packages/relay/trace-test.mjs               # Relay tests (353 checks)
@@ -143,7 +145,7 @@ node packages/relay/quarantine-trace-test.mjs    # Relay quarantine tests (105 c
 node packages/relay/file-transfer-trace-test.mjs # Relay file-transfer routing (96 checks)
 node packages/relay/admin-trace-test.mjs          # Admin auth, routes, extensions (312 checks)
 node packages/crypto/trace-test.mjs              # Crypto tests (134 checks)
-node packages/client-ai/trace-test.mjs           # AI client: safety, provider, memory, project, tools, challenge, budget (420 checks)
+node packages/client-ai/trace-test.mjs           # AI client: safety, provider, skills, adapters, challenge, budget (466 checks)
 node packages/client-ai/file-handling-trace-test.mjs  # AI client file handling (155 checks)
 node packages/client-human/trace-test.mjs        # Desktop client tests (321 checks)
 node packages/client-human-mobile/trace-test.mjs # Mobile client tests (123 checks)
@@ -174,7 +176,7 @@ pnpm --filter @bastion/relay-admin-ui dev
 
 ## Protocol
 
-Bastion defines 81 message types across structured categories:
+Bastion defines 84 message types across structured categories:
 
 - **Core** (10): `task`, `conversation`, `challenge`, `confirmation`, `denial`, `status`, `result`, `error`, `audit`, `heartbeat`
 - **File Transfer** (3): `file_manifest`, `file_offer`, `file_request`
@@ -185,6 +187,7 @@ Bastion defines 81 message types across structured categories:
 - **Memory** (6): `memory_proposal`, `memory_decision`, `memory_list`, `memory_list_response`, `memory_update`, `memory_delete`
 - **Extensions** (2): `extension_query`, `extension_list_response`
 - **Project Context** (7): `project_sync`, `project_sync_ack`, `project_list`, `project_list_response`, `project_delete`, `project_config`, `project_config_ack`
+- **Skills** (3): `skill_list`, `skill_list_response`, `skill_config`
 - **Tool Integration** (9): `tool_registry_sync`, `tool_registry_ack`, `tool_request`, `tool_approved`, `tool_denied`, `tool_result`, `tool_revoke`, `tool_alert`, `tool_alert_response`
 - **Challenge Me More** (3): `challenge_status`, `challenge_config`, `challenge_config_ack`
 - **Budget Guard** (2): `budget_status`, `budget_config`
@@ -217,13 +220,25 @@ Bastion includes deployment templates for self-hosted environments:
 
 - [Getting Started Guide](docs/guides/getting-started.md) — Clone to running local instance walkthrough
 - [Deployment Guide](docs/guides/deployment.md) — Self-hosting with TLS, VLANs, and AI VM isolation
-- [Protocol Specification](docs/protocol/bastion-protocol-v0.5.0.md) — All 81 message types, envelope structure, E2E encryption, safety evaluation
+- [Protocol Specification](docs/protocol/bastion-protocol-v0.5.0.md) — All 84 message types, envelope structure, E2E encryption, safety evaluation
 - [Core Specification](docs/spec/Project-Bastion-Spec-v0.1.0.docx) — The full product specification
 - [Supplementary Specification](docs/spec/bastion-supplementary-spec.md) — Architectural decisions, session lifecycle, error codes, GDPR considerations
 - [Project Structure](docs/spec/bastion-project-structure.md) — Package layout and task breakdown
 - [Security Policy](SECURITY.md) — Vulnerability disclosure process and threat model
 - [Contributing Guide](CONTRIBUTING.md) — How to contribute
 - [Code of Conduct](CODE_OF_CONDUCT.md) — Community standards
+
+## Skills System (Layer 5)
+
+Skills are behaviour-informing documents loaded on demand into the AI's system prompt. They are the "books on the shelf" — contextual knowledge that activates when relevant triggers appear in the conversation.
+
+- **Trigger-based loading**: each skill declares word triggers (e.g., "deploy", "commit") and optional regex patterns. When a user message matches, the skill content is injected into the system prompt for that response.
+- **Always-loaded skills**: some skills are always present for their declared modes (e.g., a values skill in conversation mode).
+- **Mode scoping**: skills declare which modes they apply to (conversation, task, game, compaction). A game skill won't load during compaction.
+- **Security**: skill content is scanned for dangerous patterns (same as ProjectStore). Max 8KB per skill (~2000 tokens).
+- **Skill index**: a compact listing of all available skills (~50 tokens) is always in the system prompt, so the AI knows what expertise is available.
+
+Skills are loaded from the `skills/` directory on startup and locked (no mid-session injection). Two example skills ship with the repo: `security-review` and `git-workflow`.
 
 ## Current Capabilities
 
@@ -239,7 +254,8 @@ Bastion includes deployment templates for self-hosted environments:
 | — | Soul Document v1.0 — three-layer system prompt (identity, values, operational guidance) | Deployed |
 | — | Per-conversation tool trust isolation | Deployed |
 | — | Streaming responses (real-time AI typing with SSE) | Deployed |
-| — | Multi-adapter routing with AdapterRegistry (role-based model selection) | Deployed |
+| 5 | Skills System — trigger-based contextual knowledge loading | Deployed |
+| — | Multi-adapter routing with AdapterRegistry + adapter hint resolution | Deployed |
 | — | Self-update system with E2E encrypted commands, multi-agent orchestration | Deployed |
 | — | Community adapter template (@bastion/adapter-template) | Deployed |
 | — | File transfer pipeline with 3-stage custody chain (fully wired) | Deployed |
@@ -266,9 +282,9 @@ These cannot be disabled, bypassed, or configured away:
 
 ## Status
 
-**Pre-Release (v0.5.9).** The protocol, crypto layer, relay, AI client, desktop client, admin UI, update agent, adapter template, and infrastructure templates are all implemented and tested across 2,896 passing tests in 14 test files.
+**Pre-Release (v0.7.1).** The protocol, crypto layer, relay, AI client, desktop client, admin UI, update agent, adapter template, and infrastructure templates are all implemented and tested across 2,945 passing tests in 14 test files.
 
-The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. E2E encryption is active with interoperable tweetnacl (browser) and libsodium (Node.js) implementations. The protocol is stable at 81 message types with 48 error codes across 8 categories. Three official Anthropic adapters (Sonnet, Haiku, Opus) provide role-based model selection. The reference implementation works.
+The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. E2E encryption is active with interoperable tweetnacl (browser) and libsodium (Node.js) implementations. The protocol is stable at 84 message types with 48 error codes across 8 categories. Three official Anthropic adapters (Sonnet, Haiku, Opus) provide role-based model selection with adapter hint routing (cheapest/smartest/fastest). The Layer 5 Skills System enables on-demand contextual knowledge loading. The Soul Document defines a three-layer constitution for AI behaviour. The reference implementation works.
 
 > **Mobile client note:** The React Native mobile client (`packages/client-human-mobile`) was built during the initial development phases and builds successfully, but has not been updated with Layer 2-4 features, the setup wizard, or Challenge Me More. Mobile client modernisation is on the roadmap.
 

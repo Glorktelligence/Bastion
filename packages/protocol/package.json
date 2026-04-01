@@ -1,6 +1,6 @@
 {
   "name": "@bastion/protocol",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Shared protocol definitions, message types, schemas, and constants for Project Bastion",
   "license": "Apache-2.0",
   "author": "Harry Smith <harry@glorktelligence.co.uk>",

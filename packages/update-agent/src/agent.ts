@@ -248,6 +248,12 @@ export class BastionUpdateAgent extends EventEmitter<AgentEvents> {
   // Update check
   // -------------------------------------------------------------------------
 
+  /**
+   * Check for available updates by running git fetch + log.
+   * Uses sudo -u buildUser for all git commands (the repo is owned by
+   * buildUser, not the agent process user). Sends update_available or
+   * up_to_date message back to the relay.
+   */
   private handleUpdateCheck(): void {
     const buildPath = this.config.buildPath;
     const component = this.config.component;
