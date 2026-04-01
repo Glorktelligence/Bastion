@@ -19,6 +19,7 @@
  *   7. On update_restart: restart services and exit (systemd restarts agent)
  */
 
+import { execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -158,6 +159,12 @@ export class BastionUpdateAgent extends EventEmitter<AgentEvents> {
       return;
     }
 
+    // Update check — run git fetch and check for available updates
+    if (type === 'update_check') {
+      this.handleUpdateCheck();
+      return;
+    }
+
     // Update prepare — acknowledge readiness
     if (type === 'update_prepare') {
       // Read actual current version from VERSION file in build path
@@ -235,6 +242,90 @@ export class BastionUpdateAgent extends EventEmitter<AgentEvents> {
       });
       this.ws.close(code, reason);
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // Update check
+  // -------------------------------------------------------------------------
+
+  private handleUpdateCheck(): void {
+    const buildPath = this.config.buildPath;
+    const component = this.config.component;
+
+    // Read current version
+    let currentVersion = 'unknown';
+    try {
+      currentVersion = readFileSync(join(buildPath, 'VERSION'), 'utf-8').trim();
+    } catch {
+      // VERSION file may not exist
+    }
+
+    // Git fetch (best-effort — may be offline)
+    try {
+      execSync(`git -C ${buildPath} fetch --quiet 2>/dev/null`, {
+        timeout: 30_000,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch {
+      // Fetch failed — check local state anyway
+    }
+
+    // Check for new commits
+    let ahead = '';
+    try {
+      ahead = execSync(`git -C ${buildPath} log HEAD..origin/main --oneline 2>/dev/null`, {
+        timeout: 10_000,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim();
+    } catch {
+      // git log failed — report up_to_date
+    }
+
+    if (!ahead) {
+      this.send(
+        JSON.stringify({
+          type: 'up_to_date',
+          id: randomUUID(),
+          timestamp: new Date().toISOString(),
+          sender: { id: this.config.agentId, type: 'updater', displayName: this.config.agentName },
+          payload: { component, currentVersion },
+        }),
+      );
+      return;
+    }
+
+    const commits = ahead.split('\n').filter((l) => l.length > 0);
+    const commitHash = commits[0]?.split(' ')[0] ?? 'unknown';
+
+    // Try to read remote VERSION
+    let remoteVersion = 'unknown';
+    try {
+      remoteVersion = execSync(`git -C ${buildPath} show origin/main:VERSION 2>/dev/null`, {
+        timeout: 5_000,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim();
+    } catch {
+      remoteVersion = `${currentVersion}+${commits.length}`;
+    }
+
+    this.send(
+      JSON.stringify({
+        type: 'update_available',
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        sender: { id: this.config.agentId, type: 'updater', displayName: this.config.agentName },
+        payload: {
+          component,
+          currentVersion,
+          availableVersion: remoteVersion,
+          commitHash,
+          commitCount: commits.length,
+        },
+      }),
+    );
   }
 
   // -------------------------------------------------------------------------

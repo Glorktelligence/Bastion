@@ -11,6 +11,7 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
+import type { ChallengeManager } from './challenge-manager.js';
 import type { MemoryStore } from './memory-store.js';
 import type { ProjectStore } from './project-store.js';
 
@@ -32,6 +33,8 @@ export interface ConversationManagerConfig {
   readonly memoryStore?: MemoryStore;
   /** Optional project store for Layer 3 project context. */
   readonly projectStore?: ProjectStore;
+  /** Optional challenge manager for temporal context injection. */
+  readonly challengeManager?: ChallengeManager;
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +162,7 @@ export class ConversationManager {
   private readonly userContextPath: string;
   private readonly memoryStore: MemoryStore | null;
   private readonly projectStore: ProjectStore | null;
+  private readonly challengeManager: ChallengeManager | null;
   private messages: ConversationMessage[];
   private userContext: string;
 
@@ -167,6 +171,7 @@ export class ConversationManager {
     this.userContextPath = config?.userContextPath ?? DEFAULT_USER_CONTEXT_PATH;
     this.memoryStore = config?.memoryStore ?? null;
     this.projectStore = config?.projectStore ?? null;
+    this.challengeManager = config?.challengeManager ?? null;
     this.messages = [];
     this.userContext = '';
     this.loadUserContext();
@@ -195,6 +200,21 @@ export class ConversationManager {
       SOUL_LAYER_1,
       SOUL_LAYER_2_CONVERSATION, // Future: select layer 2 variant by mode
     ];
+
+    // Temporal context — inject current Challenge Me More state
+    if (this.challengeManager) {
+      const now = new Date();
+      const isActive = this.challengeManager.isActive();
+      const config = this.challengeManager.getConfig();
+      const tz = this.challengeManager.timezone;
+      let temporal = `--- Temporal Context ---\nCurrent server time: ${now.toISOString()} (${tz})\nChallenge Me More: ${isActive ? 'ACTIVE' : 'inactive'}`;
+      if (isActive) {
+        temporal += `\nChallenge hours: weekdays ${config.schedule.weekdays.start}\u2013${config.schedule.weekdays.end}, weekends ${config.schedule.weekends.start}\u2013${config.schedule.weekends.end} (server time)
+The user has configured these hours because they know they may be more impulsive during this time.
+Support the challenge system. Push back on risky requests. The sober user who set these boundaries is the user who matters.`;
+      }
+      parts.push(temporal);
+    }
 
     // Layer 2: persistent memories — hybrid set (10 global + 10 conversation-scoped)
     if (this.memoryStore) {

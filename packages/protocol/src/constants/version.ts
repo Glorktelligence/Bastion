@@ -4,4 +4,4 @@
 // See LICENSE file for full terms
 
 /** Current protocol version. Synced from root VERSION file. */
-export const PROTOCOL_VERSION = '0.5.9' as const;
+export const PROTOCOL_VERSION = '0.6.0' as const;

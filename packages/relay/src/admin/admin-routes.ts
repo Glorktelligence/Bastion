@@ -23,6 +23,7 @@
  */
 
 import { execSync } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AuditLogger } from '../audit/audit-logger.js';
 import { AUDIT_EVENT_TYPES } from '../audit/audit-logger.js';
@@ -182,6 +183,10 @@ export interface AdminRoutesConfig {
   readonly localGitPath?: string;
   /** Current relay version (read from VERSION file). Exposed via GET /api/update/status. */
   readonly currentVersion?: string;
+  /** Initial disclosure config loaded from file/env vars at startup. */
+  readonly initialDisclosureConfig?: DisclosureConfig;
+  /** Path to persist disclosure config. When set, PUT /api/disclosure writes to this file. */
+  readonly disclosureConfigPath?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -214,6 +219,7 @@ export class AdminRoutes {
   private readonly orchestrator: import('./update-orchestrator.js').UpdateOrchestrator | null;
   private readonly localGitPath: string;
   private readonly currentVersion: string;
+  private readonly disclosureConfigPath: string | null;
   private disclosureConfig: DisclosureConfig;
   private updateStatus: UpdateStatus;
 
@@ -229,14 +235,57 @@ export class AdminRoutes {
     this.orchestrator = config.updateOrchestrator ?? null;
     this.localGitPath = config.localGitPath ?? process.cwd();
     this.currentVersion = config.currentVersion ?? 'unknown';
+    this.disclosureConfigPath = config.disclosureConfigPath ?? null;
     this.updateStatus = { phase: 'idle', targetVersion: null, startedAt: null, component: null, error: null };
-    this.disclosureConfig = {
+    this.disclosureConfig = config.initialDisclosureConfig ?? {
       enabled: false,
       text: 'You are interacting with an AI system powered by {provider} ({model}).',
       style: 'info',
       position: 'banner',
       dismissible: true,
     };
+  }
+
+  // -------------------------------------------------------------------------
+  // Disclosure config persistence
+  // -------------------------------------------------------------------------
+
+  /** Load disclosure config from a JSON file. Returns null if file doesn't exist or is invalid. */
+  static loadDisclosureConfig(path: string): DisclosureConfig | null {
+    try {
+      const data = JSON.parse(readFileSync(path, 'utf-8'));
+      if (typeof data.enabled === 'boolean' && typeof data.text === 'string') {
+        return {
+          enabled: data.enabled,
+          text: data.text,
+          style: ['info', 'legal', 'warning'].includes(data.style) ? data.style : 'info',
+          position: ['banner', 'footer'].includes(data.position) ? data.position : 'banner',
+          dismissible: typeof data.dismissible === 'boolean' ? data.dismissible : true,
+          link: typeof data.link === 'string' ? data.link : undefined,
+          linkText: typeof data.linkText === 'string' ? data.linkText : undefined,
+          jurisdiction: typeof data.jurisdiction === 'string' ? data.jurisdiction : undefined,
+        };
+      }
+    } catch {
+      // File doesn't exist or is invalid — not configured yet
+    }
+    return null;
+  }
+
+  /** Persist the current disclosure config to the configured file path. */
+  private persistDisclosureConfig(savedBy: string): void {
+    if (!this.disclosureConfigPath) return;
+    try {
+      const data = {
+        ...this.disclosureConfig,
+        savedAt: new Date().toISOString(),
+        savedBy,
+      };
+      writeFileSync(this.disclosureConfigPath, JSON.stringify(data, null, 2), { mode: 0o600 });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[!] Failed to persist disclosure config: ${msg}`);
+    }
   }
 
   /** Number of providers with custom capability matrices. */
@@ -996,6 +1045,7 @@ export class AdminRoutes {
         if (typeof body.linkText === 'string') updated.linkText = body.linkText || undefined;
         if (typeof body.jurisdiction === 'string') updated.jurisdiction = body.jurisdiction || undefined;
         this.disclosureConfig = updated;
+        this.persistDisclosureConfig(adminUsername);
         this.audit.logEvent(AUDIT_EVENT_TYPES.CONFIG_CHANGE, 'admin', {
           changeType: 'disclosure_config',
           changedBy: adminUsername,

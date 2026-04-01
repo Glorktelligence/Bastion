@@ -28,6 +28,21 @@ import {
 
 // ---------------------------------------------------------------------------
 // Configuration
+//
+// PERSISTENCE AUDIT — what survives an AI client restart:
+//   PERSISTS (on AI VM, /var/lib/bastion-ai/):
+//     ✅ Challenge config        → challenge-config.json
+//     ✅ Budget database          → budget.db (SQLite)
+//     ✅ Budget config            → budget-config.json
+//     ✅ Memory store             → memories.db (SQLite)
+//     ✅ Conversations            → conversations.db (SQLite)
+//     ✅ User context             → user-context.md
+//     ✅ Project files            → project/ directory
+//   RECONSTRUCTED ON STARTUP (no persistence needed):
+//     ✓ E2E keys (new key exchange on each connection)
+//     ✓ Tool registry (re-synced from MCP servers on connect)
+//     ✓ Provider registration (re-registers with relay on connect)
+//     ✓ Conversation buffer (reloaded from conversations.db)
 // ---------------------------------------------------------------------------
 
 const RELAY_URL = process.env.BASTION_RELAY_URL || 'wss://10.0.30.10:9443';
@@ -167,6 +182,14 @@ const projectStore = new ProjectStore({ rootDir: PROJECT_DIR });
 console.log(`[✓] Project store initialised (${projectStore.fileCount} files, dir: ${PROJECT_DIR})`);
 
 // ---------------------------------------------------------------------------
+// Challenge Me More — temporal governance (must be created before ConversationManager)
+// ---------------------------------------------------------------------------
+
+const CHALLENGE_CONFIG_PATH = process.env.BASTION_CHALLENGE_CONFIG || '/var/lib/bastion-ai/challenge-config.json';
+const challengeManager = new ChallengeManager(CHALLENGE_CONFIG_PATH);
+console.log(`[✓] Challenge manager: ${challengeManager.enabled ? 'ENABLED' : 'disabled'} (tz: ${challengeManager.timezone}, active: ${challengeManager.isActive()})`);
+
+// ---------------------------------------------------------------------------
 // Conversation manager — session context + user context + memories + project
 // ---------------------------------------------------------------------------
 
@@ -175,6 +198,7 @@ const conversationManager = new ConversationManager({
   userContextPath: process.env.BASTION_USER_CONTEXT_PATH || '/var/lib/bastion-ai/user-context.md',
   memoryStore,
   projectStore,
+  challengeManager,
 });
 console.log(`[✓] Conversation manager initialised (budget: ${conversationManager.estimateTokenCount() || 0} base tokens)`);
 if (conversationManager.getUserContext()) {
@@ -324,14 +348,6 @@ const patternHistory = createPatternHistory();
 /** Pending challenges — correlationId → { issuedAt, waitSeconds } for wait timer enforcement. */
 const pendingChallenges = new Map();
 console.log('[✓] Safety engine armed (3-layer evaluation)');
-
-// ---------------------------------------------------------------------------
-// Challenge Me More — temporal governance
-// ---------------------------------------------------------------------------
-
-const CHALLENGE_CONFIG_PATH = process.env.BASTION_CHALLENGE_CONFIG || '/var/lib/bastion-ai/challenge-config.json';
-const challengeManager = new ChallengeManager(CHALLENGE_CONFIG_PATH);
-console.log(`[✓] Challenge manager: ${challengeManager.enabled ? 'ENABLED' : 'disabled'} (tz: ${challengeManager.timezone}, active: ${challengeManager.isActive()})`);
 
 // ---------------------------------------------------------------------------
 // Budget Guard — immutable enforcement (same tier as MaliClaw)

@@ -20,6 +20,19 @@ import {
 
 // ---------------------------------------------------------------------------
 // Configuration
+//
+// PERSISTENCE AUDIT — what survives a relay restart:
+//   PERSISTS:
+//     ✅ Admin credentials      → /var/lib/bastion/admin-credentials.json
+//     ✅ Audit trail             → /var/lib/bastion/audit.db (SQLite)
+//     ✅ Update state            → /var/lib/bastion/pending-update.json
+//     ✅ Disclosure config       → /var/lib/bastion/disclosure-config.json
+//     ✅ TLS certs               → /opt/bastion/certs/
+//   RECONSTRUCTED ON STARTUP (no persistence needed):
+//     ✓ JWT secret (random per startup, or BASTION_JWT_SECRET env var)
+//     ✓ Provider registry (AI client re-registers on connect)
+//     ✓ Extension registry (loaded from extensions/ directory)
+//     ✓ Connection state (clients reconnect via WebSocket)
 // ---------------------------------------------------------------------------
 
 const TLS_CERT = process.env.BASTION_TLS_CERT || './certs/relay-cert.pem';
@@ -306,6 +319,8 @@ const adminRoutes = new AdminRoutes({
   extensionRegistry,
   updateOrchestrator,
   currentVersion: CURRENT_VERSION,
+  initialDisclosureConfig: disclosureConfig,
+  disclosureConfigPath: DISCLOSURE_CONFIG_PATH,
   onDisclosureUpdate: (cfg) => updateDisclosureConfig(cfg),
   onUpdateMessage: (type, payload) => {
     if (updaterClients.size === 0) {
@@ -384,19 +399,34 @@ function sendProviderStatus(targetConnectionId) {
 
 // ---------------------------------------------------------------------------
 // AI Disclosure — relay-configurable transparency banner (default: OFF)
+// Precedence: file > env vars > defaults.
+// File lives in /var/lib/bastion/ (outside git) so self-updates don't overwrite it.
 // ---------------------------------------------------------------------------
 
+const DISCLOSURE_CONFIG_PATH = process.env.BASTION_DISCLOSURE_CONFIG_PATH || '/var/lib/bastion/disclosure-config.json';
+
+// Try loading persisted disclosure config first
+const savedDisclosureConfig = AdminRoutes.loadDisclosureConfig(DISCLOSURE_CONFIG_PATH);
+
 /** @type {{ enabled: boolean; text: string; style: string; position: string; dismissible: boolean; link?: string; linkText?: string; jurisdiction?: string }} */
-let disclosureConfig = {
-  enabled: process.env.BASTION_DISCLOSURE_ENABLED === 'true',
-  text: process.env.BASTION_DISCLOSURE_TEXT || 'You are interacting with an AI system powered by {provider} ({model}).',
-  style: process.env.BASTION_DISCLOSURE_STYLE || 'info',
-  position: process.env.BASTION_DISCLOSURE_POSITION || 'banner',
-  dismissible: process.env.BASTION_DISCLOSURE_DISMISSIBLE !== 'false',
-  link: process.env.BASTION_DISCLOSURE_LINK || undefined,
-  linkText: process.env.BASTION_DISCLOSURE_LINK_TEXT || undefined,
-  jurisdiction: process.env.BASTION_DISCLOSURE_JURISDICTION || undefined,
-};
+let disclosureConfig;
+
+if (savedDisclosureConfig) {
+  disclosureConfig = savedDisclosureConfig;
+  console.log(`[✓] Disclosure config loaded from file (${DISCLOSURE_CONFIG_PATH})`);
+} else {
+  disclosureConfig = {
+    enabled: process.env.BASTION_DISCLOSURE_ENABLED === 'true',
+    text: process.env.BASTION_DISCLOSURE_TEXT || 'You are interacting with an AI system powered by {provider} ({model}).',
+    style: process.env.BASTION_DISCLOSURE_STYLE || 'info',
+    position: process.env.BASTION_DISCLOSURE_POSITION || 'banner',
+    dismissible: process.env.BASTION_DISCLOSURE_DISMISSIBLE !== 'false',
+    link: process.env.BASTION_DISCLOSURE_LINK || undefined,
+    linkText: process.env.BASTION_DISCLOSURE_LINK_TEXT || undefined,
+    jurisdiction: process.env.BASTION_DISCLOSURE_JURISDICTION || undefined,
+  };
+  console.log('[✓] Disclosure config from env vars (no saved config)');
+}
 
 /** Substitute {provider} and {model} template vars with current values. */
 function resolveDisclosureText(text) {
@@ -507,7 +537,7 @@ const SENDER_TYPE_RESTRICTIONS = {
   project_sync_ack: 'ai', project_list_response: 'ai', project_config_ack: 'ai',
   tool_registry_sync: 'ai', tool_request: 'ai', tool_result: 'ai', tool_alert: 'ai',
   // Updater-only messages (updater ↔ relay) — must NEVER reach AI or human clients
-  update_available: 'updater', update_prepare_ack: 'updater',
+  update_available: 'updater', up_to_date: 'updater', update_prepare_ack: 'updater',
   update_build_status: 'updater', update_reconnected: 'updater',
   update_complete: 'updater', update_failed: 'updater',
 };
@@ -969,7 +999,7 @@ relay.on('message', async (data, info) => {
   }
 
   // ----- update_* messages: route between updater client and admin with audit -----
-  if (msg.type === 'update_check' || msg.type === 'update_available' || msg.type === 'update_prepare' || msg.type === 'update_prepare_ack' || msg.type === 'update_execute' || msg.type === 'update_build_status' || msg.type === 'update_restart' || msg.type === 'update_reconnected' || msg.type === 'update_complete' || msg.type === 'update_failed') {
+  if (msg.type === 'update_check' || msg.type === 'update_available' || msg.type === 'up_to_date' || msg.type === 'update_prepare' || msg.type === 'update_prepare_ack' || msg.type === 'update_execute' || msg.type === 'update_build_status' || msg.type === 'update_restart' || msg.type === 'update_reconnected' || msg.type === 'update_complete' || msg.type === 'update_failed') {
     const sid = sessionIds.get(connId);
 
     // Map update messages to orchestrator + admin status tracking
@@ -977,6 +1007,9 @@ relay.on('message', async (data, info) => {
     if (msg.type === 'update_available') {
       updateOrchestrator.handleUpdateAvailable(p.availableVersion, p.commitHash);
       adminRoutes.setUpdateStatus('checking', { targetVersion: p.availableVersion });
+    } else if (msg.type === 'up_to_date') {
+      adminRoutes.setUpdateStatus('idle', {});
+      console.log(`[✓] Agent reports ${p.component || 'unknown'} is up to date (v${p.currentVersion || 'unknown'})`);
     } else if (msg.type === 'update_prepare_ack') {
       updateOrchestrator.handlePrepareAck(p.component);
     } else if (msg.type === 'update_build_status') {
