@@ -19,12 +19,14 @@ import type { ProviderAdapter } from '@bastion/protocol';
 // Types
 // ---------------------------------------------------------------------------
 
-export type AdapterRole = 'default' | 'conversation' | 'task' | 'compaction' | 'dream';
+export type AdapterRole = 'default' | 'conversation' | 'task' | 'compaction' | 'game' | 'research' | 'dream';
 export type OperationType = 'conversation' | 'task' | 'compaction' | 'dream';
 
 export interface RegisteredAdapter {
   readonly adapter: ProviderAdapter;
   readonly roles: readonly AdapterRole[];
+  /** Input pricing per million tokens — used for hint resolution (cheapest/smartest). */
+  readonly pricingInputPerMTok?: number;
 }
 
 export interface AdapterSelection {
@@ -54,11 +56,19 @@ export class AdapterRegistry {
    * Register an adapter with its declared roles.
    * Throws if registry is locked.
    */
-  registerAdapter(adapter: ProviderAdapter, roles: readonly AdapterRole[]): void {
+  registerAdapter(
+    adapter: ProviderAdapter,
+    roles: readonly AdapterRole[],
+    options?: { pricingInputPerMTok?: number },
+  ): void {
     if (this.locked) {
       throw new Error('AdapterRegistry is locked — cannot register after startup');
     }
-    this.adapters.set(adapter.providerId, { adapter, roles: [...roles] });
+    this.adapters.set(adapter.providerId, {
+      adapter,
+      roles: [...roles],
+      pricingInputPerMTok: options?.pricingInputPerMTok,
+    });
   }
 
   /** Get a specific adapter by ID. */
@@ -101,6 +111,53 @@ export class AdapterRegistry {
   /** List all registered adapters with their roles. */
   list(): readonly RegisteredAdapter[] {
     return [...this.adapters.values()];
+  }
+
+  /** Get the cheapest adapter with a given role (lowest pricingInputPerMTok). */
+  getCheapestByRole(role: AdapterRole): ProviderAdapter | undefined {
+    let cheapest: ProviderAdapter | undefined;
+    let lowestCost = Number.POSITIVE_INFINITY;
+    for (const entry of this.adapters.values()) {
+      if (!entry.roles.includes(role)) continue;
+      const cost = entry.pricingInputPerMTok ?? entry.adapter.getModelPricing().inputPerMTok;
+      if (cost < lowestCost) {
+        lowestCost = cost;
+        cheapest = entry.adapter;
+      }
+    }
+    return cheapest;
+  }
+
+  /** Get the most capable adapter with a given role (highest pricingInputPerMTok as proxy). */
+  getMostCapableByRole(role: AdapterRole): ProviderAdapter | undefined {
+    let best: ProviderAdapter | undefined;
+    let highestCost = -1;
+    for (const entry of this.adapters.values()) {
+      if (!entry.roles.includes(role)) continue;
+      const cost = entry.pricingInputPerMTok ?? entry.adapter.getModelPricing().inputPerMTok;
+      if (cost > highestCost) {
+        highestCost = cost;
+        best = entry.adapter;
+      }
+    }
+    return best;
+  }
+
+  /** Resolve an adapter hint to a specific adapter. */
+  resolveHint(hint: string, role: AdapterRole): ProviderAdapter | undefined {
+    switch (hint) {
+      case 'cheapest':
+        return this.getCheapestByRole(role);
+      case 'fastest':
+        return this.getCheapestByRole(role); // fastest ≈ cheapest for Anthropic models
+      case 'smartest':
+        return this.getMostCapableByRole(role);
+      case 'default':
+        return this.getByRole(role);
+      default:
+        // Try as a specific adapter ID, fall back to role-based resolution
+        return this.get(hint) ?? this.getByRole(role);
+    }
   }
 
   /**

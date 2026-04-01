@@ -23,6 +23,7 @@ import {
   ToolRegistryManager,
   ChallengeManager,
   BudgetGuard,
+  AdapterRegistry,
 } from './dist/index.js';
 import {
   BastionRelay,
@@ -1885,6 +1886,96 @@ async function run() {
     const { rmSync } = await import('node:fs');
     try { rmSync(tmpDb, { force: true }); } catch { /* locked on Windows */ }
     try { rmSync(tmpCfg, { force: true }); } catch { /* non-fatal */ }
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // AdapterRegistry — hint resolution
+  // -------------------------------------------------------------------
+  {
+    console.log('--- AdapterRegistry: hint resolution ---');
+
+    // Create mock adapters with different pricing
+    function mockAdapter(id, inputPricing, outputPricing) {
+      return {
+        providerId: id,
+        providerName: `Mock ${id}`,
+        activeModel: `mock-${id}`,
+        supportedModels: [`mock-${id}`],
+        capabilities: { streaming: false, tools: false, vision: false },
+        getModelPricing() { return { inputPerMTok: inputPricing, outputPerMTok: outputPricing }; },
+        async executeTask() { return { ok: true, response: { textContent: '', cost: { inputTokens: 0, outputTokens: 0 } } }; },
+        async testConnection() { return true; },
+      };
+    }
+
+    const mockSonnet = mockAdapter('anthropic-sonnet', 3, 15);
+    const mockHaiku = mockAdapter('anthropic-haiku', 0.8, 4);
+    const mockOpus = mockAdapter('anthropic-opus', 15, 75);
+
+    const reg = new AdapterRegistry();
+    reg.registerAdapter(mockSonnet, ['default', 'conversation', 'task', 'game'], { pricingInputPerMTok: 3 });
+    reg.registerAdapter(mockHaiku, ['compaction', 'game'], { pricingInputPerMTok: 0.8 });
+    reg.registerAdapter(mockOpus, ['research', 'dream'], { pricingInputPerMTok: 15 });
+
+    // getCheapestByRole — game role shared by Sonnet ($3) and Haiku ($0.80)
+    const cheapestGame = reg.getCheapestByRole('game');
+    check('getCheapestByRole(game) returns Haiku', cheapestGame?.providerId === 'anthropic-haiku');
+
+    // getMostCapableByRole — game role: Sonnet ($3) > Haiku ($0.80)
+    const smartestGame = reg.getMostCapableByRole('game');
+    check('getMostCapableByRole(game) returns Sonnet', smartestGame?.providerId === 'anthropic-sonnet');
+
+    // getCheapestByRole — dream role only has Opus
+    const cheapestDream = reg.getCheapestByRole('dream');
+    check('getCheapestByRole(dream) returns Opus (only candidate)', cheapestDream?.providerId === 'anthropic-opus');
+
+    // getMostCapableByRole — compaction role only has Haiku
+    const smartestCompaction = reg.getMostCapableByRole('compaction');
+    check('getMostCapableByRole(compaction) returns Haiku (only candidate)', smartestCompaction?.providerId === 'anthropic-haiku');
+
+    // getCheapestByRole — no adapters with 'research' except Opus
+    const cheapestResearch = reg.getCheapestByRole('research');
+    check('getCheapestByRole(research) returns Opus', cheapestResearch?.providerId === 'anthropic-opus');
+
+    // getCheapestByRole — nonexistent role returns undefined
+    const noRole = reg.getCheapestByRole('nonexistent');
+    check('getCheapestByRole(nonexistent) returns undefined', noRole === undefined);
+
+    // resolveHint('cheapest', 'game') → Haiku
+    const hintCheapest = reg.resolveHint('cheapest', 'game');
+    check("resolveHint('cheapest', 'game') → Haiku", hintCheapest?.providerId === 'anthropic-haiku');
+
+    // resolveHint('fastest', 'game') → Haiku (fastest ≈ cheapest)
+    const hintFastest = reg.resolveHint('fastest', 'game');
+    check("resolveHint('fastest', 'game') → Haiku", hintFastest?.providerId === 'anthropic-haiku');
+
+    // resolveHint('smartest', 'game') → Sonnet
+    const hintSmartest = reg.resolveHint('smartest', 'game');
+    check("resolveHint('smartest', 'game') → Sonnet", hintSmartest?.providerId === 'anthropic-sonnet');
+
+    // resolveHint('default', 'game') → Sonnet (has both 'game' and 'default')
+    const hintDefault = reg.resolveHint('default', 'game');
+    check("resolveHint('default', 'game') → Sonnet (default + game)", hintDefault?.providerId === 'anthropic-sonnet');
+
+    // resolveHint with specific adapter ID
+    const hintSpecific = reg.resolveHint('anthropic-haiku', 'game');
+    check("resolveHint('anthropic-haiku', 'game') → Haiku specifically", hintSpecific?.providerId === 'anthropic-haiku');
+
+    // resolveHint with nonexistent ID falls back to role
+    const hintFallback = reg.resolveHint('nonexistent-adapter', 'game');
+    check("resolveHint('nonexistent', 'game') → falls back to getByRole", hintFallback?.providerId === 'anthropic-sonnet');
+
+    // resolveHint('smartest', 'dream') → Opus
+    const hintSmartestDream = reg.resolveHint('smartest', 'dream');
+    check("resolveHint('smartest', 'dream') → Opus", hintSmartestDream?.providerId === 'anthropic-opus');
+
+    // pricingInputPerMTok stored on RegisteredAdapter
+    const listed = reg.list();
+    const sonnetEntry = listed.find(r => r.adapter.providerId === 'anthropic-sonnet');
+    check('RegisteredAdapter stores pricingInputPerMTok', sonnetEntry?.pricingInputPerMTok === 3);
+    const haikuEntry = listed.find(r => r.adapter.providerId === 'anthropic-haiku');
+    check('Haiku pricingInputPerMTok = 0.8', haikuEntry?.pricingInputPerMTok === 0.8);
   }
   console.log();
 

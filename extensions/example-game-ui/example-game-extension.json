@@ -1,5 +1,6 @@
 {
-  "_description": "Example extension with UI — demonstrates the pattern for declaring UI components with inline content delivery.",
+  "_example": true,
+  "_description": "Example extension with UI — demonstrates the pattern for declaring UI components with inline content delivery and adapter hints.",
   "namespace": "game",
   "name": "Example Game Extension",
   "version": "0.1.0",
@@ -14,6 +15,7 @@
         "actions": { "type": "array", "required": true, "description": "Array of turn actions" }
       },
       "safety": "task",
+      "adapterHint": "default",
       "audit": { "logEvent": "game_turn_submitted", "logContent": false }
     },
     {
@@ -24,6 +26,7 @@
         "outcomes": { "type": "array", "required": true, "description": "Turn outcomes" }
       },
       "safety": "passthrough",
+      "adapterHint": "cheapest",
       "audit": { "logEvent": "game_turn_result", "logContent": false }
     }
   ],

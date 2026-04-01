@@ -33,6 +33,8 @@ export interface ExtensionMessageType {
   readonly description: string;
   readonly fields: Record<string, { type: string; required: boolean; description: string }>;
   readonly safety: ExtensionSafetyLevel;
+  /** Adapter selection hint: 'cheapest' | 'fastest' | 'smartest' | 'default' | adapter ID. */
+  readonly adapterHint?: string;
   readonly audit: {
     readonly logEvent: string;
     readonly logContent: boolean;
@@ -283,6 +285,7 @@ export class ExtensionRegistry {
         description: (mt.description as string) ?? '',
         fields: (mt.fields as Record<string, { type: string; required: boolean; description: string }>) ?? {},
         safety: mt.safety as ExtensionSafetyLevel,
+        adapterHint: typeof mt.adapterHint === 'string' ? (mt.adapterHint as string) : undefined,
         audit: {
           logEvent: (audit.logEvent as string) ?? (mt.name as string),
           logContent: audit.logContent === true, // Forced false for E2E payloads at routing level

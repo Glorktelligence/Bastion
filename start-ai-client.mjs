@@ -150,9 +150,9 @@ const opusAdapter = createAnthropicAdapter(keyManager, adapterToolRegistry, {
 
 // Adapter registry — routes operations to the appropriate adapter
 const adapterRegistry = new AdapterRegistry();
-adapterRegistry.registerAdapter(sonnetAdapter, ['default', 'conversation', 'task']);
-adapterRegistry.registerAdapter(haikuAdapter, ['compaction', 'game']);
-adapterRegistry.registerAdapter(opusAdapter, ['research', 'dream']);
+adapterRegistry.registerAdapter(sonnetAdapter, ['default', 'conversation', 'task', 'game'], { pricingInputPerMTok: SONNET_PRICING_INPUT });
+adapterRegistry.registerAdapter(haikuAdapter, ['compaction', 'game'], { pricingInputPerMTok: HAIKU_PRICING_INPUT });
+adapterRegistry.registerAdapter(opusAdapter, ['research', 'dream'], { pricingInputPerMTok: OPUS_PRICING_INPUT });
 adapterRegistry.lock();
 
 const registeredAdapters = adapterRegistry.list();
