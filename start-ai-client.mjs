@@ -69,7 +69,7 @@ const REJECT_UNAUTHORIZED = process.env.BASTION_TLS_REJECT_UNAUTHORIZED !== 'fal
 // Three Bastion Official Adapters — Sonnet, Haiku, Opus
 // All share ANTHROPIC_API_KEY. Each targets a different model with role-specific config.
 // Sonnet 4.6 — 1M context, default conversation adapter
-const SONNET_MODEL = process.env.BASTION_SONNET_MODEL || 'claude-sonnet-4-6-20260218';
+const SONNET_MODEL = process.env.BASTION_SONNET_MODEL || 'claude-sonnet-4-6';
 const SONNET_PRICING_INPUT = parseFloat(process.env.BASTION_SONNET_PRICING_INPUT || '3');
 const SONNET_PRICING_OUTPUT = parseFloat(process.env.BASTION_SONNET_PRICING_OUTPUT || '15');
 const SONNET_MAX_CONTEXT = parseInt(process.env.BASTION_SONNET_MAX_CONTEXT || '1000000', 10);
