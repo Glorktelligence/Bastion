@@ -6,6 +6,7 @@ import { page } from '$app/state';
 import * as session from '$lib/session.js';
 import SetupWizard from '$lib/components/SetupWizard.svelte';
 import AiDisclosureBanner from '$lib/components/AiDisclosureBanner.svelte';
+import FileOfferBanner from '$lib/components/FileOfferBanner.svelte';
 
 const { children } = $props();
 
@@ -34,6 +35,9 @@ let extensionPages = $state([]);
 // AI Disclosure banner state (relay-configurable, all pages)
 let disclosureData = $state(null);
 let disclosureDismissed = $state(false);
+
+// File offer banner state (global — file offers can arrive on any page)
+let pendingFileOffer = $state(null);
 
 // Use onMount (NOT $effect) to set up store subscriptions.
 // $effect tracks reactive reads inside synchronous callbacks — our custom
@@ -74,6 +78,9 @@ onMount(() => {
 			disclosureData = v.disclosure;
 			disclosureDismissed = v.dismissed;
 		}),
+		session.fileTransfers.store.subscribe((v) => {
+			pendingFileOffer = v.pendingOffer;
+		}),
 	];
 
 	return () => {
@@ -106,6 +113,30 @@ function handleCreateConversation() {
 	newConvName = '';
 	newConvType = 'normal';
 	showNewForm = false;
+}
+
+function handleFileAccept() {
+	const client = session.getClient();
+	if (!client) return;
+	const offer = session.fileTransfers.acceptOffer();
+	if (!offer) return;
+	client.send(JSON.stringify({
+		type: 'file_request',
+		id: crypto.randomUUID(),
+		timestamp: new Date().toISOString(),
+		sender: session.getIdentity(),
+		payload: {
+			transferId: offer.transferId,
+			manifestMessageId: offer.messageId,
+		},
+	}));
+}
+
+function handleFileReject() {
+	const offer = session.fileTransfers.rejectOffer();
+	if (offer) {
+		session.addNotification(`File rejected: ${offer.filename}`, 'info');
+	}
 }
 
 function relativeTime(iso) {
@@ -223,6 +254,13 @@ function relativeTime(iso) {
 		</div>
 	</aside>
 	<main class="main-area">
+		{#if pendingFileOffer}
+			<FileOfferBanner
+				offer={pendingFileOffer}
+				onAccept={handleFileAccept}
+				onReject={handleFileReject}
+			/>
+		{/if}
 		{#if disclosureData?.position === 'banner'}
 			<AiDisclosureBanner disclosure={disclosureData} dismissed={disclosureDismissed} onDismiss={() => session.aiDisclosure.dismiss()} />
 		{/if}

@@ -12,10 +12,9 @@ import ChallengeBanner from '$lib/components/ChallengeBanner.svelte';
 import InputBar from '$lib/components/InputBar.svelte';
 import ToolApprovalDialog from '$lib/components/ToolApprovalDialog.svelte';
 import BudgetIndicator from '$lib/components/BudgetIndicator.svelte';
-import FileOfferBanner from '$lib/components/FileOfferBanner.svelte';
 import FileUploadStatus from '$lib/components/FileUploadStatus.svelte';
 import type { BudgetStatusData, BudgetAlert } from '$lib/stores/budget.js';
-import type { PendingFileOffer, FileUploadProgress } from '$lib/stores/file-transfers.js';
+import type { FileUploadProgress } from '$lib/stores/file-transfers.js';
 
 // ---------------------------------------------------------------------------
 // Reactive UI state — subscribed from shared session stores
@@ -51,7 +50,6 @@ let streamingContent = $state('');
 let isStreaming = $state(false);
 let showConvActions = $state(false);
 let deleteConfirm = $state(false);
-let pendingFileOffer: PendingFileOffer | null = $state(null);
 let activeUploads: readonly FileUploadProgress[] = $state([]);
 
 const isConnected = $derived(
@@ -79,7 +77,7 @@ onMount(() => {
 		session.provider.store.subscribe((v) => { providerName = v.provider?.providerName ?? ''; providerActive = v.provider?.status === 'active'; providerModel = v.provider?.model ?? ''; }),
 		session.conversations.activeConversation.subscribe((v) => { activeConv = v; }),
 		session.conversations.store.subscribe((v) => { convMessages = [...v.activeMessages]; hasMoreHistory = v.hasMoreHistory; loadingHistory = v.loadingHistory; isStreaming = v.streaming !== null; streamingContent = v.streaming?.content ?? ''; }),
-		session.fileTransfers.store.subscribe((v) => { pendingFileOffer = v.pendingOffer; activeUploads = v.uploads; }),
+		session.fileTransfers.store.subscribe((v) => { activeUploads = v.uploads; }),
 	];
 	return () => { for (const u of subs) u(); };
 });
@@ -349,34 +347,7 @@ function handleChallengeCancel(): void {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// File airlock — accept/reject incoming file offers
-// ---------------------------------------------------------------------------
 
-function handleFileAccept(): void {
-	const client = session.getClient();
-	if (!client) return;
-	const offer = session.fileTransfers.acceptOffer();
-	if (!offer) return;
-	// Send file_request to relay — triggers file delivery
-	client.send(JSON.stringify({
-		type: 'file_request',
-		id: crypto.randomUUID(),
-		timestamp: new Date().toISOString(),
-		sender: session.IDENTITY,
-		payload: {
-			transferId: offer.transferId,
-			manifestMessageId: offer.messageId,
-		},
-	}));
-}
-
-function handleFileReject(): void {
-	const offer = session.fileTransfers.rejectOffer();
-	if (offer) {
-		session.addNotification(`File rejected: ${offer.filename}`, 'info');
-	}
-}
 </script>
 
 <div class="messages-view">
@@ -432,14 +403,6 @@ function handleFileReject(): void {
 
 		{#if pendingToolRequest}
 			<ToolApprovalDialog request={pendingToolRequest} />
-		{/if}
-
-		{#if pendingFileOffer}
-			<FileOfferBanner
-				offer={pendingFileOffer}
-				onAccept={handleFileAccept}
-				onReject={handleFileReject}
-			/>
 		{/if}
 
 		{#each activeUploads as upload (upload.transferId)}
