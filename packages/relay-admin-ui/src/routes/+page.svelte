@@ -33,6 +33,18 @@ $effect(() => {
 	};
 });
 
+function formatUptime(seconds) {
+	if (seconds < 60) return `${seconds}s`;
+	const m = Math.floor(seconds / 60);
+	if (m < 60) return `${m}m`;
+	const h = Math.floor(m / 60);
+	const rm = m % 60;
+	if (h < 24) return `${h}h ${rm}m`;
+	const d = Math.floor(h / 24);
+	const rh = h % 24;
+	return `${d}d ${rh}h`;
+}
+
 /** @type {'success' | 'warning' | 'error' | 'info'} */
 let healthStatusColor = $derived(
 	health === 'healthy' ? 'success' : health === 'degraded' ? 'warning' : 'error'
@@ -61,6 +73,39 @@ let quarantineStatusColor = $derived(
 		<StatCard label="Messages / min" value={state.throughput.perMinute} status="info" />
 		<StatCard label="Quarantine" value="{state.quarantine.count} / {state.quarantine.maxEntries}" status={quarantineStatusColor} />
 	</div>
+
+	{#if state.sessionStats || state.allTimeStats}
+	<div class="section stats-section">
+		{#if state.sessionStats}
+		<div class="stats-row">
+			<h3>Current Session</h3>
+			<div class="stats-detail">
+				<span>{formatUptime(state.sessionStats.uptimeSeconds)} uptime</span>
+				<span class="sep">&middot;</span>
+				<span>{state.sessionStats.connectionsServed} connections</span>
+				<span class="sep">&middot;</span>
+				<span>{state.sessionStats.messagesRouted.toLocaleString()} messages</span>
+				{#if state.sessionStats.fileTransfers > 0}
+					<span class="sep">&middot;</span>
+					<span>{state.sessionStats.fileTransfers} file transfers</span>
+				{/if}
+			</div>
+		</div>
+		{/if}
+		{#if state.allTimeStats}
+		<div class="stats-row">
+			<h3>All Time</h3>
+			<div class="stats-detail">
+				<span>{state.allTimeStats.totalMessagesRouted.toLocaleString()} messages routed</span>
+				<span class="sep">&middot;</span>
+				<span>{state.allTimeStats.totalConnectionsServed} connections served</span>
+				<span class="sep">&middot;</span>
+				<span>since {new Date(state.allTimeStats.firstStartedAt).toLocaleDateString()}</span>
+			</div>
+		</div>
+		{/if}
+	</div>
+	{/if}
 
 	<div class="section">
 		<h3>Recent Audit Events</h3>
@@ -127,5 +172,27 @@ let quarantineStatusColor = $derived(
 	.error {
 		color: var(--status-error);
 		margin-bottom: 1rem;
+	}
+
+	.stats-section {
+		margin-bottom: 1.5rem;
+	}
+
+	.stats-row {
+		margin-bottom: 0.75rem;
+	}
+
+	.stats-row h3 {
+		margin-bottom: 0.25rem;
+	}
+
+	.stats-detail {
+		font-size: 0.875rem;
+		color: var(--text-secondary, #8b8d98);
+	}
+
+	.sep {
+		margin: 0 0.375rem;
+		opacity: 0.5;
 	}
 </style>

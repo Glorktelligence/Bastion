@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
   BastionRelay,
@@ -251,9 +251,63 @@ const MESSAGE_WINDOW_MS = 60_000;
 /** Per-connection message counters. */
 const connectionMessageCounts = new Map();
 
+// ---------------------------------------------------------------------------
+// Stats persistence — cumulative counters survive restarts
+// ---------------------------------------------------------------------------
+
+const STATS_FILE = process.env.BASTION_STATS_FILE || '/var/lib/bastion/relay-stats.json';
+let cumulativeStats = {
+  totalMessagesRouted: 0,
+  totalConnectionsServed: 0,
+  totalSessionsCreated: 0,
+  totalFileTransfers: 0,
+  firstStartedAt: new Date().toISOString(),
+  lastSavedAt: new Date().toISOString(),
+};
+let sessionMessagesRouted = 0;
+let sessionConnectionsServed = 0;
+let sessionSessionsCreated = 0;
+let sessionFileTransfers = 0;
+const sessionStartedAt = new Date().toISOString();
+
+// Load persisted stats
+try {
+  const raw = readFileSync(STATS_FILE, 'utf-8');
+  const loaded = JSON.parse(raw);
+  cumulativeStats.totalMessagesRouted = loaded.totalMessagesRouted ?? 0;
+  cumulativeStats.totalConnectionsServed = loaded.totalConnectionsServed ?? 0;
+  cumulativeStats.totalSessionsCreated = loaded.totalSessionsCreated ?? 0;
+  cumulativeStats.totalFileTransfers = loaded.totalFileTransfers ?? 0;
+  cumulativeStats.firstStartedAt = loaded.firstStartedAt ?? sessionStartedAt;
+  console.log(`[✓] Loaded persisted stats: ${cumulativeStats.totalMessagesRouted} messages, ${cumulativeStats.totalConnectionsServed} connections since ${cumulativeStats.firstStartedAt}`);
+} catch {
+  console.log('[~] No persisted stats found — starting fresh');
+}
+
+function saveStats() {
+  const data = {
+    totalMessagesRouted: cumulativeStats.totalMessagesRouted + sessionMessagesRouted,
+    totalConnectionsServed: cumulativeStats.totalConnectionsServed + sessionConnectionsServed,
+    totalSessionsCreated: cumulativeStats.totalSessionsCreated + sessionSessionsCreated,
+    totalFileTransfers: cumulativeStats.totalFileTransfers + sessionFileTransfers,
+    firstStartedAt: cumulativeStats.firstStartedAt,
+    lastSavedAt: new Date().toISOString(),
+  };
+  try {
+    writeFileSync(STATS_FILE, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error(`[!] Failed to save stats: ${err.message}`);
+  }
+}
+
+// Periodic save every 60 seconds
+const statsSaveInterval = setInterval(saveStats, 60_000);
+statsSaveInterval.unref?.();
+
 function recordMessage(connectionId) {
   messageTimestamps.push(Date.now());
   connectionMessageCounts.set(connectionId, (connectionMessageCounts.get(connectionId) || 0) + 1);
+  sessionMessagesRouted++;
 }
 
 function getMessagesPerMinute() {
@@ -295,6 +349,26 @@ const statusProvider = {
   },
   getQuarantineStatus() {
     return { active: fileQuarantine.getAll().length, capacity: parseInt(process.env.BASTION_QUARANTINE_MAX_ENTRIES || '100') };
+  },
+  getCumulativeStats() {
+    const uptimeMs = Date.now() - new Date(sessionStartedAt).getTime();
+    return {
+      session: {
+        messagesRouted: sessionMessagesRouted,
+        connectionsServed: sessionConnectionsServed,
+        sessionsCreated: sessionSessionsCreated,
+        fileTransfers: sessionFileTransfers,
+        uptimeSeconds: Math.floor(uptimeMs / 1000),
+        startedAt: sessionStartedAt,
+      },
+      allTime: {
+        totalMessagesRouted: cumulativeStats.totalMessagesRouted + sessionMessagesRouted,
+        totalConnectionsServed: cumulativeStats.totalConnectionsServed + sessionConnectionsServed,
+        totalSessionsCreated: cumulativeStats.totalSessionsCreated + sessionSessionsCreated,
+        totalFileTransfers: cumulativeStats.totalFileTransfers + sessionFileTransfers,
+        firstStartedAt: cumulativeStats.firstStartedAt,
+      },
+    };
   },
 };
 
@@ -491,6 +565,7 @@ function tryPairClients() {
 
   try {
     router.pairClients(humanConnectionId, aiConnectionId);
+    sessionSessionsCreated++;
     console.log(`[★] Clients paired: human=${humanConnectionId.slice(0, 8)} ↔ ai=${aiConnectionId.slice(0, 8)}`);
     auditLogger.logEvent('session_paired', sessionIds.get(humanConnectionId) || 'unknown', {
       humanConnectionId,
@@ -525,6 +600,7 @@ function tryPairClients() {
 
 relay.on('connection', (_ws, info) => {
   console.log(`[+] Client connected: ${info.id.slice(0, 8)} from ${info.remoteAddress}`);
+  sessionConnectionsServed++;
   auditLogger.logEvent('connection_opened', info.id, {
     remoteAddress: info.remoteAddress,
     connectedAt: info.connectedAt,
@@ -1169,6 +1245,7 @@ relay.on('message', async (data, info) => {
     });
 
     if (result.status === 'submitted') {
+      sessionFileTransfers++;
       console.log(`[✓] File quarantined: ${p.filename} (${transferId.slice(0, 8)}) ${direction}`);
       recordMessage(connId);
       const sid = sessionIds.get(connId);
@@ -1493,3 +1570,13 @@ await relay.start();
 await adminServer.start();
 console.log(`[★] Admin API listening on https://127.0.0.1:${ADMIN_PORT}`);
 console.log('[★] Access via SSH tunnel: ssh -L 9444:127.0.0.1:9444 relay-host');
+
+// Graceful shutdown — persist stats before exiting
+function handleShutdown(signal) {
+  console.log(`\n[!] ${signal} received — saving stats and shutting down`);
+  saveStats();
+  clearInterval(statsSaveInterval);
+  process.exit(0);
+}
+process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+process.on('SIGINT', () => handleShutdown('SIGINT'));

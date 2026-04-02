@@ -132,6 +132,24 @@ export interface RelayStatusProvider {
   getMessagesPerMinute(): number;
   /** Quarantine status: active entries and capacity. */
   getQuarantineStatus(): { active: number; capacity: number };
+  /** Cumulative stats: session + all-time counters. */
+  getCumulativeStats?(): {
+    session: {
+      messagesRouted: number;
+      connectionsServed: number;
+      sessionsCreated: number;
+      fileTransfers: number;
+      uptimeSeconds: number;
+      startedAt: string;
+    };
+    allTime: {
+      totalMessagesRouted: number;
+      totalConnectionsServed: number;
+      totalSessionsCreated: number;
+      totalFileTransfers: number;
+      firstStartedAt: string;
+    };
+  };
 }
 
 /** AI disclosure banner configuration for regulatory transparency. */
@@ -596,6 +614,7 @@ export class AdminRoutes {
     const ai = conns.filter((c) => c.clientType === 'ai').length;
     const unknown = conns.filter((c) => c.clientType === 'unknown').length;
 
+    const cumulative = this.statusProvider.getCumulativeStats?.() ?? null;
     return {
       status: 200,
       body: {
@@ -603,6 +622,7 @@ export class AdminRoutes {
         activeSessions: this.statusProvider.getActiveSessionCount(),
         messagesPerMinute: this.statusProvider.getMessagesPerMinute(),
         quarantine: this.statusProvider.getQuarantineStatus(),
+        ...(cumulative ? { session: cumulative.session, allTime: cumulative.allTime } : {}),
       },
     };
   }

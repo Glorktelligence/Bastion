@@ -62,6 +62,28 @@ export class DataService {
       store.setThroughput({ total: 0, perMinute: (d.messagesPerMinute as number) ?? 0 });
       const q = d.quarantine as { active: number; capacity: number } | undefined;
       store.setQuarantine({ count: q?.active ?? 0, maxEntries: q?.capacity ?? 100, oldestAge: null });
+      // Persistent stats (session + all-time)
+      if (d.session) {
+        const s = d.session as {
+          messagesRouted: number;
+          connectionsServed: number;
+          sessionsCreated: number;
+          fileTransfers: number;
+          uptimeSeconds: number;
+          startedAt: string;
+        };
+        store.setSessionStats(s);
+      }
+      if (d.allTime) {
+        const a = d.allTime as {
+          totalMessagesRouted: number;
+          totalConnectionsServed: number;
+          totalSessionsCreated: number;
+          totalFileTransfers: number;
+          firstStartedAt: string;
+        };
+        store.setAllTimeStats(a);
+      }
       store.setError(null);
       store.setLoading(false);
       return true;

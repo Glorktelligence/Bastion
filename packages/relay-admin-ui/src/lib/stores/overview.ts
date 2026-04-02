@@ -16,12 +16,31 @@ import type { AuditEventSummary, QuarantineStatusSummary, ThroughputMetrics } fr
 // State
 // ---------------------------------------------------------------------------
 
+export interface SessionStats {
+  readonly messagesRouted: number;
+  readonly connectionsServed: number;
+  readonly sessionsCreated: number;
+  readonly fileTransfers: number;
+  readonly uptimeSeconds: number;
+  readonly startedAt: string;
+}
+
+export interface AllTimeStats {
+  readonly totalMessagesRouted: number;
+  readonly totalConnectionsServed: number;
+  readonly totalSessionsCreated: number;
+  readonly totalFileTransfers: number;
+  readonly firstStartedAt: string;
+}
+
 export interface OverviewState {
   readonly connectedClients: number;
   readonly activeSessions: number;
   readonly throughput: ThroughputMetrics;
   readonly quarantine: QuarantineStatusSummary;
   readonly recentAuditEvents: readonly AuditEventSummary[];
+  readonly sessionStats: SessionStats | null;
+  readonly allTimeStats: AllTimeStats | null;
   readonly lastUpdated: string | null;
   readonly loading: boolean;
   readonly error: string | null;
@@ -34,6 +53,8 @@ function initialState(): OverviewState {
     throughput: { total: 0, perMinute: 0 },
     quarantine: { count: 0, maxEntries: 100, oldestAge: null },
     recentAuditEvents: [],
+    sessionStats: null,
+    allTimeStats: null,
     lastUpdated: null,
     loading: false,
     error: null,
@@ -54,6 +75,8 @@ export interface OverviewStore {
   setQuarantine(status: QuarantineStatusSummary): void;
   addAuditEvent(event: AuditEventSummary): void;
   setAuditEvents(events: readonly AuditEventSummary[]): void;
+  setSessionStats(stats: SessionStats): void;
+  setAllTimeStats(stats: AllTimeStats): void;
   setLoading(loading: boolean): void;
   setError(error: string | null): void;
   reset(): void;
@@ -103,6 +126,12 @@ export function createOverviewStore(): OverviewStore {
         recentAuditEvents: events.slice(0, 50),
         lastUpdated: new Date().toISOString(),
       }));
+    },
+    setSessionStats(stats) {
+      store.update((s) => ({ ...s, sessionStats: stats, lastUpdated: new Date().toISOString() }));
+    },
+    setAllTimeStats(stats) {
+      store.update((s) => ({ ...s, allTimeStats: stats, lastUpdated: new Date().toISOString() }));
     },
     setLoading(loading) {
       store.update((s) => ({ ...s, loading }));
