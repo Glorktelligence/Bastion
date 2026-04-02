@@ -1,4 +1,8 @@
 <script lang="ts">
+// Copyright 2026 Glorktelligence — Harry Smith
+// Licensed under the Apache License, Version 2.0
+// See LICENSE file for full terms
+
 import { onMount } from 'svelte';
 import * as session from '$lib/session.js';
 import type { TrackedTask } from '$lib/stores/tasks.js';
@@ -23,6 +27,24 @@ onMount(() => {
 		for (const u of unsubs) u();
 	};
 });
+
+function handleResolveChallenge(taskId: string, decision: string): void {
+	const client = session.getClient();
+	if (!client) return;
+
+	client.send(JSON.stringify({
+		type: 'challenge_response',
+		id: crypto.randomUUID(),
+		timestamp: new Date().toISOString(),
+		sender: session.IDENTITY,
+		payload: { taskId, decision },
+	}));
+	session.tasks.resolveChallenge(taskId, decision);
+}
+
+function handleClearCompleted(): void {
+	session.tasks.clearCompleted();
+}
 </script>
 
 <div class="tasks-page">
@@ -34,7 +56,12 @@ onMount(() => {
 		{/if}
 	</header>
 
-	<TaskTracker tasks={allTasks} {selectedTask} />
+	<TaskTracker
+		tasks={allTasks}
+		{selectedTask}
+		onResolveChallenge={handleResolveChallenge}
+		onClearCompleted={handleClearCompleted}
+	/>
 </div>
 
 <style>

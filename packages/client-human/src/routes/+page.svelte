@@ -148,6 +148,7 @@ function handleSendTask(task: {
 	priority: string;
 	parameters: Record<string, string>;
 	constraints: string[];
+	description: string;
 }): void {
 	const client = session.getClient();
 	if (!client) return;
@@ -172,13 +173,68 @@ function handleSendTask(task: {
 		timestamp,
 		senderType: 'human',
 		senderName: session.IDENTITY.displayName,
-		content: `Task: ${task.action} \u2192 ${task.target}`,
+		content: `Task: ${task.action} \u2192 ${task.target}${task.description ? ` — ${task.description}` : ''}`,
 		payload: envelope.payload,
 		direction: 'outgoing',
 	});
 
 	// Track in tasks store
-	session.tasks.submitTask(id, task.action, task.target, task.priority, task.constraints);
+	session.tasks.submitTask(id, task.action, task.target, task.priority, task.constraints, task.parameters, task.description);
+}
+
+function handleFileUpload(req: { file: File; purpose: 'conversation' | 'skill' | 'project' }): void {
+	const client = session.getClient();
+	if (!client) return;
+
+	const transferId = crypto.randomUUID();
+	const { file, purpose } = req;
+
+	// Track upload progress
+	session.fileTransfers.startUpload(transferId, file.name, file.size);
+
+	// Read the file and compute hash, then send manifest
+	const reader = new FileReader();
+	reader.onload = async (): Promise<void> => {
+		try {
+			const arrayBuf = reader.result as ArrayBuffer;
+			const data = new Uint8Array(arrayBuf);
+
+			// Compute SHA-256 hash in browser
+			const hashBuf = await globalThis.crypto.subtle.digest('SHA-256', data);
+			const hashArr = new Uint8Array(hashBuf);
+			const hash = Array.from(hashArr).map((b) => b.toString(16).padStart(2, '0')).join('');
+
+			// Determine MIME type
+			const mimeType = file.type || 'application/octet-stream';
+
+			const envelope = {
+				type: 'file_manifest',
+				id: crypto.randomUUID(),
+				timestamp: new Date().toISOString(),
+				sender: session.IDENTITY,
+				payload: {
+					transferId,
+					filename: file.name,
+					sizeBytes: file.size,
+					hash,
+					hashAlgorithm: 'sha256',
+					mimeType,
+					purpose,
+					projectContext: purpose === 'conversation' ? 'chat attachment' : purpose,
+				},
+			};
+
+			client.send(JSON.stringify(envelope));
+			session.fileTransfers.updateUploadPhase(transferId, 'uploading');
+			session.addNotification(`File "${file.name}" submitted for transfer`, 'info');
+		} catch (err) {
+			session.fileTransfers.updateUploadPhase(transferId, 'failed', err instanceof Error ? err.message : 'Upload failed');
+		}
+	};
+	reader.onerror = (): void => {
+		session.fileTransfers.updateUploadPhase(transferId, 'failed', 'Failed to read file');
+	};
+	reader.readAsArrayBuffer(file);
 }
 
 // ---------------------------------------------------------------------------
@@ -397,6 +453,7 @@ function handleChallengeCancel(): void {
 			disabled={!isConnected}
 			onSendConversation={handleSendConversation}
 			onSendTask={handleSendTask}
+			onFileUpload={handleFileUpload}
 		/>
 
 		{#if isConnected}

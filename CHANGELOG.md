@@ -2,6 +2,27 @@
 
 All notable changes to Project Bastion are documented in this file.
 
+## [0.7.2] - 2026-04-02
+
+### Added
+- **Task UI rework** — InputBar task mode gains description/notes textarea, inline help text explaining safety pipeline, "Submitting..." → green "Submitted" button flash
+- **TaskTracker** — filter bar (All/Active/Completed/Denied), sort toggle (Newest/Oldest), expandable task cards with full detail view (parameters, constraints, timeline), "Clear completed" button
+- **Safety evaluation display** — challenged/denied tasks show Layer 2 factor breakdown: factor name, triggered status, weight, detail, risk score bar with threshold indicator, suggested alternatives
+- **Challenge action buttons** — "Accept Challenge" and "Cancel Task" buttons directly on challenged task cards, calling resolveChallenge()
+- **File Airlock upload** — paperclip/attachment button in chat InputBar with file picker, type validation (allowed/blocked extension sets), size validation (50 MB limit), clear error messages explaining WHY blocked files are rejected
+- **Settings page file upload** — "Upload Skill" and "Upload Project File" buttons send files through the security airlock (quarantine + hash verification) with purpose-tagged file_manifest messages
+- **Memory management UI** — "Add Memory" button in Settings with inline form (content textarea + category dropdown), global toast notification on memory save/reject via memory_decision handler
+- TrackedTask type extended with: `parameters`, `description`, `challengeFactors`, `challengeRiskScore`, `challengeThreshold`, `challengeSuggestedAlternatives`, `denialDetail`
+- `clearCompleted()` method on tasks store
+- `fileTransfers` store exported from session singleton
+- Challenge/denial handlers in session.ts now pass full factor data, risk scores, and detail fields
+
+### Changed
+- Protocol version: 0.7.2
+- Test count: 2,944 (was 2,896)
+- InputBar TaskFields type now includes `description` field
+- Task submission flow passes description and parameters to tasks store
+
 ## [0.7.1] - 2026-04-01
 
 ### Changed

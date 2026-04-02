@@ -144,6 +144,9 @@ let editingMemoryId: string | null = $state(null);
 let editingContent = $state('');
 let deleteConfirmId: string | null = $state(null);
 let memoryFilter = $state('all'); // 'all' | 'global' | conversationId
+let showAddMemory = $state(false);
+let newMemoryContent = $state('');
+let newMemoryCategory = $state<'preference' | 'fact' | 'workflow' | 'project'>('fact');
 
 const categoryColors: Record<string, string> = {
   preference: '#4a9eff',
@@ -204,6 +207,26 @@ function handleMemoryDelete(id: string): void {
   setTimeout(requestMemoryList, 200);
 }
 
+function handleAddMemory(): void {
+  const client = session.getClient();
+  if (!client || !newMemoryContent.trim()) return;
+  client.send(JSON.stringify({
+    type: 'memory_proposal',
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: session.IDENTITY,
+    payload: {
+      proposalId: crypto.randomUUID(),
+      content: newMemoryContent.trim(),
+      category: newMemoryCategory,
+      sourceMessageId: 'settings-manual-add',
+    },
+  }));
+  newMemoryContent = '';
+  newMemoryCategory = 'fact';
+  showAddMemory = false;
+}
+
 // ---------------------------------------------------------------------------
 // Project files state
 // ---------------------------------------------------------------------------
@@ -262,6 +285,109 @@ function handleProjectUpload(): void {
   }));
   uploadPath = '';
   uploadContent = '';
+}
+
+// File airlock upload state
+let airlockFileInput: HTMLInputElement | null = $state(null);
+let airlockPurpose: 'skill' | 'project' = $state('project');
+let airlockError: string | null = $state(null);
+
+const AIRLOCK_ALLOWED_EXT = new Set([
+  '.md', '.txt', '.json', '.yaml', '.yml', '.csv', '.xml', '.toml',
+  '.ts', '.js', '.py', '.rs', '.go', '.java', '.html', '.css', '.svelte',
+  '.png', '.jpg', '.jpeg', '.gif', '.svg', '.pdf',
+]);
+
+const AIRLOCK_BLOCKED_EXT = new Set([
+  '.zip', '.tar', '.gz', '.tgz', '.7z', '.rar', '.bz2', '.xz',
+  '.exe', '.msi', '.sh', '.bat', '.cmd', '.ps1',
+  '.dll', '.so', '.dylib', '.bin', '.com',
+  '.iso', '.img', '.dmg', '.deb', '.rpm', '.apk', '.ipa',
+]);
+
+const AIRLOCK_MAX_SIZE = 50 * 1024 * 1024; // 50 MB
+
+function triggerAirlockUpload(purpose: 'skill' | 'project'): void {
+  airlockPurpose = purpose;
+  airlockError = null;
+  airlockFileInput?.click();
+}
+
+function handleAirlockFileChange(e: Event): void {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  airlockError = null;
+
+  const dot = file.name.lastIndexOf('.');
+  const ext = dot >= 0 ? file.name.slice(dot).toLowerCase() : '';
+
+  if (AIRLOCK_BLOCKED_EXT.has(ext)) {
+    if (['.zip', '.tar', '.gz', '.tgz', '.7z', '.rar', '.bz2', '.xz'].includes(ext)) {
+      airlockError = `Archive files (${ext}) are not allowed — archives bypass content scanning and may contain malicious content`;
+    } else if (['.exe', '.msi', '.sh', '.bat', '.cmd', '.ps1'].includes(ext)) {
+      airlockError = `Executable files (${ext}) are not allowed for security reasons`;
+    } else {
+      airlockError = `File type ${ext} is not allowed for security reasons`;
+    }
+    input.value = '';
+    return;
+  }
+
+  if (!AIRLOCK_ALLOWED_EXT.has(ext)) {
+    airlockError = `File type ${ext} is not in the allowed list`;
+    input.value = '';
+    return;
+  }
+
+  if (file.size > AIRLOCK_MAX_SIZE) {
+    airlockError = `File exceeds the 50 MB limit (file is ${formatSize(file.size)})`;
+    input.value = '';
+    return;
+  }
+
+  const client = session.getClient();
+  if (!client) {
+    airlockError = 'Not connected to relay';
+    input.value = '';
+    return;
+  }
+
+  const transferId = crypto.randomUUID();
+  session.fileTransfers.startUpload(transferId, file.name, file.size);
+
+  const reader = new FileReader();
+  reader.onload = async (): Promise<void> => {
+    try {
+      const data = new Uint8Array(reader.result as ArrayBuffer);
+      const hashBuf = await globalThis.crypto.subtle.digest('SHA-256', data);
+      const hash = Array.from(new Uint8Array(hashBuf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+      const mimeType = file.type || 'application/octet-stream';
+
+      client.send(JSON.stringify({
+        type: 'file_manifest',
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        sender: session.IDENTITY,
+        payload: {
+          transferId,
+          filename: file.name,
+          sizeBytes: file.size,
+          hash,
+          hashAlgorithm: 'sha256',
+          mimeType,
+          purpose: airlockPurpose,
+          projectContext: airlockPurpose === 'skill' ? 'skill upload' : 'project file upload',
+        },
+      }));
+      session.fileTransfers.updateUploadPhase(transferId, 'uploading');
+      session.addNotification(`File "${file.name}" submitted as ${airlockPurpose}`, 'info');
+    } catch (err) {
+      session.fileTransfers.updateUploadPhase(transferId, 'failed', err instanceof Error ? err.message : 'Upload failed');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  input.value = '';
 }
 
 function handleProjectDelete(path: string): void {
@@ -423,7 +549,27 @@ function handleContextSave(): void {
 					<option value={conv.id}>{conv.name}</option>
 				{/each}
 			</select>
+			<button class="btn-airlock" onclick={() => { showAddMemory = !showAddMemory; }} disabled={!session.getClient()}>
+				{showAddMemory ? 'Cancel' : 'Add Memory'}
+			</button>
 		</div>
+
+		{#if showAddMemory}
+			<div class="add-memory-form">
+				<textarea bind:value={newMemoryContent} rows="2" placeholder="Memory content — what should the AI remember?"></textarea>
+				<div class="add-memory-controls">
+					<select class="add-memory-select" bind:value={newMemoryCategory}>
+						<option value="fact">Fact</option>
+						<option value="preference">Preference</option>
+						<option value="workflow">Workflow</option>
+						<option value="project">Project</option>
+					</select>
+					<button class="btn-sm btn-save" onclick={handleAddMemory} disabled={!newMemoryContent.trim()}>Save</button>
+					<button class="btn-sm btn-cancel" onclick={() => { showAddMemory = false; }}>Cancel</button>
+				</div>
+			</div>
+		{/if}
+
 		{#if memoryList.length > 0}
 			<div class="memory-list">
 				{#each memoryList as mem}
@@ -473,7 +619,26 @@ function handleContextSave(): void {
 			</div>
 		{/if}
 
-		<!-- Upload form -->
+		{#if airlockError}
+			<div class="airlock-error">
+				<span>{airlockError}</span>
+				<button class="toast-dismiss" onclick={() => { airlockError = null; }}>×</button>
+			</div>
+		{/if}
+
+		<input type="file" class="file-input-hidden" bind:this={airlockFileInput} onchange={handleAirlockFileChange} />
+
+		<div class="airlock-upload-row">
+			<button class="btn-airlock" onclick={() => triggerAirlockUpload('skill')} disabled={!session.getClient()}>
+				Upload Skill
+			</button>
+			<button class="btn-airlock" onclick={() => triggerAirlockUpload('project')} disabled={!session.getClient()}>
+				Upload Project File
+			</button>
+			<span class="hint" style="margin-top:0">Files go through the security airlock (quarantine + hash verification)</span>
+		</div>
+
+		<!-- Upload form (text-based) -->
 		<div class="proj-upload">
 			<label>
 				<span class="label">File path</span>
@@ -957,4 +1122,81 @@ function handleContextSave(): void {
 		line-height: 1;
 	}
 	.toast { display: flex; align-items: center; justify-content: space-between; }
+
+	/* File airlock uploads */
+	.file-input-hidden { display: none; }
+
+	.airlock-upload-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.75rem;
+		flex-wrap: wrap;
+	}
+
+	.btn-airlock {
+		padding: 0.375rem 0.75rem;
+		border-radius: 0.25rem;
+		border: 1px solid var(--color-accent, #4a9eff);
+		background: color-mix(in srgb, var(--color-accent, #4a9eff) 10%, transparent);
+		color: var(--color-accent, #4a9eff);
+		font-size: 0.8rem;
+		cursor: pointer;
+		transition: background 0.15s;
+	}
+	.btn-airlock:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--color-accent, #4a9eff) 20%, transparent);
+	}
+	.btn-airlock:disabled { opacity: 0.5; cursor: not-allowed; }
+
+	.airlock-error {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		padding: 0.375rem 0.75rem;
+		margin-bottom: 0.75rem;
+		background: color-mix(in srgb, #ef4444 12%, transparent);
+		border: 1px solid color-mix(in srgb, #ef4444 30%, transparent);
+		border-radius: 0.25rem;
+		font-size: 0.75rem;
+		color: #ef4444;
+		line-height: 1.3;
+	}
+
+	/* Add Memory button */
+	.add-memory-form {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+		padding: 0.625rem;
+		background: var(--color-bg, #0f0f23);
+		border: 1px solid var(--color-accent, #4a9eff);
+		border-radius: 0.375rem;
+		margin-bottom: 0.5rem;
+	}
+	.add-memory-form textarea {
+		width: 100%;
+		resize: vertical;
+		padding: 0.375rem;
+		border: 1px solid var(--color-border, #2a2a4a);
+		border-radius: 0.25rem;
+		background: var(--color-bg, #0f0f23);
+		color: var(--color-text);
+		font-size: 0.85rem;
+		font-family: inherit;
+	}
+	.add-memory-controls {
+		display: flex;
+		gap: 0.375rem;
+		align-items: center;
+	}
+	.add-memory-select {
+		padding: 0.2rem 0.375rem;
+		border: 1px solid var(--color-border, #2a2a4a);
+		border-radius: 0.25rem;
+		background: var(--color-bg, #0f0f23);
+		color: var(--color-text);
+		font-size: 0.75rem;
+	}
 </style>

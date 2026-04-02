@@ -1,7 +1,7 @@
 {
   "name": "bastion",
   "private": true,
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Human-AI Secure Messaging Protocol",
   "license": "Apache-2.0",
   "author": "Harry Smith <harry@glorktelligence.co.uk>",

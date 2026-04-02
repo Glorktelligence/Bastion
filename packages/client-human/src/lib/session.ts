@@ -27,6 +27,7 @@ import { type ActiveChallenge, createChallengesStore } from './stores/challenges
 import { type ConnectionStoreState, createConnectionStore } from './stores/connection.js';
 import { type ConversationEntry, type ConversationMessage, createConversationsStore } from './stores/conversations.js';
 import { type ExtensionInfo, createExtensionsStore } from './stores/extensions.js';
+import { type FileTransferStore, createFileTransferStore } from './stores/file-transfers.js';
 import { type MemoryEntry, createMemoriesStore } from './stores/memories.js';
 import { type DisplayMessage, createMessagesStore } from './stores/messages.js';
 import { type LoadingMode, type ProjectConfig, type ProjectFile, createProjectsStore } from './stores/projects.js';
@@ -100,6 +101,7 @@ export const provider = hmrStore('__bastionProvider', createProviderStore);
 export const extensions = hmrStore('__bastionExtensions', createExtensionsStore);
 export const conversations = hmrStore('__bastionConversations', createConversationsStore);
 export const aiDisclosure = hmrStore('__bastionAiDisclosure', createAiDisclosureStore);
+export const fileTransfers: FileTransferStore = hmrStore('__bastionFileTransfers', createFileTransferStore);
 
 /** General-purpose toast notifications (cross-cutting — not owned by a single store). */
 export interface ToastNotification {
@@ -567,10 +569,24 @@ function handleRelayMessage(data: string): void {
   // Challenge messages → challenges store + tasks store
   if (type === 'challenge') {
     const p = payload as Record<string, unknown>;
-    const taskId = String(p.taskId ?? '');
+    const taskId = String(p.taskId ?? p.challengedTaskId ?? '');
     challenges.receiveChallenge(id, taskId, payload as never);
     if (taskId) {
-      tasks.setChallenge(taskId, String(p.reason ?? ''), Number(p.layer ?? 0));
+      const factors = Array.isArray(p.factors)
+        ? (p.factors as Array<{ name: string; triggered: boolean; weight: number; detail: string }>)
+        : undefined;
+      const riskScore = typeof p.riskScore === 'number' ? p.riskScore : undefined;
+      const threshold = typeof p.challengeThreshold === 'number' ? p.challengeThreshold : undefined;
+      const alternatives = Array.isArray(p.suggestedAlternatives) ? (p.suggestedAlternatives as string[]) : undefined;
+      tasks.setChallenge(
+        taskId,
+        String(p.reason ?? ''),
+        Number(p.layer ?? 0),
+        factors,
+        riskScore,
+        threshold,
+        alternatives,
+      );
     }
     return;
   }
@@ -615,9 +631,9 @@ function handleRelayMessage(data: string): void {
   // Denials → tasks store + messages
   if (type === 'denial') {
     const p = payload as Record<string, unknown>;
-    const taskId = String(p.taskId ?? '');
+    const taskId = String(p.taskId ?? p.deniedTaskId ?? '');
     if (taskId) {
-      tasks.setDenial(taskId, String(p.reason ?? ''), Number(p.layer ?? 0));
+      tasks.setDenial(taskId, String(p.reason ?? ''), Number(p.layer ?? 0), p.detail ? String(p.detail) : undefined);
     }
     messages.addIncoming(type, payload, sender, id, timestamp);
     return;
@@ -695,7 +711,16 @@ function handleRelayMessage(data: string): void {
   // Memory decision — AI confirmed a memory save
   if (type === 'memory_decision') {
     const p = payload as Record<string, unknown>;
-    memories.setNotification(`Memory saved (${String(p.memoryId ?? '').slice(0, 8)})`);
+    const decision = String(p.decision ?? 'approve');
+    if (decision === 'approve') {
+      memories.setNotification(`Memory saved (${String(p.memoryId ?? '').slice(0, 8)})`);
+      addNotification('Memory saved', 'success');
+    } else if (decision === 'reject') {
+      memories.setNotification('Memory proposal rejected');
+      addNotification('Memory proposal rejected', 'warning');
+    } else {
+      memories.setNotification(`Memory ${decision} (${String(p.memoryId ?? '').slice(0, 8)})`);
+    }
     // Refresh the memory list
     if (client) {
       client.send(

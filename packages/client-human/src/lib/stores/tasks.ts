@@ -23,12 +23,21 @@ export interface TaskCostInfo {
   readonly estimatedCostUsd: number;
 }
 
+export interface ChallengeFactorInfo {
+  readonly name: string;
+  readonly triggered: boolean;
+  readonly weight: number;
+  readonly detail: string;
+}
+
 export interface TrackedTask {
   readonly taskId: string;
   readonly action: string;
   readonly target: string;
   readonly priority: string;
   readonly constraints: readonly string[];
+  readonly parameters?: Record<string, unknown>;
+  readonly description?: string;
   readonly submittedAt: string;
   readonly status: TaskStatus;
   readonly completionPercentage: number;
@@ -40,9 +49,14 @@ export interface TrackedTask {
   readonly cost?: TaskCostInfo;
   readonly denialReason?: string;
   readonly denialLayer?: number;
+  readonly denialDetail?: string;
   readonly challengeReason?: string;
   readonly challengeLayer?: number;
   readonly challengeDecision?: string;
+  readonly challengeRiskScore?: number;
+  readonly challengeThreshold?: number;
+  readonly challengeFactors?: readonly ChallengeFactorInfo[];
+  readonly challengeSuggestedAlternatives?: readonly string[];
   readonly updatedAt: string;
 }
 
@@ -63,15 +77,32 @@ export function createTasksStore(): {
   completedTasks: Readable<readonly TrackedTask[]>;
   selectedTask: Readable<TrackedTask | null>;
   taskCount: Readable<number>;
-  submitTask(taskId: string, action: string, target: string, priority: string, constraints: readonly string[]): void;
+  submitTask(
+    taskId: string,
+    action: string,
+    target: string,
+    priority: string,
+    constraints: readonly string[],
+    params?: Record<string, unknown>,
+    description?: string,
+  ): void;
   updateStatus(taskId: string, status: TaskStatus, percentage?: number, currentAction?: string): void;
   setResult(taskId: string, summary: string, actionsTaken: readonly string[], cost?: TaskCostInfo): void;
-  setDenial(taskId: string, reason: string, layer: number): void;
-  setChallenge(taskId: string, reason: string, layer: number): void;
+  setDenial(taskId: string, reason: string, layer: number, detail?: string): void;
+  setChallenge(
+    taskId: string,
+    reason: string,
+    layer: number,
+    factors?: readonly ChallengeFactorInfo[],
+    riskScore?: number,
+    threshold?: number,
+    alternatives?: readonly string[],
+  ): void;
   resolveChallenge(taskId: string, decision: string): void;
   setSafetyOutcome(taskId: string, outcome: string, layer: number): void;
   selectTask(taskId: string | null): void;
   cancelTask(taskId: string): void;
+  clearCompleted(): void;
   clear(): void;
 } {
   const store = writable<TasksStoreState>({
@@ -117,6 +148,8 @@ export function createTasksStore(): {
     target: string,
     priority: string,
     constraints: readonly string[],
+    params?: Record<string, unknown>,
+    description?: string,
   ): void {
     const now = new Date().toISOString();
     const task: TrackedTask = {
@@ -125,6 +158,8 @@ export function createTasksStore(): {
       target,
       priority,
       constraints,
+      parameters: params,
+      description,
       submittedAt: now,
       status: 'submitted',
       completionPercentage: 0,
@@ -155,21 +190,34 @@ export function createTasksStore(): {
     });
   }
 
-  function setDenial(taskId: string, reason: string, layer: number): void {
+  function setDenial(taskId: string, reason: string, layer: number, detail?: string): void {
     updateTask(taskId, {
       status: 'denied',
       denialReason: reason,
       denialLayer: layer,
+      denialDetail: detail,
       safetyOutcome: 'deny',
       decidingLayer: layer,
     });
   }
 
-  function setChallenge(taskId: string, reason: string, layer: number): void {
+  function setChallenge(
+    taskId: string,
+    reason: string,
+    layer: number,
+    factors?: readonly ChallengeFactorInfo[],
+    riskScore?: number,
+    threshold?: number,
+    alternatives?: readonly string[],
+  ): void {
     updateTask(taskId, {
       status: 'challenged',
       challengeReason: reason,
       challengeLayer: layer,
+      challengeFactors: factors,
+      challengeRiskScore: riskScore,
+      challengeThreshold: threshold,
+      challengeSuggestedAlternatives: alternatives,
       safetyOutcome: 'challenge',
       decidingLayer: layer,
     });
@@ -201,6 +249,13 @@ export function createTasksStore(): {
     updateTask(taskId, { status: 'cancelled' });
   }
 
+  function clearCompleted(): void {
+    store.update((s) => ({
+      ...s,
+      tasks: s.tasks.filter((t) => t.status !== 'completed' && t.status !== 'cancelled' && t.status !== 'denied'),
+    }));
+  }
+
   function clear(): void {
     store.set({
       tasks: [],
@@ -225,6 +280,7 @@ export function createTasksStore(): {
     setSafetyOutcome,
     selectTask,
     cancelTask,
+    clearCompleted,
     clear,
   };
 }
