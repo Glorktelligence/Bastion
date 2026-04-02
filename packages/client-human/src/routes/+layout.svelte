@@ -135,6 +135,17 @@ function handleFileAccept() {
 function handleFileReject() {
 	const offer = session.fileTransfers.rejectOffer();
 	if (offer) {
+		// Notify relay so it can purge from quarantine
+		const client = session.getClient();
+		if (client) {
+			client.send(JSON.stringify({
+				type: 'file_reject',
+				id: crypto.randomUUID(),
+				timestamp: new Date().toISOString(),
+				sender: session.getIdentity(),
+				payload: { transferId: offer.transferId },
+			}));
+		}
 		session.addNotification(`File rejected: ${offer.filename}`, 'info');
 	}
 }

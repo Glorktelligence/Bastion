@@ -49,6 +49,40 @@ import {
 import type { BrowserKeyPair, BrowserSessionCipher } from './crypto/browser-crypto.js';
 
 // ---------------------------------------------------------------------------
+// Browser download helper (DOM types not in tsconfig lib)
+// ---------------------------------------------------------------------------
+
+/** Trigger a file download in the browser via a temporary anchor element. */
+function triggerBrowserDownload(data: Uint8Array, filename: string): void {
+  // All DOM access through globalThis to avoid TypeScript DOM lib dependency.
+  // We are in a browser-only code path (called from async hash verification
+  // inside a WebSocket message handler that only runs client-side).
+  const w = globalThis as unknown as Record<string, unknown>;
+  if (!w.Blob || !w.URL || !w.document) return;
+  try {
+    /* eslint-disable @typescript-eslint/no-explicit-any -- unavoidable for DOM without lib:dom */
+    const BlobCtor = w.Blob as new (parts: unknown[], opts: { type: string }) => unknown;
+    const blob = new BlobCtor([data], { type: 'application/octet-stream' });
+    const UrlObj = w.URL as { createObjectURL(b: unknown): string; revokeObjectURL(u: string): void };
+    const url = UrlObj.createObjectURL(blob);
+    const doc = w.document as {
+      createElement(t: string): any;
+      body: { appendChild(e: any): void; removeChild(e: any): void };
+    };
+    const a = doc.createElement('a');
+    a.href = url;
+    a.download = filename;
+    doc.body.appendChild(a);
+    a.click();
+    doc.body.removeChild(a);
+    UrlObj.revokeObjectURL(url);
+    /* eslint-enable */
+  } catch {
+    console.error('[Bastion] triggerBrowserDownload failed');
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Constants — read from ConfigStore (persisted across sessions)
 // ---------------------------------------------------------------------------
 
@@ -328,6 +362,7 @@ const PLAINTEXT_TYPES = new Set([
   'file_manifest',
   'file_offer',
   'file_request',
+  'file_reject',
   'file_data',
 ]);
 
@@ -666,6 +701,8 @@ function handleRelayMessage(data: string): void {
     const filename = String(envelope.filename ?? (payload as Record<string, unknown>).filename ?? 'download');
     const declaredHash = String(envelope.hash ?? (payload as Record<string, unknown>).hash ?? '');
 
+    console.log(`[Bastion] file_data received: ${transferId.slice(0, 8)}, ${fileDataB64.length} chars base64`);
+
     if (!fileDataB64 || !transferId) {
       console.error('[Bastion] file_data missing transferId or fileData');
       return;
@@ -694,30 +731,9 @@ function handleRelayMessage(data: string): void {
           return;
         }
 
-        // Trigger browser download via DOM (only in browser context)
-        // eslint-disable-next-line -- DOM types not in tsconfig lib
-        const g = globalThis as Record<string, unknown>;
-        if (typeof g.Blob === 'function' && typeof g.URL === 'object') {
-          const blob = new (g.Blob as new (a: unknown[], o: Record<string, string>) => unknown)([fileBytes], {
-            type: 'application/octet-stream',
-          });
-          const url = (g.URL as { createObjectURL: (b: unknown) => string }).createObjectURL(blob);
-          const doc = g.document as
-            | {
-                createElement: (t: string) => Record<string, unknown>;
-                body: { appendChild: (e: unknown) => void; removeChild: (e: unknown) => void };
-              }
-            | undefined;
-          if (doc) {
-            const a = doc.createElement('a');
-            a.href = url;
-            a.download = filename;
-            doc.body.appendChild(a);
-            (a.click as () => void)();
-            doc.body.removeChild(a);
-          }
-          (g.URL as { revokeObjectURL: (u: string) => void }).revokeObjectURL(url);
-        }
+        // Trigger browser download (DOM types not in tsconfig lib)
+        triggerBrowserDownload(fileBytes, filename);
+        console.log(`[Bastion] File download triggered: ${filename} (${fileBytes.length} bytes)`);
 
         addNotification(`File downloaded: ${filename}`, 'success');
 

@@ -315,6 +315,14 @@ export class FileTransferRouter {
       recipientConnectionId: requesterConnectionId,
     });
 
+    // Purge receipt — file removed from quarantine after successful delivery
+    this.auditLog(AUDIT_EVENT_TYPES.FILE_PURGED, {
+      transferId,
+      reason: 'delivered',
+      filename: releaseResult.entry.filename,
+      purgedAt: new Date().toISOString(),
+    });
+
     return {
       status: 'delivered',
       transferId,
@@ -333,9 +341,21 @@ export class FileTransferRouter {
       return { status: 'not_found', transferId };
     }
 
+    // Get filename before purge (quarantine entry will be deleted)
+    const entry = this.quarantine.get(transferId);
+    const filename = entry?.filename ?? 'unknown';
+
     this.quarantine.updateState(transferId, 'rejected', 'recipient', 'Recipient declined file');
     this.quarantine.purge(transferId);
     this.pending.delete(transferId);
+
+    // Purge receipt — file removed from quarantine after rejection
+    this.auditLog(AUDIT_EVENT_TYPES.FILE_PURGED, {
+      transferId,
+      reason: 'rejected',
+      filename,
+      purgedAt: new Date().toISOString(),
+    });
 
     return { status: 'rejected', transferId };
   }

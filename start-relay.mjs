@@ -1262,6 +1262,7 @@ relay.on('message', async (data, info) => {
 
     if (result.status === 'delivered') {
       console.log(`[✓] File delivered: ${transferId.slice(0, 8)} (${result.sizeBytes} bytes) — 3-stage hash verified`);
+      console.log(`[✓] File purged from quarantine: ${transferId.slice(0, 8)} (delivered successfully)`);
       recordMessage(connId);
       const sid = sessionIds.get(connId);
       if (sid) auditLogger.logEvent('file_delivered', sid, {
@@ -1288,6 +1289,38 @@ relay.on('message', async (data, info) => {
         message: `File delivery failed: ${result.status}`,
         timestamp: new Date().toISOString(),
       }));
+    }
+    return;
+  }
+
+  // ----- file_reject: human declines an offered file -----
+  if (msg.type === 'file_reject') {
+    const p = msg.payload || msg;
+    const transferId = p.transferId;
+
+    if (!transferId) {
+      relay.send(connId, JSON.stringify({
+        type: 'error',
+        code: 'BASTION-5005',
+        message: 'file_reject missing transferId',
+        timestamp: new Date().toISOString(),
+      }));
+      return;
+    }
+
+    const result = fileTransferRouter.handleFileReject(transferId);
+
+    if (result.status === 'rejected') {
+      console.log(`[✓] File purged from quarantine: ${transferId.slice(0, 8)} (rejected by recipient)`);
+      const sid = sessionIds.get(connId);
+      if (sid) auditLogger.logEvent('file_purged', sid, {
+        transferId,
+        reason: 'rejected',
+        actor: router.getClient(connId)?.identity.id || 'unknown',
+        purgedAt: new Date().toISOString(),
+      });
+    } else {
+      console.log(`[~] file_reject for unknown transfer: ${transferId.slice(0, 8)}`);
     }
     return;
   }

@@ -61,6 +61,7 @@ export const AUDIT_EVENT_TYPES = {
   FILE_QUARANTINE: 'file_quarantine',
   FILE_DELIVERED: 'file_delivered',
   FILE_REJECTED: 'file_rejected',
+  FILE_PURGED: 'file_purged',
 
   // Configuration
   CONFIG_CHANGE: 'config_change',
