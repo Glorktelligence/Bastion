@@ -932,6 +932,9 @@ function handleContextSave(): void {
 								{#if ad.maxContextTokens}
 									<span class="adapter-context">{(ad.maxContextTokens / 1000).toFixed(0)}k ctx</span>
 								{/if}
+								{#if ad.pricingInputPerMTok != null}
+									<span class="adapter-pricing">${ad.pricingInputPerMTok} / ${ad.pricingOutputPerMTok ?? '?'} per MTok</span>
+								{/if}
 							</div>
 						{/each}
 					</div>
@@ -1503,6 +1506,7 @@ function handleContextSave(): void {
 	.adapter-model { font-size: 0.75rem; }
 	.adapter-roles { font-size: 0.7rem; color: var(--color-text-muted); }
 	.adapter-context { font-size: 0.65rem; color: var(--color-accent, #4a9eff); font-family: monospace; }
+	.adapter-pricing { font-size: 0.65rem; color: var(--color-text-muted); font-family: monospace; }
 
 	/* Extensions */
 	.ext-header, .ext-row {

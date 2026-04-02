@@ -68,22 +68,23 @@ const REJECT_UNAUTHORIZED = process.env.BASTION_TLS_REJECT_UNAUTHORIZED !== 'fal
 
 // Three Bastion Official Adapters — Sonnet, Haiku, Opus
 // All share ANTHROPIC_API_KEY. Each targets a different model with role-specific config.
-const SONNET_MODEL = process.env.BASTION_SONNET_MODEL || 'claude-sonnet-4-20250514';
+// Sonnet 4.6 — 1M context, default conversation adapter
+const SONNET_MODEL = process.env.BASTION_SONNET_MODEL || 'claude-sonnet-4-6-20250520';
 const SONNET_PRICING_INPUT = parseFloat(process.env.BASTION_SONNET_PRICING_INPUT || '3');
 const SONNET_PRICING_OUTPUT = parseFloat(process.env.BASTION_SONNET_PRICING_OUTPUT || '15');
+const SONNET_MAX_CONTEXT = parseInt(process.env.BASTION_SONNET_MAX_CONTEXT || '1000000', 10);
 
+// Haiku 4.5 — 200k context, cost-efficient compaction
 const HAIKU_MODEL = process.env.BASTION_HAIKU_MODEL || 'claude-haiku-4-5-20251001';
 const HAIKU_PRICING_INPUT = parseFloat(process.env.BASTION_HAIKU_PRICING_INPUT || '0.8');
 const HAIKU_PRICING_OUTPUT = parseFloat(process.env.BASTION_HAIKU_PRICING_OUTPUT || '4');
-
-const OPUS_MODEL = process.env.BASTION_OPUS_MODEL || 'claude-opus-4-6';
-const OPUS_PRICING_INPUT = parseFloat(process.env.BASTION_OPUS_PRICING_INPUT || '15');
-const OPUS_PRICING_OUTPUT = parseFloat(process.env.BASTION_OPUS_PRICING_OUTPUT || '75');
-const OPUS_MAX_TOKENS = parseInt(process.env.BASTION_OPUS_MAX_TOKENS || '8192', 10);
-
-// Context window sizes — deployer env var is the ceiling
-const SONNET_MAX_CONTEXT = parseInt(process.env.BASTION_SONNET_MAX_CONTEXT || '200000', 10);
 const HAIKU_MAX_CONTEXT = parseInt(process.env.BASTION_HAIKU_MAX_CONTEXT || '200000', 10);
+
+// Opus 4.6 — 1M context, maximum capability; pricing: $5/$25 per MTok
+const OPUS_MODEL = process.env.BASTION_OPUS_MODEL || 'claude-opus-4-6';
+const OPUS_PRICING_INPUT = parseFloat(process.env.BASTION_OPUS_PRICING_INPUT || '5');
+const OPUS_PRICING_OUTPUT = parseFloat(process.env.BASTION_OPUS_PRICING_OUTPUT || '25');
+const OPUS_MAX_TOKENS = parseInt(process.env.BASTION_OPUS_MAX_TOKENS || '8192', 10);
 const OPUS_MAX_CONTEXT = parseInt(process.env.BASTION_OPUS_MAX_CONTEXT || '1000000', 10);
 
 if (!API_KEY) {
@@ -850,6 +851,8 @@ client.on('message', async (data) => {
           model: ra.adapter.activeModel,
           roles: ra.roles,
           maxContextTokens: ra.maxContextTokens,
+          pricingInputPerMTok: ra.pricingInputPerMTok,
+          pricingOutputPerMTok: ra.adapter.getModelPricing?.()?.outputPerMTok,
         })),
       },
       timestamp: new Date().toISOString(),
