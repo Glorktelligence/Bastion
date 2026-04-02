@@ -103,6 +103,61 @@ export const conversations = hmrStore('__bastionConversations', createConversati
 export const aiDisclosure = hmrStore('__bastionAiDisclosure', createAiDisclosureStore);
 export const fileTransfers: FileTransferStore = hmrStore('__bastionFileTransfers', createFileTransferStore);
 
+/** Data portability state (GDPR Article 20). */
+export interface DataPortabilityState {
+  readonly exporting: boolean;
+  readonly exportProgress: number;
+  readonly exportPhase: string;
+  readonly exportReady: boolean;
+  readonly exportFilename: string | null;
+  readonly exportTransferId: string | null;
+  readonly exportSizeBytes: number;
+  readonly exportCounts: { conversations: number; memories: number; projectFiles: number; skills: number } | null;
+  readonly importing: boolean;
+  readonly importValidation: {
+    readonly valid: boolean;
+    readonly format: string;
+    readonly version: string;
+    readonly exportedAt: string;
+    readonly contents: {
+      conversations: number;
+      memories: number;
+      projectFiles: number;
+      skills: number;
+      hasConfig: boolean;
+    };
+    readonly conflicts: readonly { type: string; path: string; detail: string }[];
+    readonly errors: readonly string[];
+  } | null;
+  readonly importComplete: {
+    readonly imported: {
+      conversations: number;
+      memories: number;
+      projectFiles: number;
+      skills: number;
+      configSections: number;
+    };
+    readonly skipped: { conversations: number; memories: number; projectFiles: number; skills: number };
+    readonly errors: readonly string[];
+  } | null;
+}
+
+export const dataPortability: Writable<DataPortabilityState> = hmrStore('__bastionDataPortability', () =>
+  writable<DataPortabilityState>({
+    exporting: false,
+    exportProgress: 0,
+    exportPhase: '',
+    exportReady: false,
+    exportFilename: null,
+    exportTransferId: null,
+    exportSizeBytes: 0,
+    exportCounts: null,
+    importing: false,
+    importValidation: null,
+    importComplete: null,
+  }),
+);
+
 /** General-purpose toast notifications (cross-cutting — not owned by a single store). */
 export interface ToastNotification {
   readonly id: string;
@@ -790,6 +845,98 @@ function handleRelayMessage(data: string): void {
       budgetRemaining: Number(p.budgetRemaining ?? 0),
       searchesRemaining: Number(p.searchesRemaining ?? 0),
     });
+    return;
+  }
+
+  // Data export progress → update portability state
+  if (type === 'data_export_progress') {
+    const p = payload as Record<string, unknown>;
+    dataPortability.update((s) => ({
+      ...s,
+      exporting: true,
+      exportProgress: Number(p.percentage ?? 0),
+      exportPhase: String(p.phase ?? ''),
+    }));
+    return;
+  }
+
+  // Data export ready → mark export as complete
+  if (type === 'data_export_ready') {
+    const p = payload as Record<string, unknown>;
+    const counts = p.contentCounts as
+      | { conversations: number; memories: number; projectFiles: number; skills: number }
+      | undefined;
+    dataPortability.update((s) => ({
+      ...s,
+      exporting: false,
+      exportProgress: 100,
+      exportPhase: 'Export complete',
+      exportReady: true,
+      exportFilename: String(p.filename ?? 'export.bdp'),
+      exportTransferId: String(p.transferId ?? ''),
+      exportSizeBytes: Number(p.sizeBytes ?? 0),
+      exportCounts: counts ?? null,
+    }));
+    addNotification('Data export ready for download', 'success');
+    return;
+  }
+
+  // Data import validation result
+  if (type === 'data_import_validate') {
+    const p = payload as Record<string, unknown>;
+    dataPortability.update((s) => ({
+      ...s,
+      importing: false,
+      importValidation: {
+        valid: Boolean(p.valid),
+        format: String(p.format ?? 'unknown'),
+        version: String(p.version ?? 'unknown'),
+        exportedAt: String(p.exportedAt ?? 'unknown'),
+        contents: (p.contents as {
+          conversations: number;
+          memories: number;
+          projectFiles: number;
+          skills: number;
+          hasConfig: boolean;
+        }) ?? { conversations: 0, memories: 0, projectFiles: 0, skills: 0, hasConfig: false },
+        conflicts: (p.conflicts as readonly { type: string; path: string; detail: string }[]) ?? [],
+        errors: (p.errors as readonly string[]) ?? [],
+      },
+      importComplete: null,
+    }));
+    if (!(p.valid as boolean)) {
+      addNotification('Import validation failed', 'error');
+    } else {
+      addNotification('Import file validated — review and confirm', 'info');
+    }
+    return;
+  }
+
+  // Data import complete
+  if (type === 'data_import_complete') {
+    const p = payload as Record<string, unknown>;
+    dataPortability.update((s) => ({
+      ...s,
+      importing: false,
+      importValidation: null,
+      importComplete: {
+        imported: (p.imported as {
+          conversations: number;
+          memories: number;
+          projectFiles: number;
+          skills: number;
+          configSections: number;
+        }) ?? { conversations: 0, memories: 0, projectFiles: 0, skills: 0, configSections: 0 },
+        skipped: (p.skipped as { conversations: number; memories: number; projectFiles: number; skills: number }) ?? {
+          conversations: 0,
+          memories: 0,
+          projectFiles: 0,
+          skills: 0,
+        },
+        errors: (p.errors as readonly string[]) ?? [],
+      },
+    }));
+    addNotification('Data import complete', 'success');
     return;
   }
 

@@ -333,6 +333,12 @@ function validPayloads() {
     update_reconnected: { component: 'relay', version: '0.2.0', previousVersion: '0.1.0' },
     update_complete: { fromVersion: '0.1.0', toVersion: '0.2.0', duration: 180, components: [{ name: 'relay', buildTime: 60, restartTime: 5 }, { name: 'ai-client', buildTime: 90, restartTime: 10 }] },
     update_failed: { phase: 'build', component: 'relay', error: 'TypeScript compilation failed', recoverable: true },
+    data_export_request: { format: 'bdp' },
+    data_export_progress: { percentage: 50, phase: 'Exporting conversations' },
+    data_export_ready: { transferId: 'abc-123', filename: 'export.bdp', sizeBytes: 1024, hash: 'deadbeef', contentCounts: { conversations: 5, memories: 10, projectFiles: 3, skills: 2 } },
+    data_import_validate: { valid: true, format: 'bdp', version: '0.7.3', exportedAt: '2026-04-02T00:00:00Z', contents: { conversations: 5, memories: 10, projectFiles: 3, skills: 2, hasConfig: true }, conflicts: [], errors: [] },
+    data_import_confirm: { importConversations: true, importMemories: true, importProjectFiles: true, importSkills: false, importConfig: false, conflictResolutions: [] },
+    data_import_complete: { imported: { conversations: 5, memories: 8, projectFiles: 3, skills: 0, configSections: 0 }, skipped: { conversations: 0, memories: 2, projectFiles: 0, skills: 2 }, errors: [] },
   };
 }
 
@@ -424,7 +430,7 @@ async function run() {
       }
     }
     check('all 81 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 84 entries', ALL_MESSAGE_TYPES.length === 84);
+    check('ALL_MESSAGE_TYPES has 90 entries', ALL_MESSAGE_TYPES.length === 90);
   }
   console.log();
 
@@ -460,8 +466,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 84 entries', typeKeys.length === 84);
-    check('PAYLOAD_SCHEMAS has 84 entries', Object.keys(PAYLOAD_SCHEMAS).length === 84);
+    check('MESSAGE_TYPES has 90 entries', typeKeys.length === 90);
+    check('PAYLOAD_SCHEMAS has 90 entries', Object.keys(PAYLOAD_SCHEMAS).length === 90);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -873,7 +879,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 84 message types survive serialisation round-trip', allPassed);
+    check('all 90 message types survive serialisation round-trip', allPassed);
   }
   console.log();
 

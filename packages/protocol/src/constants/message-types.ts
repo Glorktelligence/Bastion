@@ -3,7 +3,7 @@
 // See LICENSE file for full terms
 
 /**
- * All 84 message types in the Bastion protocol.
+ * All 90 message types in the Bastion protocol.
  *
  * Core spec (13): task, conversation, challenge, confirmation, denial,
  *   status, result, error, audit, file_manifest, file_offer, file_request, heartbeat
@@ -123,6 +123,14 @@ export const MESSAGE_TYPES = {
 
   // --- AI Disclosure (regulatory transparency) ---
   AI_DISCLOSURE: 'ai_disclosure',
+
+  // --- Data Portability (GDPR Article 20) ---
+  DATA_EXPORT_REQUEST: 'data_export_request',
+  DATA_EXPORT_PROGRESS: 'data_export_progress',
+  DATA_EXPORT_READY: 'data_export_ready',
+  DATA_IMPORT_VALIDATE: 'data_import_validate',
+  DATA_IMPORT_CONFIRM: 'data_import_confirm',
+  DATA_IMPORT_COMPLETE: 'data_import_complete',
 
   // --- Self-Update System ---
   UPDATE_CHECK: 'update_check',

@@ -25,6 +25,10 @@ import {
   CompactionManager,
   AdapterRegistry,
   SkillStore,
+  DataExporter,
+  ImportRegistry,
+  BastionImportAdapter,
+  ImportExecutor,
 } from './packages/client-ai/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -356,6 +360,27 @@ const pendingFileAcceptances = new Map();
 
 /** Track which tasks have been registered with purge manager. */
 const registeredPurgeTasks = new Set();
+
+// ---------------------------------------------------------------------------
+// Data Portability (GDPR Article 20)
+// ---------------------------------------------------------------------------
+
+const dataExporter = new DataExporter({
+  conversationStore,
+  memoryStore,
+  projectStore,
+  skillStore,
+  challengeManager,
+});
+console.log('[✓] Data exporter initialised (GDPR Article 20)');
+
+const importRegistry = new ImportRegistry();
+importRegistry.register(new BastionImportAdapter());
+console.log('[✓] Import registry initialised (1 adapter: bastion)');
+
+/** Pending import data — held between validate and confirm steps. */
+let pendingImportData = null;
+let pendingImportAdapter = null;
 
 // ---------------------------------------------------------------------------
 // Safety engine
@@ -1355,6 +1380,64 @@ client.on('message', async (data) => {
       console.log(`[✓] File received and verified: ${filename} (${fileData.length} bytes, SHA-256: ${actualHash.slice(0, 12)}...)`);
       console.log(`[✓] Custody chain complete: [submitted] → [quarantined] → [delivered] — all hashes match`);
 
+      // --- Data import: if purpose is 'import', validate and send preview ---
+      if (acceptance?.purpose === 'import' || filename.endsWith('.bdp')) {
+        console.log('[~] Import file detected — running validation');
+        const importBuffer = Buffer.from(fileData);
+        const adapter = importRegistry.detectAdapter(importBuffer);
+        if (!adapter) {
+          client.send(JSON.stringify({
+            type: 'data_import_validate',
+            id: randomUUID(),
+            timestamp: new Date().toISOString(),
+            sender: IDENTITY,
+            payload: {
+              valid: false, format: 'unknown', version: 'unknown', exportedAt: 'unknown',
+              contents: { conversations: 0, memories: 0, projectFiles: 0, skills: 0, hasConfig: false },
+              conflicts: [], errors: ['No import adapter found for this file format'],
+            },
+          }));
+          return;
+        }
+
+        (async () => {
+          try {
+            const validation = await adapter.validate(importBuffer, {
+              conversationStore, memoryStore, projectStore, skillStore,
+            });
+
+            if (validation.valid) {
+              pendingImportData = await adapter.extract(importBuffer);
+              pendingImportAdapter = adapter;
+            }
+
+            client.send(JSON.stringify({
+              type: 'data_import_validate',
+              id: randomUUID(),
+              timestamp: new Date().toISOString(),
+              sender: IDENTITY,
+              payload: validation,
+            }));
+
+            console.log(`[✓] Import validation: ${validation.valid ? 'VALID' : 'INVALID'} (${validation.contents.conversations}c ${validation.contents.memories}m ${validation.contents.projectFiles}p ${validation.contents.skills}s)`);
+          } catch (err) {
+            console.error(`[!] Import validation failed: ${err.message}`);
+            client.send(JSON.stringify({
+              type: 'data_import_validate',
+              id: randomUUID(),
+              timestamp: new Date().toISOString(),
+              sender: IDENTITY,
+              payload: {
+                valid: false, format: 'unknown', version: 'unknown', exportedAt: 'unknown',
+                contents: { conversations: 0, memories: 0, projectFiles: 0, skills: 0, hasConfig: false },
+                conflicts: [], errors: [`Validation error: ${err.message}`],
+              },
+            }));
+          }
+        })();
+        return;
+      }
+
       // Auto-save project files to ProjectStore
       const projectExts = ['.md', '.json', '.yaml', '.yml', '.txt'];
       const ext = filename.lastIndexOf('.') >= 0 ? filename.slice(filename.lastIndexOf('.')) : '';
@@ -1583,6 +1666,154 @@ client.on('message', async (data) => {
       console.error(`[!] Unexpected error calling API: ${err.message}`);
     } finally {
       processing = false;
+    }
+
+    return;
+  }
+
+  // -----------------------------------------------------------------------
+  // Data Portability (GDPR Article 20)
+  // -----------------------------------------------------------------------
+
+  if (msg.type === 'data_export_request') {
+    console.log('[←] Data export request received');
+
+    (async () => {
+      try {
+        const exportBuffer = await dataExporter.exportAll((progress) => {
+          client.send(JSON.stringify({
+            type: 'data_export_progress',
+            id: randomUUID(),
+            timestamp: new Date().toISOString(),
+            sender: IDENTITY,
+            payload: { percentage: progress.percentage, phase: progress.phase },
+          }));
+        });
+
+        // Stage the export file for delivery via file airlock
+        const filename = `bastion-export-${new Date().toISOString().replace(/[:.]/g, '-')}.bdp`;
+        const hash = createHash('sha256').update(exportBuffer).digest('hex');
+        const stageResult = outboundStaging.stage(
+          'data-export-' + randomUUID(),
+          filename,
+          new Uint8Array(exportBuffer),
+          'application/zip',
+          'data_export',
+        );
+
+        if (stageResult.status !== 'staged') {
+          client.send(JSON.stringify({
+            type: 'error',
+            id: randomUUID(),
+            timestamp: new Date().toISOString(),
+            sender: IDENTITY,
+            payload: { code: 'BASTION-5002', message: 'Outbound staging full — cannot stage export' },
+          }));
+          return;
+        }
+
+        const counts = dataExporter.getContentCounts();
+
+        // Send file offer through relay (file airlock)
+        client.send(JSON.stringify({
+          type: 'file_offer',
+          id: randomUUID(),
+          timestamp: new Date().toISOString(),
+          sender: IDENTITY,
+          payload: {
+            transferId: stageResult.metadata.transferId,
+            filename,
+            sizeBytes: exportBuffer.length,
+            hash,
+            mimeType: 'application/zip',
+            purpose: 'data_export',
+          },
+        }));
+
+        // Send ready notification
+        client.send(JSON.stringify({
+          type: 'data_export_ready',
+          id: randomUUID(),
+          timestamp: new Date().toISOString(),
+          sender: IDENTITY,
+          payload: {
+            transferId: stageResult.metadata.transferId,
+            filename,
+            sizeBytes: exportBuffer.length,
+            hash,
+            contentCounts: counts,
+          },
+        }));
+
+        console.log(`[✓] Data export ready: ${filename} (${exportBuffer.length} bytes)`);
+      } catch (err) {
+        console.error(`[!] Data export failed: ${err.message}`);
+        client.send(JSON.stringify({
+          type: 'error',
+          id: randomUUID(),
+          timestamp: new Date().toISOString(),
+          sender: IDENTITY,
+          payload: { code: 'BASTION-5003', message: `Export failed: ${err.message}` },
+        }));
+      }
+    })();
+
+    return;
+  }
+
+  if (msg.type === 'data_import_confirm') {
+    const p = msg.payload || msg;
+    console.log('[←] Data import confirmation received');
+
+    if (!pendingImportData) {
+      client.send(JSON.stringify({
+        type: 'error',
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        sender: IDENTITY,
+        payload: { code: 'BASTION-3001', message: 'No pending import data — upload a .bdp file first' },
+      }));
+      return;
+    }
+
+    try {
+      const executor = new ImportExecutor({
+        conversationStore,
+        memoryStore,
+        projectStore,
+        skillStore,
+      });
+
+      const result = executor.execute(pendingImportData, {
+        importConversations: Boolean(p.importConversations),
+        importMemories: Boolean(p.importMemories),
+        importProjectFiles: Boolean(p.importProjectFiles),
+        importSkills: Boolean(p.importSkills),
+        importConfig: Boolean(p.importConfig),
+        conflictResolutions: p.conflictResolutions || [],
+      });
+
+      client.send(JSON.stringify({
+        type: 'data_import_complete',
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        sender: IDENTITY,
+        payload: result,
+      }));
+
+      console.log(`[✓] Data import complete: ${result.imported.conversations}c ${result.imported.memories}m ${result.imported.projectFiles}p ${result.imported.skills}s (${result.errors.length} errors)`);
+    } catch (err) {
+      console.error(`[!] Data import failed: ${err.message}`);
+      client.send(JSON.stringify({
+        type: 'error',
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        sender: IDENTITY,
+        payload: { code: 'BASTION-5004', message: `Import failed: ${err.message}` },
+      }));
+    } finally {
+      pendingImportData = null;
+      pendingImportAdapter = null;
     }
 
     return;

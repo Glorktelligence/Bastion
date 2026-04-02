@@ -61,6 +61,10 @@ export {
   BudgetGuard,
   SkillStore,
   validateParameters,
+  DataExporter,
+  ImportRegistry,
+  BastionImportAdapter,
+  ImportExecutor,
 } from './provider/index.js';
 export type {
   ToolRegistry,
@@ -115,6 +119,16 @@ export type {
   BudgetCheckResult,
   BudgetStatus,
   BudgetGuardOptions,
+  ExportManifest,
+  ExportProgress,
+  DataExporterConfig,
+  ImportAdapter,
+  ImportValidation,
+  ImportConflict,
+  ImportData,
+  ImportSelections,
+  ImportResult,
+  ImportStoreRefs,
 } from './provider/index.js';
 
 // ---------------------------------------------------------------------------

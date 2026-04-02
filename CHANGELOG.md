@@ -2,6 +2,28 @@
 
 All notable changes to Project Bastion are documented in this file.
 
+## [0.7.3] - 2026-04-02
+
+### Added
+- **GDPR Article 20 Data Portability** — full export/import system for user data
+  - `DataExporter` class: builds .bdp (Bastion Data Package) ZIP archives containing conversations, memories, project files, skills, config, audit metadata, and integrity checksum
+  - `ImportAdapter` interface with pluggable adapter system; ships with `BastionImportAdapter`
+  - `ImportRegistry`: auto-detects format from file contents, returns appropriate adapter
+  - `BastionImportAdapter`: validates .bdp files (unzip, manifest verification, SHA-256 checksum), extracts data with conflict detection
+  - `ImportExecutor`: executes import with user-selected sections — conversations APPEND, memories MERGE (content hash dedup), project files MERGE (conflict resolution), skills MERGE (version conflict detection), config (user choice)
+  - All imported content goes through content scanner (13 dangerous patterns)
+  - 6 new protocol message types: `data_export_request`, `data_export_progress`, `data_export_ready`, `data_import_validate`, `data_import_confirm`, `data_import_complete` (90 total)
+  - Zod schemas with sender type restrictions for all 6 messages
+  - AI client handlers wired in start-ai-client.mjs: export → progress → file airlock delivery; import file with purpose 'import' → validate → confirm → execute
+  - Human client Settings page "Data & Privacy" section: Export All Data button with progress bar, Import Data button with validation preview dialog and conflict display
+  - Data portability state store in session.ts for cross-component reactivity
+  - 80 new tests: ZIP structure verification, manifest checksum, tampered file rejection, conversation append, memory deduplication, project file conflicts, content scanning on import, selective import, protocol schema validation
+
+### Changed
+- Protocol version: 0.7.3 (90 message types, was 84)
+- Test count: 3,030 (was 2,944)
+- Added archiver (^7.0.1) and adm-zip (^0.5.17) to @bastion/client-ai dependencies
+
 ## [0.7.2] - 2026-04-02
 
 ### Added

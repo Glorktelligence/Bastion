@@ -735,6 +735,90 @@ export const UpdateFailedPayloadSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Data Portability (GDPR Article 20)
+// ---------------------------------------------------------------------------
+
+export const DataExportRequestPayloadSchema = z.object({
+  format: z.literal('bdp'),
+});
+
+export const DataExportProgressPayloadSchema = z.object({
+  percentage: z.number().int().min(0).max(100),
+  phase: z.string().min(1),
+});
+
+export const DataExportReadyPayloadSchema = z.object({
+  transferId: z.string().min(1),
+  filename: z.string().min(1),
+  sizeBytes: z.number().int().positive(),
+  hash: z.string().min(1),
+  contentCounts: z.object({
+    conversations: z.number().int().nonnegative(),
+    memories: z.number().int().nonnegative(),
+    projectFiles: z.number().int().nonnegative(),
+    skills: z.number().int().nonnegative(),
+  }),
+});
+
+export const DataImportValidatePayloadSchema = z.object({
+  valid: z.boolean(),
+  format: z.string().min(1),
+  version: z.string().min(1),
+  exportedAt: z.string().min(1),
+  contents: z.object({
+    conversations: z.number().int().nonnegative(),
+    memories: z.number().int().nonnegative(),
+    projectFiles: z.number().int().nonnegative(),
+    skills: z.number().int().nonnegative(),
+    hasConfig: z.boolean(),
+  }),
+  conflicts: z
+    .array(
+      z.object({
+        type: z.enum(['project_file', 'skill', 'memory']),
+        path: z.string().min(1),
+        detail: z.string().min(1),
+      }),
+    )
+    .readonly(),
+  errors: z.array(z.string()).readonly(),
+});
+
+export const DataImportConfirmPayloadSchema = z.object({
+  importConversations: z.boolean(),
+  importMemories: z.boolean(),
+  importProjectFiles: z.boolean(),
+  importSkills: z.boolean(),
+  importConfig: z.boolean(),
+  conflictResolutions: z
+    .array(
+      z.object({
+        type: z.enum(['project_file', 'skill', 'memory']),
+        path: z.string().min(1),
+        action: z.enum(['keep', 'replace', 'skip']),
+      }),
+    )
+    .readonly(),
+});
+
+export const DataImportCompletePayloadSchema = z.object({
+  imported: z.object({
+    conversations: z.number().int().nonnegative(),
+    memories: z.number().int().nonnegative(),
+    projectFiles: z.number().int().nonnegative(),
+    skills: z.number().int().nonnegative(),
+    configSections: z.number().int().nonnegative(),
+  }),
+  skipped: z.object({
+    conversations: z.number().int().nonnegative(),
+    memories: z.number().int().nonnegative(),
+    projectFiles: z.number().int().nonnegative(),
+    skills: z.number().int().nonnegative(),
+  }),
+  errors: z.array(z.string()).readonly(),
+});
+
+// ---------------------------------------------------------------------------
 // Payload schema lookup map (message type → Zod schema)
 // ---------------------------------------------------------------------------
 
@@ -829,4 +913,10 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.UPDATE_RECONNECTED]: UpdateReconnectedPayloadSchema,
   [MESSAGE_TYPES.UPDATE_COMPLETE]: UpdateCompletePayloadSchema,
   [MESSAGE_TYPES.UPDATE_FAILED]: UpdateFailedPayloadSchema,
+  [MESSAGE_TYPES.DATA_EXPORT_REQUEST]: DataExportRequestPayloadSchema,
+  [MESSAGE_TYPES.DATA_EXPORT_PROGRESS]: DataExportProgressPayloadSchema,
+  [MESSAGE_TYPES.DATA_EXPORT_READY]: DataExportReadyPayloadSchema,
+  [MESSAGE_TYPES.DATA_IMPORT_VALIDATE]: DataImportValidatePayloadSchema,
+  [MESSAGE_TYPES.DATA_IMPORT_CONFIRM]: DataImportConfirmPayloadSchema,
+  [MESSAGE_TYPES.DATA_IMPORT_COMPLETE]: DataImportCompletePayloadSchema,
 } as const;

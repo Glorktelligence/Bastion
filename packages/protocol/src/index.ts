@@ -121,6 +121,12 @@ export type {
   UpdateReconnectedPayload,
   UpdateCompletePayload,
   UpdateFailedPayload,
+  DataExportRequestPayload,
+  DataExportProgressPayload,
+  DataExportReadyPayload,
+  DataImportValidatePayload,
+  DataImportConfirmPayload,
+  DataImportCompletePayload,
   MessagePayload,
 } from './types/messages.js';
 
@@ -298,6 +304,12 @@ export {
   UpdateReconnectedPayloadSchema,
   UpdateCompletePayloadSchema,
   UpdateFailedPayloadSchema,
+  DataExportRequestPayloadSchema,
+  DataExportProgressPayloadSchema,
+  DataExportReadyPayloadSchema,
+  DataImportValidatePayloadSchema,
+  DataImportConfirmPayloadSchema,
+  DataImportCompletePayloadSchema,
   PAYLOAD_SCHEMAS,
 } from './schemas/message.schema.js';
 

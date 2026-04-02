@@ -8,6 +8,7 @@ import type { ProjectFile, LoadingMode } from '$lib/stores/projects.js';
 import type { ProviderInfo } from '$lib/stores/provider.js';
 import type { ExtensionInfo } from '$lib/stores/extensions.js';
 import type { ConversationEntry } from '$lib/stores/conversations.js';
+import type { DataPortabilityState } from '$lib/session.js';
 import SettingsPanel from '$lib/components/SettingsPanel.svelte';
 
 // ---------------------------------------------------------------------------
@@ -45,6 +46,11 @@ let extensionMessageTypes = $state(0);
 
 // Conversation list — for memory filter dropdown (scoped per-conversation filtering)
 let convList: ConversationEntry[] = $state([]);
+
+// Data portability state
+let dpState: DataPortabilityState = $state(session.dataPortability.get());
+let importFileInput: HTMLInputElement | null = $state(null);
+let importFileError: string | null = $state(null);
 
 function handleToolRevoke(toolId: string): void {
   const client = session.getClient();
@@ -99,6 +105,7 @@ onMount(() => {
 		session.conversations.store.subscribe((v) => {
 			convList = v.conversations.filter((c: ConversationEntry) => !c.archived);
 		}),
+		session.dataPortability.subscribe((v) => { dpState = v; }),
 	];
 
 	// Request data when connected (not on mount — WebSocket may not be ready)
@@ -460,6 +467,132 @@ function formatSize(bytes: number): string {
 
 function getLoadingModeForFile(path: string): LoadingMode {
   return session.projects.getLoadingMode(path);
+}
+
+// ---------------------------------------------------------------------------
+// Data portability (GDPR Article 20)
+// ---------------------------------------------------------------------------
+
+function handleExportData(): void {
+  const client = session.getClient();
+  if (!client) return;
+  session.dataPortability.update((s) => ({
+    ...s,
+    exporting: true,
+    exportProgress: 0,
+    exportPhase: 'Requesting export...',
+    exportReady: false,
+    exportFilename: null,
+    exportTransferId: null,
+    exportSizeBytes: 0,
+    exportCounts: null,
+    importComplete: null,
+  }));
+  client.send(JSON.stringify({
+    type: 'data_export_request',
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: session.IDENTITY,
+    payload: { format: 'bdp' },
+  }));
+}
+
+function handleImportClick(): void {
+  importFileError = null;
+  importFileInput?.click();
+}
+
+function handleImportFileChange(e: Event): void {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  importFileError = null;
+
+  if (!file.name.endsWith('.bdp') && !file.name.endsWith('.zip')) {
+    importFileError = 'Only .bdp (Bastion Data Package) files are accepted';
+    input.value = '';
+    return;
+  }
+
+  const client = session.getClient();
+  if (!client) {
+    importFileError = 'Not connected to relay';
+    input.value = '';
+    return;
+  }
+
+  session.dataPortability.update((s) => ({ ...s, importing: true, importValidation: null, importComplete: null }));
+
+  const transferId = crypto.randomUUID();
+  session.fileTransfers.startUpload(transferId, file.name, file.size);
+
+  const reader = new FileReader();
+  reader.onload = async (): Promise<void> => {
+    try {
+      const data = new Uint8Array(reader.result as ArrayBuffer);
+      const hashBuf = await globalThis.crypto.subtle.digest('SHA-256', data);
+      const hash = Array.from(new Uint8Array(hashBuf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+
+      client.send(JSON.stringify({
+        type: 'file_manifest',
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        sender: session.IDENTITY,
+        payload: {
+          transferId,
+          filename: file.name,
+          sizeBytes: file.size,
+          hash,
+          hashAlgorithm: 'sha256',
+          mimeType: 'application/zip',
+          purpose: 'import',
+          projectContext: 'data import',
+        },
+      }));
+      session.fileTransfers.updateUploadPhase(transferId, 'uploading');
+    } catch (err) {
+      importFileError = `Upload failed: ${err instanceof Error ? err.message : String(err)}`;
+      session.dataPortability.update((s) => ({ ...s, importing: false }));
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  input.value = '';
+}
+
+function handleImportConfirm(): void {
+  const client = session.getClient();
+  const validation = dpState.importValidation;
+  if (!client || !validation) return;
+
+  session.dataPortability.update((s) => ({ ...s, importing: true }));
+
+  client.send(JSON.stringify({
+    type: 'data_import_confirm',
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: session.IDENTITY,
+    payload: {
+      importConversations: true,
+      importMemories: true,
+      importProjectFiles: true,
+      importSkills: true,
+      importConfig: false,
+      conflictResolutions: validation.conflicts.map((c) => ({
+        type: c.type,
+        path: c.path,
+        action: 'skip' as const,
+      })),
+    },
+  }));
+}
+
+function handleImportDismiss(): void {
+  session.dataPortability.update((s) => ({
+    ...s,
+    importing: false,
+    importValidation: null,
+    importComplete: null,
+  }));
 }
 
 function handleContextSave(): void {
@@ -838,6 +971,118 @@ function handleContextSave(): void {
 		/>
 	</section>
 
+	<section class="section">
+		<h3>Data & Privacy <span class="mem-count">GDPR Article 20</span></h3>
+		<p class="hint">Export all your data or import from a previous export. Exports produce a .bdp (Bastion Data Package) file.</p>
+
+		<input type="file" class="file-input-hidden" accept=".bdp,.zip" bind:this={importFileInput} onchange={handleImportFileChange} />
+
+		{#if importFileError}
+			<div class="airlock-error">
+				<span>{importFileError}</span>
+				<button class="toast-dismiss" onclick={() => { importFileError = null; }}>×</button>
+			</div>
+		{/if}
+
+		<div class="dp-section">
+			<h4 class="dp-subtitle">Export</h4>
+			<p class="hint" style="margin-top:0">Download all your conversations, memories, project files, skills, and configuration.</p>
+
+			{#if dpState.exporting}
+				<div class="dp-progress">
+					<div class="dp-progress-bar">
+						<div class="dp-progress-fill" style="width: {dpState.exportProgress}%"></div>
+					</div>
+					<span class="dp-progress-label">{dpState.exportProgress}% — {dpState.exportPhase}</span>
+				</div>
+			{:else if dpState.exportReady && dpState.exportFilename}
+				<div class="dp-ready">
+					<span class="dp-ready-icon">&#10003;</span>
+					<div class="dp-ready-info">
+						<span class="dp-ready-filename">{dpState.exportFilename}</span>
+						<span class="dp-ready-size">{formatSize(dpState.exportSizeBytes)}</span>
+						{#if dpState.exportCounts}
+							<span class="dp-ready-counts">
+								{dpState.exportCounts.conversations} conversations, {dpState.exportCounts.memories} memories, {dpState.exportCounts.projectFiles} project files, {dpState.exportCounts.skills} skills
+							</span>
+						{/if}
+					</div>
+				</div>
+			{:else}
+				<button class="btn-save" onclick={handleExportData} disabled={!session.getClient()}>
+					Export All Data
+				</button>
+				{#if !session.getClient()}
+					<span class="hint">Connect to relay first</span>
+				{/if}
+			{/if}
+		</div>
+
+		<div class="dp-section">
+			<h4 class="dp-subtitle">Import</h4>
+			<p class="hint" style="margin-top:0">Import data from a .bdp file. Conversations are appended, memories are deduplicated.</p>
+
+			{#if dpState.importing && !dpState.importValidation}
+				<span class="hint">Uploading and validating...</span>
+			{:else if dpState.importValidation}
+				{#if dpState.importValidation.valid}
+					<div class="dp-import-preview">
+						<div class="dp-preview-header">Import Preview <span class="mem-count">v{dpState.importValidation.version}, exported {new Date(dpState.importValidation.exportedAt).toLocaleDateString()}</span></div>
+						<div class="dp-preview-counts">
+							<span>{dpState.importValidation.contents.conversations} conversations</span>
+							<span>{dpState.importValidation.contents.memories} memories</span>
+							<span>{dpState.importValidation.contents.projectFiles} project files</span>
+							<span>{dpState.importValidation.contents.skills} skills</span>
+							{#if dpState.importValidation.contents.hasConfig}
+								<span>+ config</span>
+							{/if}
+						</div>
+						{#if dpState.importValidation.conflicts.length > 0}
+							<div class="dp-conflicts">
+								<span class="dp-conflicts-label">Conflicts ({dpState.importValidation.conflicts.length}):</span>
+								{#each dpState.importValidation.conflicts as conflict}
+									<div class="dp-conflict-item">
+										<span class="mem-badge" style="background: #f59e0b20; color: #f59e0b">{conflict.type}</span>
+										<span>{conflict.path}: {conflict.detail}</span>
+									</div>
+								{/each}
+							</div>
+						{/if}
+						<div class="dp-import-actions">
+							<button class="btn-save" onclick={handleImportConfirm} disabled={dpState.importing}>
+								{dpState.importing ? 'Importing...' : 'Import Selected'}
+							</button>
+							<button class="btn-sm btn-cancel" onclick={handleImportDismiss}>Cancel</button>
+						</div>
+					</div>
+				{:else}
+					<div class="airlock-error">
+						<span>Validation failed: {dpState.importValidation.errors.join(', ')}</span>
+						<button class="toast-dismiss" onclick={handleImportDismiss}>×</button>
+					</div>
+				{/if}
+			{:else if dpState.importComplete}
+				<div class="dp-import-result">
+					<span class="dp-ready-icon">&#10003;</span>
+					<div class="dp-ready-info">
+						<span>Imported: {dpState.importComplete.imported.conversations}c {dpState.importComplete.imported.memories}m {dpState.importComplete.imported.projectFiles}p {dpState.importComplete.imported.skills}s</span>
+						{#if dpState.importComplete.errors.length > 0}
+							<span class="dp-import-errors">{dpState.importComplete.errors.length} error(s)</span>
+						{/if}
+					</div>
+					<button class="btn-sm btn-cancel" onclick={handleImportDismiss}>Dismiss</button>
+				</div>
+			{:else}
+				<button class="btn-airlock" onclick={handleImportClick} disabled={!session.getClient()}>
+					Import Data
+				</button>
+				{#if !session.getClient()}
+					<span class="hint">Connect to relay first</span>
+				{/if}
+			{/if}
+		</div>
+	</section>
+
 	<section class="section danger-zone">
 		<h3>Danger Zone</h3>
 		{#if showResetConfirm}
@@ -1163,6 +1408,44 @@ function handleContextSave(): void {
 		color: #ef4444;
 		line-height: 1.3;
 	}
+
+	/* Data portability */
+	.dp-section { margin-top: 0.75rem; }
+	.dp-subtitle { font-size: 0.85rem; color: var(--color-text); margin-bottom: 0.375rem; }
+
+	.dp-progress { display: flex; flex-direction: column; gap: 0.25rem; }
+	.dp-progress-bar { height: 8px; background: color-mix(in srgb, var(--color-text-muted) 15%, transparent); border-radius: 4px; overflow: hidden; }
+	.dp-progress-fill { height: 100%; background: var(--color-accent, #4a9eff); transition: width 0.3s; border-radius: 4px; }
+	.dp-progress-label { font-size: 0.75rem; color: var(--color-text-muted); }
+
+	.dp-ready, .dp-import-result {
+		display: flex; align-items: center; gap: 0.625rem;
+		padding: 0.625rem; background: color-mix(in srgb, #22c55e 8%, transparent);
+		border: 1px solid color-mix(in srgb, #22c55e 25%, transparent);
+		border-radius: 0.375rem;
+	}
+	.dp-ready-icon { color: #22c55e; font-size: 1.25rem; font-weight: bold; flex-shrink: 0; }
+	.dp-ready-info { display: flex; flex-direction: column; gap: 0.125rem; font-size: 0.8rem; color: var(--color-text); }
+	.dp-ready-filename { font-family: monospace; font-size: 0.75rem; }
+	.dp-ready-size { font-size: 0.7rem; color: var(--color-text-muted); }
+	.dp-ready-counts { font-size: 0.7rem; color: var(--color-text-muted); }
+
+	.dp-import-preview {
+		padding: 0.625rem; background: var(--color-bg, #0f0f23);
+		border: 1px solid var(--color-accent, #4a9eff);
+		border-radius: 0.375rem;
+	}
+	.dp-preview-header { font-size: 0.85rem; font-weight: 500; color: var(--color-text); margin-bottom: 0.375rem; }
+	.dp-preview-counts {
+		display: flex; flex-wrap: wrap; gap: 0.5rem;
+		font-size: 0.75rem; color: var(--color-text-muted);
+		margin-bottom: 0.5rem;
+	}
+	.dp-conflicts { margin-bottom: 0.5rem; }
+	.dp-conflicts-label { font-size: 0.7rem; color: #f59e0b; display: block; margin-bottom: 0.25rem; }
+	.dp-conflict-item { display: flex; align-items: center; gap: 0.375rem; font-size: 0.7rem; color: var(--color-text-muted); margin-bottom: 0.125rem; }
+	.dp-import-actions { display: flex; gap: 0.375rem; align-items: center; }
+	.dp-import-errors { color: #ef4444; font-size: 0.7rem; }
 
 	/* Add Memory button */
 	.add-memory-form {

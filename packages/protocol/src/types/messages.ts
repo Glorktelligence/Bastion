@@ -803,6 +803,88 @@ export interface UpdateFailedPayload {
 }
 
 // ---------------------------------------------------------------------------
+// Data Portability (GDPR Article 20)
+// ---------------------------------------------------------------------------
+
+/** Human → AI: Request a full data export (.bdp file). */
+export interface DataExportRequestPayload {
+  readonly format: 'bdp';
+}
+
+/** AI → Human: Export progress update. */
+export interface DataExportProgressPayload {
+  readonly percentage: number;
+  readonly phase: string;
+}
+
+/** AI → Human: Export file is ready for download via file airlock. */
+export interface DataExportReadyPayload {
+  readonly transferId: string;
+  readonly filename: string;
+  readonly sizeBytes: number;
+  readonly hash: string;
+  readonly contentCounts: {
+    readonly conversations: number;
+    readonly memories: number;
+    readonly projectFiles: number;
+    readonly skills: number;
+  };
+}
+
+/** AI → Human: Validation result after import file received via airlock. */
+export interface DataImportValidatePayload {
+  readonly valid: boolean;
+  readonly format: string;
+  readonly version: string;
+  readonly exportedAt: string;
+  readonly contents: {
+    readonly conversations: number;
+    readonly memories: number;
+    readonly projectFiles: number;
+    readonly skills: number;
+    readonly hasConfig: boolean;
+  };
+  readonly conflicts: readonly {
+    readonly type: 'project_file' | 'skill' | 'memory';
+    readonly path: string;
+    readonly detail: string;
+  }[];
+  readonly errors: readonly string[];
+}
+
+/** Human → AI: Confirm which data to import. */
+export interface DataImportConfirmPayload {
+  readonly importConversations: boolean;
+  readonly importMemories: boolean;
+  readonly importProjectFiles: boolean;
+  readonly importSkills: boolean;
+  readonly importConfig: boolean;
+  readonly conflictResolutions: readonly {
+    readonly type: 'project_file' | 'skill' | 'memory';
+    readonly path: string;
+    readonly action: 'keep' | 'replace' | 'skip';
+  }[];
+}
+
+/** AI → Human: Import complete with summary. */
+export interface DataImportCompletePayload {
+  readonly imported: {
+    readonly conversations: number;
+    readonly memories: number;
+    readonly projectFiles: number;
+    readonly skills: number;
+    readonly configSections: number;
+  };
+  readonly skipped: {
+    readonly conversations: number;
+    readonly memories: number;
+    readonly projectFiles: number;
+    readonly skills: number;
+  };
+  readonly errors: readonly string[];
+}
+
+// ---------------------------------------------------------------------------
 // Discriminated union of all payload types
 // ---------------------------------------------------------------------------
 
@@ -887,4 +969,10 @@ export type MessagePayload =
   | { type: 'update_restart'; payload: UpdateRestartPayload }
   | { type: 'update_reconnected'; payload: UpdateReconnectedPayload }
   | { type: 'update_complete'; payload: UpdateCompletePayload }
-  | { type: 'update_failed'; payload: UpdateFailedPayload };
+  | { type: 'update_failed'; payload: UpdateFailedPayload }
+  | { type: 'data_export_request'; payload: DataExportRequestPayload }
+  | { type: 'data_export_progress'; payload: DataExportProgressPayload }
+  | { type: 'data_export_ready'; payload: DataExportReadyPayload }
+  | { type: 'data_import_validate'; payload: DataImportValidatePayload }
+  | { type: 'data_import_confirm'; payload: DataImportConfirmPayload }
+  | { type: 'data_import_complete'; payload: DataImportCompletePayload };

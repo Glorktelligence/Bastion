@@ -1,6 +1,6 @@
 {
   "name": "@bastion/tests",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "private": true,
   "type": "module",
   "description": "Cross-package protocol validation and integration tests",

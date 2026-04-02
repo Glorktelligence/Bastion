@@ -94,3 +94,17 @@ export type {
   BudgetStatus,
   BudgetGuardOptions,
 } from './budget-guard.js';
+
+// Data Portability (GDPR Article 20)
+export { DataExporter } from './data-exporter.js';
+export type { ExportManifest, ExportProgress, DataExporterConfig } from './data-exporter.js';
+export { ImportRegistry, BastionImportAdapter, ImportExecutor } from './data-importer.js';
+export type {
+  ImportAdapter,
+  ImportValidation,
+  ImportConflict,
+  ImportData,
+  ImportSelections,
+  ImportResult,
+  ImportStoreRefs,
+} from './data-importer.js';
