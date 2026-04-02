@@ -1713,20 +1713,27 @@ client.on('message', async (data) => {
         }
 
         const counts = dataExporter.getContentCounts();
+        const transferId = stageResult.metadata.transferId;
 
-        // Send file offer through relay (file airlock)
+        // Submit file through relay's file airlock (file_manifest with fileData).
+        // The relay intercepts file_manifest, quarantines the bytes, verifies
+        // the hash, and generates a file_offer to the human client.
+        const fileDataB64 = Buffer.from(exportBuffer).toString('base64');
         client.send(JSON.stringify({
-          type: 'file_offer',
+          type: 'file_manifest',
           id: randomUUID(),
           timestamp: new Date().toISOString(),
           sender: IDENTITY,
           payload: {
-            transferId: stageResult.metadata.transferId,
+            transferId,
             filename,
             sizeBytes: exportBuffer.length,
             hash,
+            hashAlgorithm: 'sha256',
             mimeType: 'application/zip',
-            purpose: 'data_export',
+            purpose: 'export',
+            projectContext: 'data export',
+            fileData: fileDataB64,
           },
         }));
 
@@ -1737,7 +1744,7 @@ client.on('message', async (data) => {
           timestamp: new Date().toISOString(),
           sender: IDENTITY,
           payload: {
-            transferId: stageResult.metadata.transferId,
+            transferId,
             filename,
             sizeBytes: exportBuffer.length,
             hash,
@@ -1745,7 +1752,7 @@ client.on('message', async (data) => {
           },
         }));
 
-        console.log(`[✓] Data export ready: ${filename} (${exportBuffer.length} bytes)`);
+        console.log(`[✓] Data export ready: ${filename} (${exportBuffer.length} bytes, submitted via file_manifest)`);
       } catch (err) {
         console.error(`[!] Data export failed: ${err.message}`);
         client.send(JSON.stringify({

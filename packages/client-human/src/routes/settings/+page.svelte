@@ -371,6 +371,7 @@ function handleAirlockFileChange(e: Event): void {
       const hash = Array.from(new Uint8Array(hashBuf)).map((b) => b.toString(16).padStart(2, '0')).join('');
       const mimeType = file.type || 'application/octet-stream';
 
+      const fileDataB64 = btoa(String.fromCharCode(...data));
       client.send(JSON.stringify({
         type: 'file_manifest',
         id: crypto.randomUUID(),
@@ -385,6 +386,7 @@ function handleAirlockFileChange(e: Event): void {
           mimeType,
           purpose: airlockPurpose,
           projectContext: airlockPurpose === 'skill' ? 'skill upload' : 'project file upload',
+          fileData: fileDataB64,
         },
       }));
       session.fileTransfers.updateUploadPhase(transferId, 'uploading');
@@ -533,6 +535,7 @@ function handleImportFileChange(e: Event): void {
       const hashBuf = await globalThis.crypto.subtle.digest('SHA-256', data);
       const hash = Array.from(new Uint8Array(hashBuf)).map((b) => b.toString(16).padStart(2, '0')).join('');
 
+      const importFileDataB64 = btoa(String.fromCharCode(...data));
       client.send(JSON.stringify({
         type: 'file_manifest',
         id: crypto.randomUUID(),
@@ -547,6 +550,7 @@ function handleImportFileChange(e: Event): void {
           mimeType: 'application/zip',
           purpose: 'import',
           projectContext: 'data import',
+          fileData: importFileDataB64,
         },
       }));
       session.fileTransfers.updateUploadPhase(transferId, 'uploading');

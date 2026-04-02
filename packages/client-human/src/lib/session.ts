@@ -621,6 +621,108 @@ function handleRelayMessage(data: string): void {
   const id = String(envelope.id ?? crypto.randomUUID());
   const timestamp = String(envelope.timestamp ?? new Date().toISOString());
 
+  // -----------------------------------------------------------------------
+  // File transfer messages — airlock UI
+  // -----------------------------------------------------------------------
+
+  // file_offer: relay sends this when a peer has a file for us (AI→human)
+  if (type === 'file_offer') {
+    const p = payload as Record<string, unknown>;
+    fileTransfers.receiveOffer(
+      id,
+      {
+        transferId: String(p.transferId ?? ''),
+        filename: String(p.filename ?? ''),
+        sizeBytes: Number(p.sizeBytes ?? 0),
+        hash: String(p.hash ?? ''),
+        mimeType: String(p.mimeType ?? ''),
+        purpose: String(p.purpose ?? ''),
+        taskId: p.taskId ? String(p.taskId) : undefined,
+      } as never,
+      sender.displayName,
+    );
+    addNotification(`File offer: ${String(p.filename ?? 'unknown')}`, 'info');
+    return;
+  }
+
+  // file_data: relay delivers actual file bytes (base64) after we accepted
+  if (type === 'file_data') {
+    const transferId = String(envelope.transferId ?? (payload as Record<string, unknown>).transferId ?? '');
+    const fileDataB64 = String(envelope.fileData ?? (payload as Record<string, unknown>).fileData ?? '');
+    const filename = String(envelope.filename ?? (payload as Record<string, unknown>).filename ?? 'download');
+    const declaredHash = String(envelope.hash ?? (payload as Record<string, unknown>).hash ?? '');
+
+    if (!fileDataB64 || !transferId) {
+      console.error('[Bastion] file_data missing transferId or fileData');
+      return;
+    }
+
+    // Decode base64 → Uint8Array
+    const binaryStr = atob(fileDataB64);
+    const fileBytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      fileBytes[i] = binaryStr.charCodeAt(i);
+    }
+
+    // Verify hash at delivery (3rd stage of custody chain)
+    globalThis.crypto.subtle
+      .digest('SHA-256', fileBytes)
+      .then((hashBuf) => {
+        const actualHash = Array.from(new Uint8Array(hashBuf))
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('');
+        if (declaredHash && actualHash !== declaredHash) {
+          console.error(
+            `[Bastion] BASTION-5001: Hash mismatch — expected ${declaredHash.slice(0, 12)}, got ${actualHash.slice(0, 12)}`,
+          );
+          addNotification('File delivery failed: hash verification error', 'error');
+          fileTransfers.updateUploadPhase(transferId, 'failed', 'Hash mismatch at delivery');
+          return;
+        }
+
+        // Trigger browser download via DOM (only in browser context)
+        // eslint-disable-next-line -- DOM types not in tsconfig lib
+        const g = globalThis as Record<string, unknown>;
+        if (typeof g.Blob === 'function' && typeof g.URL === 'object') {
+          const blob = new (g.Blob as new (a: unknown[], o: Record<string, string>) => unknown)([fileBytes], {
+            type: 'application/octet-stream',
+          });
+          const url = (g.URL as { createObjectURL: (b: unknown) => string }).createObjectURL(blob);
+          const doc = g.document as
+            | {
+                createElement: (t: string) => Record<string, unknown>;
+                body: { appendChild: (e: unknown) => void; removeChild: (e: unknown) => void };
+              }
+            | undefined;
+          if (doc) {
+            const a = doc.createElement('a');
+            a.href = url;
+            a.download = filename;
+            doc.body.appendChild(a);
+            (a.click as () => void)();
+            doc.body.removeChild(a);
+          }
+          (g.URL as { revokeObjectURL: (u: string) => void }).revokeObjectURL(url);
+        }
+
+        addNotification(`File downloaded: ${filename}`, 'success');
+
+        // Update history
+        fileTransfers.appendCustodyEvent(transferId, {
+          event: 'delivered',
+          timestamp: new Date().toISOString(),
+          actor: 'relay',
+          hash: actualHash,
+          detail: `File delivered and verified (${fileBytes.length} bytes)`,
+        });
+      })
+      .catch((err) => {
+        console.error('[Bastion] Hash verification failed:', err);
+      });
+
+    return;
+  }
+
   // Challenge messages → challenges store + tasks store
   if (type === 'challenge') {
     const p = payload as Record<string, unknown>;
