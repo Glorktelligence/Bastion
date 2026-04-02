@@ -41,7 +41,12 @@ export type {
 
 // Conversation Manager
 export { ConversationManager } from './conversation-manager.js';
-export type { ConversationMessage, ConversationManagerConfig } from './conversation-manager.js';
+export type {
+  ConversationMessage,
+  ConversationManagerConfig,
+  PromptZone,
+  PromptBudgetReport,
+} from './conversation-manager.js';
 
 // Conversation Store (multi-conversation persistence)
 export { ConversationStore } from './conversation-store.js';

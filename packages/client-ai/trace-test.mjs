@@ -1436,6 +1436,95 @@ async function run() {
   console.log();
 
   // -------------------------------------------------------------------
+  // Test: Prompt Zone Compartmentalization
+  // -------------------------------------------------------------------
+  console.log('--- Test: Prompt Zone Compartmentalization ---');
+  {
+    const cm = new ConversationManager({
+      systemBudget: 5000,
+      operatorBudget: 2000,
+      userBudget: 20000,
+      maxContextTokens: 200000,
+      maxOutputTokens: 4096,
+      userContextPath: '/tmp/bastion-zone-test-user-' + Date.now() + '.md',
+      operatorContextPath: '/tmp/bastion-zone-test-operator-' + Date.now() + '.md',
+    });
+
+    // assemblePrompt returns prompt + report
+    const { prompt, report } = cm.assemblePrompt();
+
+    check('assemblePrompt returns string', typeof prompt === 'string' && prompt.length > 0);
+    check('report has 4 zones', report.zones.length === 4);
+
+    const systemZ = report.zones.find(z => z.name === 'system');
+    const operatorZ = report.zones.find(z => z.name === 'operator');
+    const userZ = report.zones.find(z => z.name === 'user');
+    const dynamicZ = report.zones.find(z => z.name === 'dynamic');
+
+    check('system zone exists', !!systemZ);
+    check('operator zone exists', !!operatorZ);
+    check('user zone exists', !!userZ);
+    check('dynamic zone exists', !!dynamicZ);
+
+    // System zone stays within budget
+    check('system zone under budget', systemZ.tokenCount <= systemZ.budget, `${systemZ.tokenCount} > ${systemZ.budget}`);
+    check('system zone budget is 5000', systemZ.budget === 5000);
+    check('system zone has soul layers', systemZ.components.includes('Layer 0: Core'));
+
+    // Operator zone empty without operator-context.md
+    check('operator zone budget is 2000', operatorZ.budget === 2000);
+    check('operator zone empty (no file)', operatorZ.tokenCount === 0);
+    check('operator zone not truncated', !operatorZ.truncated);
+
+    // User zone empty without user context or memories
+    check('user zone budget is 20000', userZ.budget === 20000);
+    check('user zone empty (no context)', userZ.tokenCount === 0);
+
+    // Dynamic zone gets remaining budget
+    check('dynamic zone budget > 0', dynamicZ.budget > 0);
+
+    // Report totals
+    check('totalTokens matches sum', report.totalTokens === systemZ.tokenCount + operatorZ.tokenCount + userZ.tokenCount + dynamicZ.tokenCount);
+    check('maxContextTokens is 200000', report.maxContextTokens === 200000);
+    check('available > 0', report.available > 0);
+    check('utilization between 0-100', report.utilizationPercent >= 0 && report.utilizationPercent <= 100);
+
+    // Backward compatibility: getSystemPrompt returns same content
+    const legacyPrompt = cm.getSystemPrompt();
+    check('getSystemPrompt returns same as assemblePrompt', legacyPrompt === prompt);
+
+    // Budget report method
+    const reportOnly = cm.getPromptBudgetReport();
+    check('getPromptBudgetReport has 4 zones', reportOnly.zones.length === 4);
+    check('budget report totalTokens matches', reportOnly.totalTokens === report.totalTokens);
+
+    // Test budget enforcement: system zone with small budget
+    const cmSmall = new ConversationManager({
+      systemBudget: 100, // tiny — will truncate soul document
+      operatorBudget: 100,
+      userBudget: 100,
+      maxContextTokens: 200000,
+      maxOutputTokens: 4096,
+      userContextPath: '/tmp/bastion-zone-test-user2-' + Date.now() + '.md',
+      operatorContextPath: '/tmp/bastion-zone-test-op2-' + Date.now() + '.md',
+    });
+
+    const smallReport = cmSmall.getPromptBudgetReport();
+    const smallSystem = smallReport.zones.find(z => z.name === 'system');
+    check('system zone truncated when budget tiny', smallSystem.truncated);
+    check('system zone token count <= budget', smallSystem.tokenCount <= smallSystem.budget);
+
+    // Zone isolation: user context doesn't bleed into system zone
+    cmSmall.updateUserContext('This is user data that must not appear in system zone.');
+    const isolationReport = cmSmall.getPromptBudgetReport();
+    const isoSystem = isolationReport.zones.find(z => z.name === 'system');
+    const isoUser = isolationReport.zones.find(z => z.name === 'user');
+    check('system zone does not contain user data', !isoSystem.content.includes('This is user data'));
+    check('user zone contains user data', isoUser.content.includes('This is user data'));
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
   // Test: MemoryStore — CRUD and prompt injection
   // -------------------------------------------------------------------
   console.log('--- Test: MemoryStore ---');

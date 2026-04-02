@@ -224,18 +224,30 @@ console.log(`[✓] Challenge manager: ${challengeManager.enabled ? 'ENABLED' : '
 // Conversation manager — session context + user context + memories + project
 // ---------------------------------------------------------------------------
 
-// Token budget defaults to the default adapter's context window (Sonnet),
-// but can be overridden by deployer. The budget is for the messages array
-// only — system prompt, memories, project context are separate.
+// Compartmentalized prompt budgets — deployer env vars set ceilings
+const SYSTEM_BUDGET = 5000; // hardcoded, not configurable
+const OPERATOR_BUDGET = parseInt(process.env.BASTION_OPERATOR_CONTEXT_BUDGET || '2000', 10);
+const USER_BUDGET = parseInt(process.env.BASTION_USER_CONTEXT_BUDGET || '20000', 10);
+
 const conversationManager = new ConversationManager({
   tokenBudget: parseInt(process.env.BASTION_TOKEN_BUDGET || String(SONNET_MAX_CONTEXT), 10),
   userContextPath: process.env.BASTION_USER_CONTEXT_PATH || '/var/lib/bastion-ai/user-context.md',
+  operatorContextPath: process.env.BASTION_OPERATOR_CONTEXT_PATH || '/var/lib/bastion-ai/operator-context.md',
+  systemBudget: SYSTEM_BUDGET,
+  operatorBudget: OPERATOR_BUDGET,
+  userBudget: USER_BUDGET,
+  maxContextTokens: SONNET_MAX_CONTEXT,
+  maxOutputTokens: MAX_TOKENS,
   memoryStore,
   projectStore,
   challengeManager,
   skillStore,
 });
-console.log(`[✓] Conversation manager initialised (budget: ${conversationManager.estimateTokenCount() || 0} base tokens)`);
+
+// Log prompt budget report
+const budgetReport = conversationManager.getPromptBudgetReport();
+const zonesSummary = budgetReport.zones.map(z => `${z.tokenCount.toLocaleString()}/${z.budget.toLocaleString()} ${z.name}`).join(' + ');
+console.log(`[✓] System prompt: ${zonesSummary} = ${budgetReport.totalTokens.toLocaleString()} total`);
 if (conversationManager.getUserContext()) {
   console.log(`[✓] User context loaded (${conversationManager.getUserContext().length} chars)`);
 }

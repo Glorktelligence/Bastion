@@ -82,6 +82,8 @@ export type {
   FetchFn,
   ConversationMessage,
   ConversationManagerConfig,
+  PromptZone,
+  PromptBudgetReport,
   ConversationRecord,
   MessageRecord,
   ChainVerification,

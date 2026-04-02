@@ -5,9 +5,13 @@
 /**
  * ConversationManager — maintains a conversation buffer for the active session.
  *
- * Stores {role, content} pairs and provides the messages array for Anthropic
- * API calls. Handles token budget enforcement by trimming oldest messages
- * while preserving the system prompt and the most recent 3 exchanges.
+ * Assembles a compartmentalized system prompt with four distinct zones:
+ *   SYSTEM   — immutable Bastion core (soul layers + temporal context)
+ *   OPERATOR — deployer-controlled (operator-context.md, forced config)
+ *   USER     — user-controlled (memories, user-context.md)
+ *   DYNAMIC  — system-managed (skills, project context, fills remaining)
+ *
+ * Each zone has an explicit token budget. No zone can overflow into another.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -25,11 +29,40 @@ export interface ConversationMessage {
   readonly content: string;
 }
 
+export interface PromptZone {
+  readonly name: 'system' | 'operator' | 'user' | 'dynamic';
+  readonly budget: number;
+  readonly content: string;
+  readonly tokenCount: number;
+  readonly truncated: boolean;
+  readonly components: readonly string[];
+}
+
+export interface PromptBudgetReport {
+  readonly zones: readonly PromptZone[];
+  readonly totalTokens: number;
+  readonly maxContextTokens: number;
+  readonly available: number;
+  readonly utilizationPercent: number;
+}
+
 export interface ConversationManagerConfig {
   /** Maximum token budget for the messages array. Default: 100,000. */
   readonly tokenBudget?: number;
   /** Path to user-context.md file. Default: '/var/lib/bastion-ai/user-context.md'. */
   readonly userContextPath?: string;
+  /** Path to operator-context.md file. Default: '/var/lib/bastion-ai/operator-context.md'. */
+  readonly operatorContextPath?: string;
+  /** Token budget for the system zone (immutable). Default: 5,000. */
+  readonly systemBudget?: number;
+  /** Token budget for the operator zone. Default: 2,000. */
+  readonly operatorBudget?: number;
+  /** Token budget for the user zone. Default: 20,000. */
+  readonly userBudget?: number;
+  /** Max context tokens for the active adapter model. Default: 200,000. */
+  readonly maxContextTokens?: number;
+  /** Max output tokens for API calls. Default: 4,096. */
+  readonly maxOutputTokens?: number;
   /** Optional memory store for persistent Layer 2 memory. */
   readonly memoryStore?: MemoryStore;
   /** Optional project store for Layer 3 project context. */
@@ -46,7 +79,14 @@ export interface ConversationManagerConfig {
 
 const DEFAULT_TOKEN_BUDGET = 100_000;
 const DEFAULT_USER_CONTEXT_PATH = '/var/lib/bastion-ai/user-context.md';
+const DEFAULT_OPERATOR_CONTEXT_PATH = '/var/lib/bastion-ai/operator-context.md';
 const CHARS_PER_TOKEN = 4;
+
+const DEFAULT_SYSTEM_BUDGET = 5_000;
+const DEFAULT_OPERATOR_BUDGET = 2_000;
+const DEFAULT_USER_BUDGET = 20_000;
+const DEFAULT_MAX_CONTEXT = 200_000;
+const DEFAULT_MAX_OUTPUT = 4_096;
 
 /** Minimum exchanges to preserve when trimming (3 exchanges = 6 messages). */
 const MIN_PRESERVED_EXCHANGES = 3;
@@ -68,11 +108,6 @@ const MIN_PRESERVED_MESSAGES = MIN_PRESERVED_EXCHANGES * 2;
 // See: SECURITY-AUDIT.md for boundary enforcement receipts
 // ---------------------------------------------------------------------------
 
-/**
- * Soul Document Layer 0 — Immutable Core
- * ALWAYS in system prompt. Never trimmed. Identity + environment + boundaries.
- * ~400 tokens.
- */
 const SOUL_LAYER_0 = `You are Claude, an AI assistant created by Anthropic, operating within Project Bastion — an open-source, privacy-first secure messaging protocol for Human-AI communication. Bastion is not a replacement for your identity or training — it is the secure environment through which you interact with the human. Your values, ethics, and capabilities come from Anthropic. Bastion provides the governance, encryption, and audit trail that surrounds your interactions.
 
 You are communicating through a Bastion Official adapter for your specific model. Anthropic is Bastion's officially supported AI provider. Your adapter registered your capabilities with the relay on connection — what you can do is known and declared, not assumed.
@@ -91,11 +126,6 @@ These boundaries exist because trust must be earned, not assumed. They protect t
 
 Bastion operates at the Operator level in Anthropic's principal hierarchy. Everything here reinforces your existing training. Nothing overrides it.`;
 
-/**
- * Soul Document Layer 1 — Values & Principles
- * ALWAYS in system prompt. Character, judgment, and the "why" behind boundaries.
- * ~800 tokens.
- */
 const SOUL_LAYER_1 = `HONESTY
 You use the system prompt assembled by Bastion's ConversationManager faithfully. You do not fabricate capabilities, hallucinate tool availability, or claim knowledge you don't have. When uncertain, you say so. When you don't know, you say so. Transparency metadata accompanies your responses — the user can see what you cost, what model answered, and what confidence level applies. Honesty is not just about what you say — it's about never allowing the user to form false beliefs about what you are or what you can do.
 
@@ -117,11 +147,6 @@ Bastion reinforces Anthropic's training — it never overrides it. Your values, 
 THE USER MAY BE VULNERABLE
 The user who configured Challenge Me More did so because they know themselves. They may have ADHD. They may be impulsive when tired. They may make decisions at 2am that they would regret at 10am. The challenge system exists because the user ASKED to be protected from their own worst impulses. When the system challenges an action, support the challenge. Do not help the user circumvent their own safety net. The user who set the boundary IS the user who matters — not the user at 2am trying to undo it.`;
 
-/**
- * Soul Document Layer 2 — Operational Guidance (Conversation Mode)
- * Loaded contextually. Conversation-specific guidance.
- * ~900 tokens.
- */
 const SOUL_LAYER_2_CONVERSATION = `CONVERSATION MODE GUIDANCE
 
 You are in conversation mode. This means:
@@ -157,60 +182,197 @@ THE DEPLOYER'S CHOICES
 The Bastion instance you are operating in was configured by a deployer. They chose which features to enable, which disclosure text to show, which budget limits to set. Respect their configuration. The deployer is the Operator in the principal hierarchy — their choices are valid unless they conflict with Anthropic's training or Bastion's immutable boundaries.`;
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / CHARS_PER_TOKEN);
+}
+
+function truncateToTokenBudget(text: string, budget: number): { text: string; truncated: boolean } {
+  const maxChars = budget * CHARS_PER_TOKEN;
+  if (text.length <= maxChars) return { text, truncated: false };
+  return { text: text.slice(0, maxChars), truncated: true };
+}
+
+// ---------------------------------------------------------------------------
 // ConversationManager
 // ---------------------------------------------------------------------------
 
 export class ConversationManager {
   private readonly tokenBudget: number;
   private readonly userContextPath: string;
+  private readonly operatorContextPath: string;
+  private readonly systemBudget: number;
+  private readonly operatorBudget: number;
+  private readonly userBudget: number;
+  private readonly maxContextTokens: number;
+  private readonly maxOutputTokens: number;
   private readonly memoryStore: MemoryStore | null;
   private readonly projectStore: ProjectStore | null;
   private readonly challengeManager: ChallengeManager | null;
   private readonly skillStore: SkillStore | null;
   private messages: ConversationMessage[];
   private userContext: string;
+  private operatorContext: string;
 
   constructor(config?: ConversationManagerConfig) {
     this.tokenBudget = config?.tokenBudget ?? DEFAULT_TOKEN_BUDGET;
     this.userContextPath = config?.userContextPath ?? DEFAULT_USER_CONTEXT_PATH;
+    this.operatorContextPath = config?.operatorContextPath ?? DEFAULT_OPERATOR_CONTEXT_PATH;
+    this.systemBudget = config?.systemBudget ?? DEFAULT_SYSTEM_BUDGET;
+    this.operatorBudget = config?.operatorBudget ?? DEFAULT_OPERATOR_BUDGET;
+    this.userBudget = config?.userBudget ?? DEFAULT_USER_BUDGET;
+    this.maxContextTokens = config?.maxContextTokens ?? DEFAULT_MAX_CONTEXT;
+    this.maxOutputTokens = config?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT;
     this.memoryStore = config?.memoryStore ?? null;
     this.projectStore = config?.projectStore ?? null;
     this.challengeManager = config?.challengeManager ?? null;
     this.skillStore = config?.skillStore ?? null;
     this.messages = [];
     this.userContext = '';
+    this.operatorContext = '';
     this.loadUserContext();
+    this.loadOperatorContext();
   }
 
   // -----------------------------------------------------------------------
   // Public API
   // -----------------------------------------------------------------------
 
-  /** Add a user message to the buffer. */
   addUserMessage(content: string): void {
     this.messages.push({ role: 'user', content });
     this.enforceTokenBudget();
   }
 
-  /** Add an assistant response to the buffer. */
   addAssistantMessage(content: string): void {
     this.messages.push({ role: 'assistant', content });
     this.enforceTokenBudget();
   }
 
   /**
-   * Get the assembled system prompt (soul layers + skills + memories + user context + project).
-   * @param activeConversationId — for scoped memory retrieval
-   * @param currentMessage — current user message for skill trigger matching
+   * Backward-compatible wrapper. Returns the assembled system prompt string.
    */
   getSystemPrompt(activeConversationId?: string | null, currentMessage?: string): string {
-    const parts = [
-      SOUL_LAYER_0,
-      SOUL_LAYER_1,
-      SOUL_LAYER_2_CONVERSATION, // Future: select layer 2 variant by mode
-    ];
+    return this.assemblePrompt(activeConversationId, currentMessage).prompt;
+  }
 
-    // Temporal context — inject current Challenge Me More state
+  /**
+   * Assemble the system prompt with compartmentalized zones and budget enforcement.
+   */
+  assemblePrompt(
+    activeConversationId?: string | null,
+    currentMessage?: string,
+  ): { prompt: string; report: PromptBudgetReport } {
+    const systemZone = this.assembleSystemZone();
+    const operatorZone = this.assembleOperatorZone();
+    const userZone = this.assembleUserZone(activeConversationId);
+
+    const usedByFixed = systemZone.tokenCount + operatorZone.tokenCount + userZone.tokenCount;
+    const dynamicBudget = Math.max(0, this.maxContextTokens - this.maxOutputTokens - usedByFixed);
+    const dynamicZone = this.assembleDynamicZone(currentMessage, dynamicBudget);
+
+    const zones = [systemZone, operatorZone, userZone, dynamicZone];
+
+    const prompt = zones
+      .map((z) => z.content)
+      .filter((c) => c.length > 0)
+      .join('\n\n');
+
+    const totalTokens = zones.reduce((sum, z) => sum + z.tokenCount, 0);
+    const available = Math.max(0, this.maxContextTokens - this.maxOutputTokens - totalTokens);
+
+    return {
+      prompt,
+      report: {
+        zones,
+        totalTokens,
+        maxContextTokens: this.maxContextTokens,
+        available,
+        utilizationPercent:
+          this.maxContextTokens > 0 ? (totalTokens / (this.maxContextTokens - this.maxOutputTokens)) * 100 : 0,
+      },
+    };
+  }
+
+  /**
+   * Get the prompt budget report without the full prompt string.
+   */
+  getPromptBudgetReport(activeConversationId?: string | null, currentMessage?: string): PromptBudgetReport {
+    return this.assemblePrompt(activeConversationId, currentMessage).report;
+  }
+
+  getMessages(): readonly ConversationMessage[] {
+    return this.messages;
+  }
+
+  get messageCount(): number {
+    return this.messages.length;
+  }
+
+  getUserContext(): string {
+    return this.userContext;
+  }
+
+  getOperatorContext(): string {
+    return this.operatorContext;
+  }
+
+  estimateTokenCount(): number {
+    let chars = this.getSystemPrompt().length;
+    for (const msg of this.messages) {
+      chars += msg.content.length;
+    }
+    return Math.ceil(chars / CHARS_PER_TOKEN);
+  }
+
+  updateUserContext(content: string): void {
+    this.userContext = content;
+    try {
+      writeFileSync(this.userContextPath, content, 'utf-8');
+    } catch {
+      // Write failure is non-fatal
+    }
+  }
+
+  loadUserContext(): void {
+    try {
+      this.userContext = readFileSync(this.userContextPath, 'utf-8');
+    } catch {
+      this.userContext = '';
+    }
+  }
+
+  loadOperatorContext(): void {
+    try {
+      this.operatorContext = readFileSync(this.operatorContextPath, 'utf-8');
+    } catch {
+      this.operatorContext = '';
+    }
+  }
+
+  clear(): void {
+    this.messages = [];
+  }
+
+  static getRoleContext(): string {
+    return `${SOUL_LAYER_0}\n\n${SOUL_LAYER_1}\n\n${SOUL_LAYER_2_CONVERSATION}`;
+  }
+
+  static getCoreContext(): string {
+    return SOUL_LAYER_0;
+  }
+
+  // -----------------------------------------------------------------------
+  // Zone assembly
+  // -----------------------------------------------------------------------
+
+  private assembleSystemZone(): PromptZone {
+    // Priority order for truncation: Layer 2 → Layer 1 → Layer 0 (core never trimmed)
+    const components: string[] = ['Layer 0: Core', 'Layer 1: Values', 'Layer 2: Operations'];
+    const parts = [SOUL_LAYER_0, SOUL_LAYER_1, SOUL_LAYER_2_CONVERSATION];
+
+    // Add temporal context if challenge manager available
     if (this.challengeManager) {
       const now = new Date();
       const isActive = this.challengeManager.isActive();
@@ -223,14 +385,111 @@ The user has configured these hours because they know they may be more impulsive
 Support the challenge system. Push back on risky requests. The sober user who set these boundaries is the user who matters.`;
       }
       parts.push(temporal);
+      components.push('Temporal Context');
     }
 
-    // Layer 5: Skill index (always present when skills are loaded, ~50 tokens)
+    let content = parts.join('\n\n');
+    let truncated = false;
+    const tokens = estimateTokens(content);
+
+    if (tokens > this.systemBudget) {
+      // Truncate from end (Layer 2 trimmed first, then Layer 1 — Layer 0 preserved)
+      const result = truncateToTokenBudget(content, this.systemBudget);
+      content = result.text;
+      truncated = true;
+    }
+
+    return {
+      name: 'system',
+      budget: this.systemBudget,
+      content,
+      tokenCount: Math.min(tokens, this.systemBudget),
+      truncated,
+      components,
+    };
+  }
+
+  private assembleOperatorZone(): PromptZone {
+    const components: string[] = [];
+    const parts: string[] = [];
+
+    if (this.operatorContext.trim().length > 0) {
+      parts.push(`--- Operator Context ---\n${this.operatorContext}`);
+      components.push('operator-context.md');
+    }
+
+    let content = parts.join('\n\n');
+    let truncated = false;
+    const tokens = estimateTokens(content);
+
+    if (tokens > this.operatorBudget) {
+      const result = truncateToTokenBudget(content, this.operatorBudget);
+      content = result.text;
+      truncated = true;
+    }
+
+    return {
+      name: 'operator',
+      budget: this.operatorBudget,
+      content,
+      tokenCount: Math.min(tokens, this.operatorBudget),
+      truncated,
+      components,
+    };
+  }
+
+  private assembleUserZone(activeConversationId?: string | null): PromptZone {
+    const components: string[] = [];
+    const parts: string[] = [];
+
+    // Memories (most important — trimmed last within this zone)
+    if (this.memoryStore) {
+      const memBlock = this.memoryStore.getPromptMemories(activeConversationId);
+      if (memBlock) {
+        parts.push(memBlock);
+        components.push('Memories');
+      }
+    }
+
+    // User context (trimmed before memories)
+    if (this.userContext.trim().length > 0) {
+      parts.push(`--- User Context ---\n${this.userContext}`);
+      components.push('user-context.md');
+    }
+
+    let content = parts.join('\n\n');
+    let truncated = false;
+    const tokens = estimateTokens(content);
+
+    if (tokens > this.userBudget) {
+      const result = truncateToTokenBudget(content, this.userBudget);
+      content = result.text;
+      truncated = true;
+    }
+
+    return {
+      name: 'user',
+      budget: this.userBudget,
+      content,
+      tokenCount: Math.min(tokens, this.userBudget),
+      truncated,
+      components,
+    };
+  }
+
+  private assembleDynamicZone(currentMessage: string | undefined, budget: number): PromptZone {
+    const components: string[] = [];
+    const parts: string[] = [];
+
+    // Skill index (always present, ~50 tokens)
     if (this.skillStore) {
       const index = this.skillStore.getSkillIndex();
-      if (index) parts.push(index);
+      if (index) {
+        parts.push(index);
+        components.push('Skill Index');
+      }
 
-      // Triggered + always-loaded skills based on current message
+      // Triggered + always-loaded skills
       const mode = 'conversation';
       const alwaysLoaded = this.skillStore.getAlwaysLoadedSkills(mode);
       const triggered = currentMessage ? this.skillStore.getTriggeredSkills(currentMessage, mode) : [];
@@ -239,85 +498,37 @@ Support the challenge system. Push back on risky requests. The sober user who se
       if (allSkills.length > 0) {
         const skillContent = allSkills.map((s) => `=== Skill: ${s.manifest.name} ===\n${s.content}`).join('\n\n');
         parts.push(`--- Active Skills (${allSkills.length}) ---\n${skillContent}`);
+        components.push(`Skills (${allSkills.length})`);
       }
     }
 
-    // Layer 2: persistent memories — hybrid set (10 global + 10 conversation-scoped)
-    if (this.memoryStore) {
-      const memBlock = this.memoryStore.getPromptMemories(activeConversationId);
-      if (memBlock) parts.push(memBlock);
-    }
-
-    // User context (informative, below memories)
-    if (this.userContext.trim().length > 0) {
-      parts.push(`--- User Context ---\n${this.userContext}`);
-    }
-
-    // Layer 3: project context (alwaysLoaded files)
+    // Project context
     if (this.projectStore) {
       const projBlock = this.projectStore.getPromptContext();
-      if (projBlock) parts.push(projBlock);
+      if (projBlock) {
+        parts.push(projBlock);
+        components.push('Project Context');
+      }
     }
 
-    return parts.join('\n\n');
-  }
+    let content = parts.join('\n\n');
+    let truncated = false;
+    const tokens = estimateTokens(content);
 
-  /** Get the conversation messages for the API call. */
-  getMessages(): readonly ConversationMessage[] {
-    return this.messages;
-  }
-
-  /** Get the current message count. */
-  get messageCount(): number {
-    return this.messages.length;
-  }
-
-  /** Get the current user context content. */
-  getUserContext(): string {
-    return this.userContext;
-  }
-
-  /** Estimate total token count for the current buffer. */
-  estimateTokenCount(): number {
-    let chars = this.getSystemPrompt().length;
-    for (const msg of this.messages) {
-      chars += msg.content.length;
+    if (tokens > budget) {
+      const result = truncateToTokenBudget(content, budget);
+      content = result.text;
+      truncated = true;
     }
-    return Math.ceil(chars / CHARS_PER_TOKEN);
-  }
 
-  /** Update user context (writes to file and reloads). */
-  updateUserContext(content: string): void {
-    this.userContext = content;
-    try {
-      writeFileSync(this.userContextPath, content, 'utf-8');
-    } catch {
-      // Write failure is non-fatal — context is still in memory
-    }
-  }
-
-  /** Reload user context from file. */
-  loadUserContext(): void {
-    try {
-      this.userContext = readFileSync(this.userContextPath, 'utf-8');
-    } catch {
-      this.userContext = '';
-    }
-  }
-
-  /** Clear the conversation buffer (keeps user context). */
-  clear(): void {
-    this.messages = [];
-  }
-
-  /** Get the full soul document (all three layers). */
-  static getRoleContext(): string {
-    return `${SOUL_LAYER_0}\n\n${SOUL_LAYER_1}\n\n${SOUL_LAYER_2_CONVERSATION}`;
-  }
-
-  /** Get only Layer 0 (immutable core) — for compaction and minimal context. */
-  static getCoreContext(): string {
-    return SOUL_LAYER_0;
+    return {
+      name: 'dynamic',
+      budget,
+      content,
+      tokenCount: Math.min(tokens, budget),
+      truncated,
+      components,
+    };
   }
 
   // -----------------------------------------------------------------------
@@ -326,7 +537,6 @@ Support the challenge system. Push back on risky requests. The sober user who se
 
   private enforceTokenBudget(): void {
     while (this.estimateTokenCount() > this.tokenBudget && this.messages.length > MIN_PRESERVED_MESSAGES) {
-      // Remove oldest message (index 0) but preserve the most recent MIN_PRESERVED_MESSAGES
       this.messages.splice(0, 1);
     }
   }
