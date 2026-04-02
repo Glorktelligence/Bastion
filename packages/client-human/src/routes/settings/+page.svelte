@@ -929,6 +929,9 @@ function handleContextSave(): void {
 							<div class="adapter-entry">
 								<span class="adapter-model mono">{ad.model}</span>
 								<span class="adapter-roles">{ad.roles.join(', ')}</span>
+								{#if ad.maxContextTokens}
+									<span class="adapter-context">{(ad.maxContextTokens / 1000).toFixed(0)}k ctx</span>
+								{/if}
 							</div>
 						{/each}
 					</div>
@@ -1499,6 +1502,7 @@ function handleContextSave(): void {
 	.adapter-entry { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; }
 	.adapter-model { font-size: 0.75rem; }
 	.adapter-roles { font-size: 0.7rem; color: var(--color-text-muted); }
+	.adapter-context { font-size: 0.65rem; color: var(--color-accent, #4a9eff); font-family: monospace; }
 
 	/* Extensions */
 	.ext-header, .ext-row {

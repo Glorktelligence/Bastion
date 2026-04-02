@@ -81,6 +81,11 @@ const OPUS_PRICING_INPUT = parseFloat(process.env.BASTION_OPUS_PRICING_INPUT || 
 const OPUS_PRICING_OUTPUT = parseFloat(process.env.BASTION_OPUS_PRICING_OUTPUT || '75');
 const OPUS_MAX_TOKENS = parseInt(process.env.BASTION_OPUS_MAX_TOKENS || '8192', 10);
 
+// Context window sizes — deployer env var is the ceiling
+const SONNET_MAX_CONTEXT = parseInt(process.env.BASTION_SONNET_MAX_CONTEXT || '200000', 10);
+const HAIKU_MAX_CONTEXT = parseInt(process.env.BASTION_HAIKU_MAX_CONTEXT || '200000', 10);
+const OPUS_MAX_CONTEXT = parseInt(process.env.BASTION_OPUS_MAX_CONTEXT || '1000000', 10);
+
 if (!API_KEY) {
   console.error('[!] ANTHROPIC_API_KEY not set. Run with: node --env-file=.env start-ai-client.mjs');
   process.exit(1);
@@ -112,6 +117,7 @@ const sonnetAdapter = createAnthropicAdapter(keyManager, adapterToolRegistry, {
   providerName: 'Anthropic Sonnet (Bastion Official)',
   model: SONNET_MODEL,
   maxTokens: MAX_TOKENS,
+  maxContextTokens: SONNET_MAX_CONTEXT,
   temperature: TEMPERATURE,
   apiBaseUrl: API_ENDPOINT,
   apiVersion: API_VERSION,
@@ -128,6 +134,7 @@ const haikuAdapter = createAnthropicAdapter(keyManager, adapterToolRegistry, {
   providerName: 'Anthropic Haiku (Bastion Official)',
   model: HAIKU_MODEL,
   maxTokens: MAX_TOKENS,
+  maxContextTokens: HAIKU_MAX_CONTEXT,
   temperature: 0.3,
   apiBaseUrl: API_ENDPOINT,
   apiVersion: API_VERSION,
@@ -144,6 +151,7 @@ const opusAdapter = createAnthropicAdapter(keyManager, adapterToolRegistry, {
   providerName: 'Anthropic Opus (Bastion Official)',
   model: OPUS_MODEL,
   maxTokens: OPUS_MAX_TOKENS,
+  maxContextTokens: OPUS_MAX_CONTEXT,
   temperature: TEMPERATURE,
   apiBaseUrl: API_ENDPOINT,
   apiVersion: API_VERSION,
@@ -156,9 +164,9 @@ const opusAdapter = createAnthropicAdapter(keyManager, adapterToolRegistry, {
 
 // Adapter registry — routes operations to the appropriate adapter
 const adapterRegistry = new AdapterRegistry();
-adapterRegistry.registerAdapter(sonnetAdapter, ['default', 'conversation', 'task', 'game'], { pricingInputPerMTok: SONNET_PRICING_INPUT });
-adapterRegistry.registerAdapter(haikuAdapter, ['compaction', 'game'], { pricingInputPerMTok: HAIKU_PRICING_INPUT });
-adapterRegistry.registerAdapter(opusAdapter, ['research', 'dream'], { pricingInputPerMTok: OPUS_PRICING_INPUT });
+adapterRegistry.registerAdapter(sonnetAdapter, ['default', 'conversation', 'task', 'game'], { pricingInputPerMTok: SONNET_PRICING_INPUT, maxContextTokens: SONNET_MAX_CONTEXT });
+adapterRegistry.registerAdapter(haikuAdapter, ['compaction', 'game'], { pricingInputPerMTok: HAIKU_PRICING_INPUT, maxContextTokens: HAIKU_MAX_CONTEXT });
+adapterRegistry.registerAdapter(opusAdapter, ['research', 'dream'], { pricingInputPerMTok: OPUS_PRICING_INPUT, maxContextTokens: OPUS_MAX_CONTEXT });
 adapterRegistry.lock();
 
 const registeredAdapters = adapterRegistry.list();
@@ -215,8 +223,11 @@ console.log(`[✓] Challenge manager: ${challengeManager.enabled ? 'ENABLED' : '
 // Conversation manager — session context + user context + memories + project
 // ---------------------------------------------------------------------------
 
+// Token budget defaults to the default adapter's context window (Sonnet),
+// but can be overridden by deployer. The budget is for the messages array
+// only — system prompt, memories, project context are separate.
 const conversationManager = new ConversationManager({
-  tokenBudget: parseInt(process.env.BASTION_TOKEN_BUDGET || '100000', 10),
+  tokenBudget: parseInt(process.env.BASTION_TOKEN_BUDGET || String(SONNET_MAX_CONTEXT), 10),
   userContextPath: process.env.BASTION_USER_CONTEXT_PATH || '/var/lib/bastion-ai/user-context.md',
   memoryStore,
   projectStore,
@@ -838,6 +849,7 @@ client.on('message', async (data) => {
           name: ra.adapter.providerName,
           model: ra.adapter.activeModel,
           roles: ra.roles,
+          maxContextTokens: ra.maxContextTokens,
         })),
       },
       timestamp: new Date().toISOString(),

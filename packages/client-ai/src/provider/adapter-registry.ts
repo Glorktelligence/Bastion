@@ -27,6 +27,8 @@ export interface RegisteredAdapter {
   readonly roles: readonly AdapterRole[];
   /** Input pricing per million tokens — used for hint resolution (cheapest/smartest). */
   readonly pricingInputPerMTok?: number;
+  /** Maximum context window tokens for this adapter's model. */
+  readonly maxContextTokens?: number;
 }
 
 export interface AdapterSelection {
@@ -59,7 +61,7 @@ export class AdapterRegistry {
   registerAdapter(
     adapter: ProviderAdapter,
     roles: readonly AdapterRole[],
-    options?: { pricingInputPerMTok?: number },
+    options?: { pricingInputPerMTok?: number; maxContextTokens?: number },
   ): void {
     if (this.locked) {
       throw new Error('AdapterRegistry is locked — cannot register after startup');
@@ -68,6 +70,7 @@ export class AdapterRegistry {
       adapter,
       roles: [...roles],
       pricingInputPerMTok: options?.pricingInputPerMTok,
+      maxContextTokens: options?.maxContextTokens,
     });
   }
 

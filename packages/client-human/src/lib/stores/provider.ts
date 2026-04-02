@@ -32,6 +32,7 @@ export interface ProviderAdapterInfo {
   readonly name: string;
   readonly model: string;
   readonly roles: readonly string[];
+  readonly maxContextTokens?: number;
 }
 
 export interface ProviderInfo {
