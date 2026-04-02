@@ -69,15 +69,15 @@ const REJECT_UNAUTHORIZED = process.env.BASTION_TLS_REJECT_UNAUTHORIZED !== 'fal
 // Three Bastion Official Adapters — Sonnet, Haiku, Opus
 // All share ANTHROPIC_API_KEY. Each targets a different model with role-specific config.
 // Sonnet 4.6 — 1M context, default conversation adapter
-const SONNET_MODEL = process.env.BASTION_SONNET_MODEL || 'claude-sonnet-4-6-20250520';
+const SONNET_MODEL = process.env.BASTION_SONNET_MODEL || 'claude-sonnet-4-6-20260218';
 const SONNET_PRICING_INPUT = parseFloat(process.env.BASTION_SONNET_PRICING_INPUT || '3');
 const SONNET_PRICING_OUTPUT = parseFloat(process.env.BASTION_SONNET_PRICING_OUTPUT || '15');
 const SONNET_MAX_CONTEXT = parseInt(process.env.BASTION_SONNET_MAX_CONTEXT || '1000000', 10);
 
 // Haiku 4.5 — 200k context, cost-efficient compaction
 const HAIKU_MODEL = process.env.BASTION_HAIKU_MODEL || 'claude-haiku-4-5-20251001';
-const HAIKU_PRICING_INPUT = parseFloat(process.env.BASTION_HAIKU_PRICING_INPUT || '0.8');
-const HAIKU_PRICING_OUTPUT = parseFloat(process.env.BASTION_HAIKU_PRICING_OUTPUT || '4');
+const HAIKU_PRICING_INPUT = parseFloat(process.env.BASTION_HAIKU_PRICING_INPUT || '1');
+const HAIKU_PRICING_OUTPUT = parseFloat(process.env.BASTION_HAIKU_PRICING_OUTPUT || '5');
 const HAIKU_MAX_CONTEXT = parseInt(process.env.BASTION_HAIKU_MAX_CONTEXT || '200000', 10);
 
 // Opus 4.6 — 1M context, maximum capability; pricing: $5/$25 per MTok

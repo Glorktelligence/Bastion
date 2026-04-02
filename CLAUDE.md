@@ -87,7 +87,7 @@ All share `ANTHROPIC_API_KEY`. Each targets a different model with role-specific
 | Adapter | Model | Roles | Temperature | Pricing (in/out per MTok) |
 |---------|-------|-------|-------------|---------------------------|
 | **Sonnet** | claude-sonnet-4-6 | default, conversation, task | 1.0 | $3 / $15 |
-| **Haiku** | claude-haiku-4.5 | compaction, game | 0.3 | $0.80 / $4 |
+| **Haiku** | claude-haiku-4.5 | compaction, game | 0.3 | $1 / $5 |
 | **Opus** | claude-opus-4-6 | research, dream | 1.0 | $5 / $25 |
 
 Env vars: `BASTION_SONNET_MODEL`, `BASTION_HAIKU_MODEL`, `BASTION_OPUS_MODEL` (override model IDs).
