@@ -302,6 +302,16 @@ This is a framework and protocol — not a consumer product. The hard parts are 
 
 Feedback, security review, and contributions are welcome.
 
+## Known Issues
+
+### Messaging throws `reason is not defined` after successful API response (v0.8.0+)
+
+After upgrading to Sonnet 4.6 (`claude-sonnet-4-6`), the API call succeeds and streams chunks correctly, but an error is thrown during post-response processing: `Unexpected error calling API: reason is not defined`. This is likely a variable reference to a `reason` field that exists in the Sonnet 4 response format but is named differently or absent in the Sonnet 4.6 response. The conversation message IS delivered to the human client despite the error.
+
+**Status:** Under investigation
+**Workaround:** Messages still deliver; the error is non-fatal
+**Introduced:** Model upgrade from `claude-sonnet-4-20250514` to `claude-sonnet-4-6`
+
 ## Licence
 
 [Apache License 2.0](LICENSE)

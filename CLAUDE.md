@@ -76,6 +76,11 @@ Startup scripts (root level):
 - Project structure: `docs/spec/bastion-project-structure.md`
 - Skills: `.claude/skills/` (9 skills covering all development patterns)
 
+## Known Issues
+
+### `reason is not defined` after API response (v0.8.0+)
+After the Sonnet 4.6 model upgrade, the API call succeeds and response is delivered, but `start-ai-client.mjs` throws `Unexpected error calling API: reason is not defined` during post-response processing. The `reason` variable is referenced in the response handling block (likely around the adapter selection log line or usage tracker recording) but is only defined when `adapterRegistry.selectAdapter()` is called — if the code path bypasses that call (e.g. default adapter used directly), `reason` is undefined. The error is non-fatal: messages still reach the human client. Fix: find where `reason` is referenced in the conversation handler and ensure it has a fallback value.
+
 ## Error Codes
 Format: `BASTION-CXXX` — 45 codes across 8 categories:
 1XXX=Connection (7) | 2XXX=Auth (6) | 3XXX=Protocol (6) | 4XXX=Safety (6) | 5XXX=File (7) | 6XXX=Provider (6) | 7XXX=Config (5) | 8XXX=Budget (5)
