@@ -29,6 +29,7 @@ import {
   ImportRegistry,
   BastionImportAdapter,
   ImportExecutor,
+  UsageTracker,
 } from './packages/client-ai/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -296,6 +297,17 @@ async function summariseForCompaction(prompt) {
       constraints: [],
     });
     if (result.ok) {
+      usageTracker.record({
+        timestamp: new Date().toISOString(),
+        adapterId: compAdapter.activeModel || 'unknown',
+        adapterRole: 'compaction',
+        purpose: 'compaction',
+        conversationId: activeConversationId || null,
+        inputTokens: result.response.usage?.inputTokens ?? 0,
+        outputTokens: result.response.usage?.outputTokens ?? 0,
+        costUsd: result.response.cost?.estimatedCostUsd ?? 0,
+      });
+      sendUsageStatusDebounced();
       return { ok: true, text: result.response.textContent };
     }
     return { ok: false, text: '', error: result.message };
@@ -417,6 +429,54 @@ function sendBudgetStatus() {
     sender: IDENTITY,
     payload: status,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Usage Tracker — all API token usage with SQLite persistence
+// ---------------------------------------------------------------------------
+
+const USAGE_DB = process.env.BASTION_USAGE_DB || '/var/lib/bastion-ai/usage.db';
+const usageTracker = new UsageTracker({ path: USAGE_DB });
+console.log(`[✓] Usage tracker initialised (db: ${USAGE_DB}, ${usageTracker.totalRecords} records)`);
+
+/** Debounce timer for usage_status — max once per 30 seconds. */
+let usageStatusTimer = null;
+
+function sendUsageStatus() {
+  if (!client) return;
+  const today = usageTracker.getUsageToday();
+  const thisMonth = usageTracker.getUsageThisMonth();
+  const byAdapter = {};
+  for (const a of usageTracker.getUsageByAdapter()) {
+    byAdapter[a.adapterId] = { calls: a.calls, costUsd: a.costUsd };
+  }
+  const limits = budgetGuard.getLimits();
+  const bStatus = budgetGuard.getStatus();
+  client.send(JSON.stringify({
+    type: 'usage_status',
+    id: randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: IDENTITY,
+    payload: {
+      today: { calls: today.calls, inputTokens: today.inputTokens, outputTokens: today.outputTokens, costUsd: today.costUsd },
+      thisMonth: { calls: thisMonth.calls, inputTokens: thisMonth.inputTokens, outputTokens: thisMonth.outputTokens, costUsd: thisMonth.costUsd },
+      byAdapter,
+      budget: {
+        monthlyCapUsd: limits.monthlyCapUsd,
+        remaining: limits.monthlyCapUsd - bStatus.costThisMonth - thisMonth.costUsd,
+        percentUsed: limits.monthlyCapUsd > 0 ? ((bStatus.costThisMonth + thisMonth.costUsd) / limits.monthlyCapUsd) * 100 : 0,
+        alertLevel: bStatus.alertLevel,
+      },
+    },
+  }));
+}
+
+function sendUsageStatusDebounced() {
+  if (usageStatusTimer) return;
+  usageStatusTimer = setTimeout(() => {
+    usageStatusTimer = null;
+    sendUsageStatus();
+  }, 30_000);
 }
 
 // ---------------------------------------------------------------------------
@@ -667,9 +727,10 @@ client.on('authenticated', async (jwt, expiresAt) => {
   }));
   if (challengeStatus.active) console.log(`[🛡️] Challenge hours ACTIVE until ${challengeStatus.periodEnd}`);
 
-  // Send budget status to human
+  // Send budget + usage status to human
   budgetGuard.resetSession();
   sendBudgetStatus();
+  sendUsageStatus();
 
   console.log('[★] Safety engine active — 3-layer evaluation armed');
   console.log('[★] Budget Guard active — immutable enforcement armed');
@@ -1635,6 +1696,19 @@ client.on('message', async (data) => {
           }
           sendBudgetStatus();
         }
+
+        // Record usage to UsageTracker
+        usageTracker.record({
+          timestamp: new Date().toISOString(),
+          adapterId: selectedAdapter.activeModel || 'unknown',
+          adapterRole: reason || 'conversation',
+          purpose: msg.type === 'task' ? 'task' : 'conversation',
+          conversationId: activeConversationId || null,
+          inputTokens: result.response.usage.inputTokens,
+          outputTokens: result.response.usage.outputTokens,
+          costUsd: cost.estimatedCostUsd,
+        });
+        sendUsageStatusDebounced();
 
         // Send final complete response (for persistence + non-streaming clients)
         const responseEnvelope = {

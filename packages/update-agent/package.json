@@ -1,6 +1,6 @@
 {
   "name": "@bastion/update-agent",
-  "version": "0.7.3",
+  "version": "0.8.0",
   "description": "Self-update agent for Project Bastion — connects to relay, executes whitelisted build commands",
   "license": "Apache-2.0",
   "author": "Harry Smith <harry@glorktelligence.co.uk>",

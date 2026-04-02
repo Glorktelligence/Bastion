@@ -63,6 +63,7 @@ export {
   validateParameters,
   DataExporter,
   ImportRegistry,
+  UsageTracker,
   BastionImportAdapter,
   ImportExecutor,
 } from './provider/index.js';
@@ -129,6 +130,11 @@ export type {
   ImportSelections,
   ImportResult,
   ImportStoreRefs,
+  UsageRecord,
+  UsageSummary,
+  DailyUsage,
+  AdapterUsageSummary,
+  UsageTrackerConfig,
 } from './provider/index.js';
 
 // ---------------------------------------------------------------------------

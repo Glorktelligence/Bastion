@@ -339,6 +339,7 @@ function validPayloads() {
     data_import_validate: { valid: true, format: 'bdp', version: '0.7.3', exportedAt: '2026-04-02T00:00:00Z', contents: { conversations: 5, memories: 10, projectFiles: 3, skills: 2, hasConfig: true }, conflicts: [], errors: [] },
     data_import_confirm: { importConversations: true, importMemories: true, importProjectFiles: true, importSkills: false, importConfig: false, conflictResolutions: [] },
     data_import_complete: { imported: { conversations: 5, memories: 8, projectFiles: 3, skills: 0, configSections: 0 }, skipped: { conversations: 0, memories: 2, projectFiles: 0, skills: 2 }, errors: [] },
+    usage_status: { today: { calls: 10, inputTokens: 5000, outputTokens: 3000, costUsd: 0.05 }, thisMonth: { calls: 200, inputTokens: 100000, outputTokens: 70000, costUsd: 1.20 }, byAdapter: { 'claude-sonnet-4': { calls: 180, costUsd: 1.00 } }, budget: { monthlyCapUsd: 10, remaining: 8.80, percentUsed: 12, alertLevel: 'none' } },
   };
 }
 
@@ -430,7 +431,7 @@ async function run() {
       }
     }
     check('all 81 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 90 entries', ALL_MESSAGE_TYPES.length === 90);
+    check('ALL_MESSAGE_TYPES has 91 entries', ALL_MESSAGE_TYPES.length === 91);
   }
   console.log();
 
@@ -466,8 +467,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 90 entries', typeKeys.length === 90);
-    check('PAYLOAD_SCHEMAS has 90 entries', Object.keys(PAYLOAD_SCHEMAS).length === 90);
+    check('MESSAGE_TYPES has 91 entries', typeKeys.length === 91);
+    check('PAYLOAD_SCHEMAS has 91 entries', Object.keys(PAYLOAD_SCHEMAS).length === 91);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -879,7 +880,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 90 message types survive serialisation round-trip', allPassed);
+    check('all 91 message types survive serialisation round-trip', allPassed);
   }
   console.log();
 

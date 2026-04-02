@@ -8,8 +8,12 @@ import type { ProjectFile, LoadingMode } from '$lib/stores/projects.js';
 import type { ProviderInfo } from '$lib/stores/provider.js';
 import type { ExtensionInfo } from '$lib/stores/extensions.js';
 import type { ConversationEntry } from '$lib/stores/conversations.js';
-import type { DataPortabilityState } from '$lib/session.js';
+import type { DataPortabilityState, UsageStatusState } from '$lib/session.js';
 import SettingsPanel from '$lib/components/SettingsPanel.svelte';
+
+// Tab navigation
+const TABS = ['Profile', 'Safety', 'Context', 'Files', 'Privacy', 'Usage', 'Tools', 'Provider', 'About'] as const;
+type TabId = typeof TABS[number];
 
 // ---------------------------------------------------------------------------
 // Reactive state from shared session stores
@@ -51,6 +55,12 @@ let convList: ConversationEntry[] = $state([]);
 let dpState: DataPortabilityState = $state(session.dataPortability.get());
 let importFileInput: HTMLInputElement | null = $state(null);
 let importFileError: string | null = $state(null);
+
+// Usage status state
+let usage: UsageStatusState = $state(session.usageStatus.get());
+
+// Tab navigation state
+let activeTab: TabId = $state('Profile');
 
 function handleToolRevoke(toolId: string): void {
   const client = session.getClient();
@@ -106,6 +116,7 @@ onMount(() => {
 			convList = v.conversations.filter((c: ConversationEntry) => !c.archived);
 		}),
 		session.dataPortability.subscribe((v) => { dpState = v; }),
+		session.usageStatus.subscribe((v) => { usage = v; }),
 	];
 
 	// Request data when connected (not on mount — WebSocket may not be ready)
@@ -621,9 +632,18 @@ function handleContextSave(): void {
 <div class="settings-page">
 	<header class="page-header">
 		<h2>Settings</h2>
-		<p class="subtitle">Safety controls, personal context, and connection identity.</p>
+		<div class="tab-bar">
+			{#each TABS as tab}
+				<button
+					class="tab-btn"
+					class:tab-active={activeTab === tab}
+					onclick={() => { activeTab = tab; }}
+				>{tab}</button>
+			{/each}
+		</div>
 	</header>
 
+	{#if activeTab === 'Profile'}
 	<section class="section">
 		<h3>Connection</h3>
 		<div class="config-fields">
@@ -652,7 +672,9 @@ function handleContextSave(): void {
 		</div>
 		<p class="hint">Changes saved automatically. Relay URL change takes effect on next connect.</p>
 	</section>
+	{/if}
 
+	{#if activeTab === 'Context'}
 	<section class="section">
 		<h3>Personal Context</h3>
 		<p class="hint">This text is sent to the AI client and injected below the immutable role context in the system prompt. It is informative, not authoritative — it cannot override safety rules.</p>
@@ -745,7 +767,9 @@ function handleContextSave(): void {
 			<p class="empty-mem">No memories saved yet. Use the "R" button on any message to remember it.</p>
 		{/if}
 	</section>
+	{/if}
 
+	{#if activeTab === 'Files'}
 	<section class="section">
 		<h3>Project Files <span class="mem-count">{projectTotalCount} files, {formatSize(projectTotalSize)} total</span></h3>
 		<p class="hint">Upload files to give the AI persistent context about your project. Files are synced to the AI's project store and can be loaded into the system prompt.</p>
@@ -846,7 +870,9 @@ function handleContextSave(): void {
 			<p class="empty-mem">No project files. Upload files to give the AI context about your project.</p>
 		{/if}
 	</section>
+	{/if}
 
+	{#if activeTab === 'Tools'}
 	<section class="section">
 		<h3>Active Tools <span class="mem-count">{approvedTools.length} approved (this conversation)</span></h3>
 		<p class="hint">Tool approvals are per-conversation. Switching conversations starts with fresh trust.</p>
@@ -869,7 +895,9 @@ function handleContextSave(): void {
 			<p class="empty-mem">No tools approved this session</p>
 		{/if}
 	</section>
+	{/if}
 
+	{#if activeTab === 'Provider'}
 	<section class="section">
 		<h3>Provider {#if providerInfo}<span class="mem-count">{providerInfo.providerName}</span>{:else}<span class="mem-count">not connected</span>{/if}</h3>
 		{#if providerInfo}
@@ -935,7 +963,9 @@ function handleContextSave(): void {
 			<p class="empty-mem">No extensions loaded. Extensions are registered in the relay's extensions/ directory.</p>
 		{/if}
 	</section>
+	{/if}
 
+	{#if activeTab === 'Safety'}
 	<section class="section">
 		<h3>Budget Guard</h3>
 		<p class="hint">Web search budget is immutable enforcement — same tier as MaliClaw. Limits can be tightened immediately; increases take effect next month.</p>
@@ -974,7 +1004,9 @@ function handleContextSave(): void {
 			onReset={handleReset}
 		/>
 	</section>
+	{/if}
 
+	{#if activeTab === 'Privacy'}
 	<section class="section">
 		<h3>Data & Privacy <span class="mem-count">GDPR Article 20</span></h3>
 		<p class="hint">Export all your data or import from a previous export. Exports produce a .bdp (Bastion Data Package) file.</p>
@@ -1086,7 +1118,77 @@ function handleContextSave(): void {
 			{/if}
 		</div>
 	</section>
+	{/if}
 
+	{#if activeTab === 'Usage'}
+	<section class="section">
+		<h3>Usage & Budget</h3>
+		<p class="hint">API token usage across all adapters. Budget enforcement is same tier as MaliClaw — tighten immediately, loosen next month.</p>
+
+		<div class="usage-cards">
+			<div class="usage-card">
+				<span class="usage-card-label">Today</span>
+				<span class="usage-card-value">{usage.today.calls} calls</span>
+				<span class="usage-card-detail">{(usage.today.inputTokens + usage.today.outputTokens).toLocaleString()} tokens &middot; ${usage.today.costUsd.toFixed(4)}</span>
+			</div>
+			<div class="usage-card">
+				<span class="usage-card-label">This Month</span>
+				<span class="usage-card-value">{usage.thisMonth.calls} calls</span>
+				<span class="usage-card-detail">{(usage.thisMonth.inputTokens + usage.thisMonth.outputTokens).toLocaleString()} tokens &middot; ${usage.thisMonth.costUsd.toFixed(2)} of ${usage.budget.monthlyCapUsd.toFixed(2)}</span>
+				<div class="usage-budget-bar">
+					<div class="usage-budget-fill" style="width: {Math.min(100, usage.budget.percentUsed)}%"></div>
+				</div>
+				<span class="usage-budget-label">{usage.budget.percentUsed.toFixed(1)}% used &middot; ${usage.budget.remaining.toFixed(2)} remaining</span>
+			</div>
+		</div>
+
+		{#if Object.keys(usage.byAdapter).length > 0}
+			<h4 class="usage-sub">By Adapter</h4>
+			<div class="usage-adapter-list">
+				{#each Object.entries(usage.byAdapter) as [adapterId, data]}
+					<div class="usage-adapter-row">
+						<span class="usage-adapter-name mono">{adapterId}</span>
+						<span class="usage-adapter-calls">{data.calls} calls</span>
+						<span class="usage-adapter-cost">${data.costUsd.toFixed(4)}</span>
+					</div>
+				{/each}
+			</div>
+		{/if}
+
+		<h4 class="usage-sub">Budget Configuration</h4>
+		<p class="hint" style="margin-top:0">Budget changes: tighten immediately, loosen next month. 7-day cooldown. Blocked during challenge hours.</p>
+		<div class="config-fields">
+			<label>
+				<span class="label">Monthly cap (USD)</span>
+				<input type="number" value="10.00" step="0.50" min="0.50" class="config-input mono" disabled />
+			</label>
+			<label>
+				<span class="label">Alert at (%)</span>
+				<input type="number" value="50" min="1" max="99" class="config-input mono" disabled />
+			</label>
+		</div>
+	</section>
+	{/if}
+
+	{#if activeTab === 'About'}
+	<section class="section">
+		<h3>About Bastion</h3>
+		<div class="info-grid">
+			<span class="label">Version</span>
+			<span class="value mono">{__BASTION_VERSION__}</span>
+			<span class="label">Protocol</span>
+			<span class="value">91 message types, 48 error codes</span>
+			<span class="label">Extensions</span>
+			<span class="value">{extensionCount} loaded, {extensionMessageTypes} message types</span>
+			{#if providerInfo}
+			<span class="label">Provider</span>
+			<span class="value">{providerInfo.providerName} ({providerInfo.model})</span>
+			{/if}
+		</div>
+	</section>
+	{/if}
+
+	{#if activeTab === 'Profile'}
 	<section class="section danger-zone">
 		<h3>Danger Zone</h3>
 		{#if showResetConfirm}
@@ -1099,11 +1201,13 @@ function handleContextSave(): void {
 			<button class="btn-danger-outline" onclick={() => { showResetConfirm = true; }}>Reset Setup</button>
 		{/if}
 	</section>
+	{/if}
 </div>
 
 <style>
 	.settings-page {
 		padding: 1.5rem;
+		padding-top: 0.75rem;
 		display: flex;
 		flex-direction: column;
 		gap: 1.25rem;
@@ -1111,8 +1215,50 @@ function handleContextSave(): void {
 		height: 100%;
 	}
 
-	.page-header h2 { font-size: 1.25rem; color: var(--color-text); }
-	.subtitle { font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem; }
+	.page-header h2 { font-size: 1.25rem; color: var(--color-text); margin-bottom: 0.5rem; }
+
+	/* Tab bar */
+	.tab-bar {
+		display: flex; gap: 0.125rem; flex-wrap: wrap;
+		border-bottom: 1px solid var(--color-border, #2a2a4a);
+		padding-bottom: 0.375rem;
+	}
+	.tab-btn {
+		padding: 0.3rem 0.625rem; border-radius: 4px 4px 0 0;
+		border: 1px solid transparent; border-bottom: none;
+		background: transparent; color: var(--color-text-muted);
+		font-size: 0.75rem; cursor: pointer; transition: background 0.15s, color 0.15s;
+	}
+	.tab-btn:hover { background: color-mix(in srgb, var(--color-border) 50%, transparent); color: var(--color-text); }
+	.tab-active {
+		background: var(--color-bg-secondary, #1a1a2e);
+		border-color: var(--color-border, #2a2a4a);
+		color: var(--color-accent, #4a9eff); font-weight: 500;
+	}
+
+	/* Usage dashboard */
+	.usage-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem; }
+	.usage-card {
+		background: var(--color-bg, #0f0f23); border: 1px solid var(--color-border, #2a2a4a);
+		border-radius: 0.375rem; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem;
+	}
+	.usage-card-label { font-size: 0.65rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+	.usage-card-value { font-size: 1.1rem; font-weight: 600; color: var(--color-text); }
+	.usage-card-detail { font-size: 0.75rem; color: var(--color-text-muted); }
+	.usage-budget-bar { height: 6px; background: color-mix(in srgb, var(--color-text-muted) 15%, transparent); border-radius: 3px; overflow: hidden; margin-top: 0.25rem; }
+	.usage-budget-fill { height: 100%; background: var(--color-accent, #4a9eff); border-radius: 3px; transition: width 0.3s; }
+	.usage-budget-label { font-size: 0.65rem; color: var(--color-text-muted); }
+	.usage-sub { font-size: 0.85rem; color: var(--color-text); margin: 0.75rem 0 0.375rem; }
+	.usage-adapter-list { display: flex; flex-direction: column; gap: 0.25rem; }
+	.usage-adapter-row {
+		display: grid; grid-template-columns: 1fr auto auto; gap: 0.75rem;
+		padding: 0.375rem 0.5rem; background: var(--color-bg, #0f0f23);
+		border: 1px solid var(--color-border, #2a2a4a); border-radius: 0.25rem;
+		font-size: 0.8rem; align-items: center;
+	}
+	.usage-adapter-name { color: var(--color-text); }
+	.usage-adapter-calls { color: var(--color-text-muted); font-size: 0.75rem; }
+	.usage-adapter-cost { color: var(--color-accent, #4a9eff); font-family: monospace; font-size: 0.75rem; }
 
 	.section {
 		background: var(--color-bg-secondary, #1a1a2e);

@@ -576,6 +576,29 @@ export interface BudgetConfigPayload {
   readonly alertAtPercent: number;
 }
 
+/** AI → Human: Comprehensive usage tracking status with cost breakdown. */
+export interface UsageStatusPayload {
+  readonly today: {
+    readonly calls: number;
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+    readonly costUsd: number;
+  };
+  readonly thisMonth: {
+    readonly calls: number;
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+    readonly costUsd: number;
+  };
+  readonly byAdapter: Record<string, { readonly calls: number; readonly costUsd: number }>;
+  readonly budget: {
+    readonly monthlyCapUsd: number;
+    readonly remaining: number;
+    readonly percentUsed: number;
+    readonly alertLevel: string;
+  };
+}
+
 /** Bidirectional: E2E key exchange — X25519 public key for session cipher derivation. */
 export interface KeyExchangePayload {
   readonly publicKey: string;
@@ -945,6 +968,7 @@ export type MessagePayload =
   | { type: 'challenge_config_ack'; payload: ChallengeConfigAckPayload }
   | { type: 'budget_status'; payload: BudgetStatusPayload }
   | { type: 'budget_config'; payload: BudgetConfigPayload }
+  | { type: 'usage_status'; payload: UsageStatusPayload }
   | { type: 'key_exchange'; payload: KeyExchangePayload }
   | { type: 'conversation_list'; payload: ConversationListPayload }
   | { type: 'conversation_list_response'; payload: ConversationListResponsePayload }

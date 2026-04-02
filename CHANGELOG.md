@@ -2,6 +2,21 @@
 
 All notable changes to Project Bastion are documented in this file.
 
+## [0.8.0] - 2026-04-02
+
+### Added
+- **UsageTracker** — SQLite-persisted API token usage tracking (`usage-tracker.ts`). Records every Anthropic API call: adapter ID, role, purpose, conversation, input/output tokens, and computed cost. Provides summaries by time period, adapter, purpose, conversation, and daily breakdowns.
+- **usage_status protocol message** (AI → Human) — comprehensive usage report with today/month summaries, per-adapter breakdown, and budget status. Sent on authentication and debounced (max 30s) after every API call.
+- **Usage tab** in Settings — token tracking dashboard showing today/month call counts, token totals, cost, budget bar (percentage used), per-adapter breakdown, and budget configuration display.
+- **Tab-based Settings navigation** — 9 tabs (Profile, Safety, Context, Files, Privacy, Usage, Tools, Provider, About) replace the single scroll layout. Direct linking via tab click.
+- UsageTracker wired into AnthropicAdapter response flow and compaction calls in start-ai-client.mjs
+- usageStatus store in session.ts with usage_status message handler
+
+### Changed
+- Protocol version: 0.8.0 (91 message types, was 90)
+- Test count: 3,032 (was 3,030)
+- Settings page restructured from long scroll into tabbed interface
+
 ## [0.7.3] - 2026-04-02
 
 ### Added

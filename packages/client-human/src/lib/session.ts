@@ -192,6 +192,22 @@ export const dataPortability: Writable<DataPortabilityState> = hmrStore('__basti
   }),
 );
 
+/** Usage status — token tracking and budget from AI client. */
+export interface UsageStatusState {
+  readonly today: { calls: number; inputTokens: number; outputTokens: number; costUsd: number };
+  readonly thisMonth: { calls: number; inputTokens: number; outputTokens: number; costUsd: number };
+  readonly byAdapter: Record<string, { calls: number; costUsd: number }>;
+  readonly budget: { monthlyCapUsd: number; remaining: number; percentUsed: number; alertLevel: string };
+}
+export const usageStatus: Writable<UsageStatusState> = hmrStore('__bastionUsageStatus', () =>
+  writable<UsageStatusState>({
+    today: { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
+    thisMonth: { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
+    byAdapter: {},
+    budget: { monthlyCapUsd: 10, remaining: 10, percentUsed: 0, alertLevel: 'none' },
+  }),
+);
+
 /** General-purpose toast notifications (cross-cutting — not owned by a single store). */
 export interface ToastNotification {
   readonly id: string;
@@ -976,6 +992,28 @@ function handleRelayMessage(data: string): void {
       message: String(p.message ?? ''),
       budgetRemaining: Number(p.budgetRemaining ?? 0),
       searchesRemaining: Number(p.searchesRemaining ?? 0),
+    });
+    return;
+  }
+
+  // Usage status → update usage store
+  if (type === 'usage_status') {
+    const p = payload as Record<string, unknown>;
+    usageStatus.set({
+      today: (p.today as UsageStatusState['today']) ?? { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
+      thisMonth: (p.thisMonth as UsageStatusState['thisMonth']) ?? {
+        calls: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        costUsd: 0,
+      },
+      byAdapter: (p.byAdapter as Record<string, { calls: number; costUsd: number }>) ?? {},
+      budget: (p.budget as UsageStatusState['budget']) ?? {
+        monthlyCapUsd: 10,
+        remaining: 10,
+        percentUsed: 0,
+        alertLevel: 'none',
+      },
     });
     return;
   }

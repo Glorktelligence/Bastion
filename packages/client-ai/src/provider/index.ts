@@ -108,3 +108,13 @@ export type {
   ImportResult,
   ImportStoreRefs,
 } from './data-importer.js';
+
+// Usage Tracker
+export { UsageTracker } from './usage-tracker.js';
+export type {
+  UsageRecord,
+  UsageSummary,
+  DailyUsage,
+  AdapterUsageSummary,
+  UsageTrackerConfig,
+} from './usage-tracker.js';

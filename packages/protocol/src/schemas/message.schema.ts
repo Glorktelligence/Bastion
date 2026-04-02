@@ -531,6 +531,25 @@ export const BudgetConfigPayloadSchema = z.object({
   alertAtPercent: z.number().min(1).max(99),
 });
 
+const UsageSummaryShape = z.object({
+  calls: z.number().int().nonnegative(),
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  costUsd: z.number().nonnegative(),
+});
+
+export const UsageStatusPayloadSchema = z.object({
+  today: UsageSummaryShape,
+  thisMonth: UsageSummaryShape,
+  byAdapter: z.record(z.object({ calls: z.number().int().nonnegative(), costUsd: z.number().nonnegative() })),
+  budget: z.object({
+    monthlyCapUsd: z.number().nonnegative(),
+    remaining: z.number(),
+    percentUsed: z.number().nonnegative(),
+    alertLevel: z.string().min(1),
+  }),
+});
+
 export const KeyExchangePayloadSchema = z.object({
   publicKey: z.string().min(1),
 });
@@ -888,6 +907,7 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.CHALLENGE_CONFIG_ACK]: ChallengeConfigAckPayloadSchema,
   [MESSAGE_TYPES.BUDGET_STATUS]: BudgetStatusPayloadSchema,
   [MESSAGE_TYPES.BUDGET_CONFIG]: BudgetConfigPayloadSchema,
+  [MESSAGE_TYPES.USAGE_STATUS]: UsageStatusPayloadSchema,
   [MESSAGE_TYPES.KEY_EXCHANGE]: KeyExchangePayloadSchema,
   [MESSAGE_TYPES.CONVERSATION_LIST]: ConversationListPayloadSchema,
   [MESSAGE_TYPES.CONVERSATION_LIST_RESPONSE]: ConversationListResponsePayloadSchema,

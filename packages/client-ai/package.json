@@ -1,6 +1,6 @@
 {
   "name": "@bastion/client-ai",
-  "version": "0.7.3",
+  "version": "0.8.0",
   "description": "Headless AI client for Project Bastion — connects to the relay, authenticates, and handles messaging",
   "license": "Apache-2.0",
   "author": "Harry Smith <harry@glorktelligence.co.uk>",

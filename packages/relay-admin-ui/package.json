@@ -1,6 +1,6 @@
 {
   "name": "@bastion/relay-admin-ui",
-  "version": "0.7.3",
+  "version": "0.8.0",
   "description": "SvelteKit admin panel for the Bastion relay — provider management, monitoring, and configuration",
   "license": "Apache-2.0",
   "author": "Harry Smith <harry@glorktelligence.co.uk>",

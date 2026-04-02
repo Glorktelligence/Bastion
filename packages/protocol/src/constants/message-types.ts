@@ -3,7 +3,7 @@
 // See LICENSE file for full terms
 
 /**
- * All 90 message types in the Bastion protocol.
+ * All 91 message types in the Bastion protocol.
  *
  * Core spec (13): task, conversation, challenge, confirmation, denial,
  *   status, result, error, audit, file_manifest, file_offer, file_request, heartbeat
@@ -95,6 +95,7 @@ export const MESSAGE_TYPES = {
   // --- Budget Guard (Immutable Enforcement) ---
   BUDGET_STATUS: 'budget_status',
   BUDGET_CONFIG: 'budget_config',
+  USAGE_STATUS: 'usage_status',
 
   // --- E2E Key Exchange ---
   KEY_EXCHANGE: 'key_exchange',
