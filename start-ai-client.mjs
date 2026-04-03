@@ -491,6 +491,22 @@ function sendUsageStatus() {
         percentUsed: limits.monthlyCapUsd > 0 ? ((bStatus.costThisMonth + thisMonth.costUsd) / limits.monthlyCapUsd) * 100 : 0,
         alertLevel: bStatus.alertLevel,
       },
+      promptBudget: (() => {
+        const report = conversationManager.getPromptBudgetReport();
+        return {
+          zones: report.zones.map((z) => ({
+            name: z.name,
+            budget: z.budget,
+            tokenCount: z.tokenCount,
+            truncated: z.truncated,
+            components: z.components,
+          })),
+          totalTokens: report.totalTokens,
+          maxContextTokens: report.maxContextTokens,
+          available: report.available,
+          utilizationPercent: report.utilizationPercent,
+        };
+      })(),
     },
   }));
 }

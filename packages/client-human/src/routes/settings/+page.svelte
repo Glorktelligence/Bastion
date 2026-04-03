@@ -1173,6 +1173,36 @@ function handleContextSave(): void {
 				<input type="number" value="50" min="1" max="99" class="config-input mono" disabled />
 			</label>
 		</div>
+
+		{#if usage.promptBudget}
+		<h4 class="usage-sub">Context Budget</h4>
+		<p class="hint" style="margin-top:0">System prompt zone utilization. Each zone has a token budget enforced by the compartmentalized prompt assembler.</p>
+		<div class="ctx-budget-zones">
+			{#each usage.promptBudget.zones as zone}
+			{@const pct = zone.budget > 0 ? Math.min(100, (zone.tokenCount / zone.budget) * 100) : 0}
+			<div class="ctx-zone-row">
+				<span class="ctx-zone-name">{zone.name}{#if zone.truncated}<span class="ctx-truncated" title="Content was truncated to fit budget">⚠</span>{/if}</span>
+				<div class="ctx-zone-bar">
+					<div class="ctx-zone-fill" class:ctx-truncated-fill={zone.truncated} style="width: {pct}%"></div>
+				</div>
+				<span class="ctx-zone-stat mono">{zone.tokenCount.toLocaleString()}{#if zone.budget > 0} / {zone.budget.toLocaleString()}{/if} <span class="ctx-zone-pct">({zone.budget > 0 ? pct.toFixed(0) : '—'}%)</span></span>
+			</div>
+			{#if zone.components.length > 0}
+			<div class="ctx-zone-components">{zone.components.join(', ')}</div>
+			{/if}
+			{/each}
+		</div>
+		<div class="ctx-budget-total">
+			<div class="ctx-total-row">
+				<span class="label">Total</span>
+				<span class="value mono">{usage.promptBudget.totalTokens.toLocaleString()} / {usage.promptBudget.maxContextTokens.toLocaleString()} tokens ({usage.promptBudget.utilizationPercent.toFixed(1)}%)</span>
+			</div>
+			<div class="ctx-total-row">
+				<span class="label">Available</span>
+				<span class="value mono">{usage.promptBudget.available.toLocaleString()} tokens</span>
+			</div>
+		</div>
+		{/if}
 	</section>
 	{/if}
 
@@ -1265,6 +1295,37 @@ function handleContextSave(): void {
 	.usage-adapter-name { color: var(--color-text); }
 	.usage-adapter-calls { color: var(--color-text-muted); font-size: 0.75rem; }
 	.usage-adapter-cost { color: var(--color-accent, #4a9eff); font-family: monospace; font-size: 0.75rem; }
+
+	/* Context budget */
+	.ctx-budget-zones { display: flex; flex-direction: column; gap: 0.125rem; }
+	.ctx-zone-row {
+		display: grid; grid-template-columns: 5.5rem 1fr auto; gap: 0.5rem;
+		align-items: center; padding: 0.25rem 0;
+	}
+	.ctx-zone-name {
+		font-size: 0.8rem; color: var(--color-text); text-transform: capitalize; font-weight: 500;
+	}
+	.ctx-truncated { color: #e5a100; margin-left: 0.25rem; font-size: 0.7rem; }
+	.ctx-zone-bar {
+		height: 8px; background: color-mix(in srgb, var(--color-text-muted) 15%, transparent);
+		border-radius: 4px; overflow: hidden;
+	}
+	.ctx-zone-fill {
+		height: 100%; background: var(--color-accent, #4a9eff); border-radius: 4px; transition: width 0.3s;
+	}
+	.ctx-truncated-fill { background: #e5a100; }
+	.ctx-zone-stat { font-size: 0.7rem; color: var(--color-text-muted); white-space: nowrap; }
+	.ctx-zone-pct { color: var(--color-text-muted); }
+	.ctx-zone-components {
+		font-size: 0.65rem; color: var(--color-text-muted); padding-left: 6rem; margin-top: -0.125rem; margin-bottom: 0.25rem;
+	}
+	.ctx-budget-total {
+		margin-top: 0.5rem; padding-top: 0.5rem;
+		border-top: 1px solid var(--color-border, #2a2a4a);
+	}
+	.ctx-total-row {
+		display: flex; justify-content: space-between; font-size: 0.8rem; padding: 0.125rem 0;
+	}
 
 	.section {
 		background: var(--color-bg-secondary, #1a1a2e);

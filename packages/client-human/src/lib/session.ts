@@ -192,12 +192,31 @@ export const dataPortability: Writable<DataPortabilityState> = hmrStore('__basti
   }),
 );
 
+/** Prompt budget zone — mirrors PromptZone from ConversationManager. */
+export interface PromptBudgetZone {
+  readonly name: 'system' | 'operator' | 'user' | 'dynamic';
+  readonly budget: number;
+  readonly tokenCount: number;
+  readonly truncated: boolean;
+  readonly components: readonly string[];
+}
+
+/** Prompt budget report — context window utilization. */
+export interface PromptBudgetState {
+  readonly zones: readonly PromptBudgetZone[];
+  readonly totalTokens: number;
+  readonly maxContextTokens: number;
+  readonly available: number;
+  readonly utilizationPercent: number;
+}
+
 /** Usage status — token tracking and budget from AI client. */
 export interface UsageStatusState {
   readonly today: { calls: number; inputTokens: number; outputTokens: number; costUsd: number };
   readonly thisMonth: { calls: number; inputTokens: number; outputTokens: number; costUsd: number };
   readonly byAdapter: Record<string, { calls: number; costUsd: number }>;
   readonly budget: { monthlyCapUsd: number; remaining: number; percentUsed: number; alertLevel: string };
+  readonly promptBudget: PromptBudgetState | null;
 }
 export const usageStatus: Writable<UsageStatusState> = hmrStore('__bastionUsageStatus', () =>
   writable<UsageStatusState>({
@@ -205,6 +224,7 @@ export const usageStatus: Writable<UsageStatusState> = hmrStore('__bastionUsageS
     thisMonth: { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
     byAdapter: {},
     budget: { monthlyCapUsd: 10, remaining: 10, percentUsed: 0, alertLevel: 'none' },
+    promptBudget: null,
   }),
 );
 
@@ -1014,6 +1034,7 @@ function handleRelayMessage(data: string): void {
         percentUsed: 0,
         alertLevel: 'none',
       },
+      promptBudget: (p.promptBudget as PromptBudgetState) ?? null,
     });
     return;
   }
