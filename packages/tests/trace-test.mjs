@@ -340,6 +340,11 @@ function validPayloads() {
     data_import_confirm: { importConversations: true, importMemories: true, importProjectFiles: true, importSkills: false, importConfig: false, conflictResolutions: [] },
     data_import_complete: { imported: { conversations: 5, memories: 8, projectFiles: 3, skills: 0, configSections: 0 }, skipped: { conversations: 0, memories: 2, projectFiles: 0, skills: 2 }, errors: [] },
     usage_status: { today: { calls: 10, inputTokens: 5000, outputTokens: 3000, costUsd: 0.05 }, thisMonth: { calls: 200, inputTokens: 100000, outputTokens: 70000, costUsd: 1.20 }, byAdapter: { 'claude-sonnet-4': { calls: 180, costUsd: 1.00 } }, budget: { monthlyCapUsd: 10, remaining: 8.80, percentUsed: 12, alertLevel: 'none' } },
+    data_erasure_request: {},
+    data_erasure_preview: { conversations: 5, messages: 100, memories: 10, projectFiles: 3, skills: 0, usageRecords: 50, softDeleteDays: 30, hardDeleteAt: '2026-05-03T00:00:00Z', auditNote: 'Audit metadata preserved.' },
+    data_erasure_confirm: { confirmed: true },
+    data_erasure_complete: { erasureId: 'abc-123', softDeleted: { conversations: 5, messages: 100, memories: 10, projectFiles: 3, usageRecords: 50 }, hardDeleteScheduledAt: '2026-05-03T00:00:00Z', receipt: 'BASTION-ERASURE-abc-123' },
+    data_erasure_cancel: { erasureId: 'abc-123' },
   };
 }
 
@@ -431,7 +436,7 @@ async function run() {
       }
     }
     check('all 81 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 91 entries', ALL_MESSAGE_TYPES.length === 91);
+    check('ALL_MESSAGE_TYPES has 96 entries', ALL_MESSAGE_TYPES.length === 96);
   }
   console.log();
 
@@ -467,8 +472,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 91 entries', typeKeys.length === 91);
-    check('PAYLOAD_SCHEMAS has 91 entries', Object.keys(PAYLOAD_SCHEMAS).length === 91);
+    check('MESSAGE_TYPES has 96 entries', typeKeys.length === 96);
+    check('PAYLOAD_SCHEMAS has 96 entries', Object.keys(PAYLOAD_SCHEMAS).length === 96);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];

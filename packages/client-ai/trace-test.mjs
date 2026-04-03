@@ -25,6 +25,7 @@ import {
   BudgetGuard,
   AdapterRegistry,
   SkillStore,
+  DataEraser,
 } from './dist/index.js';
 import {
   BastionRelay,
@@ -2228,6 +2229,179 @@ async function run() {
     check('Haiku pricingInputPerMTok = 0.8', haikuEntry?.pricingInputPerMTok === 0.8);
   }
   console.log();
+
+  // -------------------------------------------------------------------
+  // DataEraser (GDPR Article 17)
+  // -------------------------------------------------------------------
+
+  console.log('\n--- DataEraser (GDPR Article 17) ---');
+  {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const os = await import('node:os');
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bastion-eraser-'));
+    const convDbPath = path.join(tmpDir, 'conversations.db');
+    const memDbPath = path.join(tmpDir, 'memories.db');
+    const usageDbPath = path.join(tmpDir, 'usage.db');
+    const projectDir = path.join(tmpDir, 'project');
+    const userCtxPath = path.join(tmpDir, 'user-context.md');
+    const challengePath = path.join(tmpDir, 'challenge-config.json');
+
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.writeFileSync(userCtxPath, 'test user context');
+    fs.writeFileSync(challengePath, '{}');
+
+    // Create stores with test data
+    const { ConversationStore } = await import('./dist/index.js');
+    const { UsageTracker } = await import('./dist/index.js');
+
+    const convStore = new ConversationStore({ path: convDbPath });
+    const memStore = new MemoryStore({ path: memDbPath, maxPromptMemories: 10 });
+    const usageStore = new UsageTracker({ path: usageDbPath });
+    const projStore = new ProjectStore({ rootDir: projectDir });
+
+    // Populate test data
+    const conv1 = convStore.createConversation('Test 1');
+    convStore.addMessage(conv1.id, 'user', 'text', 'hello');
+    convStore.addMessage(conv1.id, 'assistant', 'text', 'hi there');
+    const conv2 = convStore.createConversation('Test 2');
+    convStore.addMessage(conv2.id, 'user', 'text', 'world');
+
+    memStore.addMemory('memory one', 'general', 'user');
+    memStore.addMemory('memory two', 'preference', 'user');
+
+    projStore.saveFile('test.txt', 'file content');
+    projStore.saveFile('sub/nested.md', '# Nested');
+
+    usageStore.record({
+      adapterId: 'sonnet', adapterRole: 'conversation', purpose: 'test',
+      conversationId: conv1.id, inputTokens: 100, outputTokens: 50, costUsd: 0.001,
+    });
+
+    const eraser = new DataEraser({
+      conversationStore: convStore,
+      memoryStore: memStore,
+      projectStore: projStore,
+      usageTracker: usageStore,
+      challengeConfigPath: challengePath,
+      userContextPath: userCtxPath,
+    });
+
+    // Test preview
+    const preview = eraser.preview();
+    check('preview returns correct conversation count', preview.conversations === 2);
+    check('preview returns correct message count', preview.messages === 3);
+    check('preview returns correct memory count', preview.memories === 2);
+    check('preview returns correct project file count', preview.projectFiles === 2);
+    check('preview returns correct usage record count', preview.usageRecords === 1);
+    check('preview skills is zero (not user data)', preview.skills === 0);
+
+    // Test soft delete
+    const result = eraser.softDelete();
+    check('softDelete returns erasureId', typeof result.erasureId === 'string' && result.erasureId.length > 0);
+    check('softDelete returns hardDeleteScheduledAt', typeof result.hardDeleteScheduledAt === 'string');
+    check('softDelete conversations count', result.softDeleted.conversations === 2);
+    check('softDelete messages count', result.softDeleted.messages === 3);
+    check('softDelete memories count', result.softDeleted.memories === 2);
+    check('softDelete project files count', result.softDeleted.projectFiles === 2);
+    check('softDelete usage records count', result.softDeleted.usageRecords === 1);
+
+    // Verify active erasure is tracked
+    const active = eraser.getActiveErasure();
+    check('getActiveErasure returns erasure after soft delete', active !== null);
+    check('getActiveErasure erasureId matches', active?.erasureId === result.erasureId);
+
+    // Verify soft-deleted records are excluded from normal queries
+    const postDeleteConvs = convStore.listConversations();
+    // listConversations doesn't filter by deletedAt (that's a higher-level concern),
+    // but the records should have deletedAt set
+    const db = convStore.db ?? (convStore)['db'];
+
+    // Verify user context cleared
+    const ctxContent = fs.readFileSync(userCtxPath, 'utf-8');
+    check('user context cleared', ctxContent === '');
+
+    // Verify challenge config removed
+    check('challenge config removed', !fs.existsSync(challengePath));
+
+    // Verify project files moved to .erased/
+    const erasedDir = path.join(projectDir, '.erased');
+    check('project .erased/ directory created', fs.existsSync(erasedDir));
+
+    // Test cancel erasure — restore everything
+    eraser.cancelErasure();
+    const afterCancel = eraser.getActiveErasure();
+    check('cancelErasure clears active erasure', afterCancel === null);
+
+    // Verify project files restored
+    check('project files restored after cancel', projStore.listFiles().length === 2);
+
+    // Re-populate for hard delete test
+    const result2 = eraser.softDelete();
+    check('second soft delete succeeds', typeof result2.erasureId === 'string');
+
+    // Test hard delete
+    eraser.hardDelete();
+    const afterHard = eraser.getActiveErasure();
+    check('hardDelete clears active erasure', afterHard === null);
+
+    // Verify data permanently gone
+    const postHardConvs = convStore.listConversations(true);
+    check('hardDelete removes all conversations', postHardConvs.length === 0);
+
+    const postHardMems = memStore.getMemories(10_000);
+    check('hardDelete removes all memories', postHardMems.length === 0);
+
+    check('hardDelete removes .erased/ directory', !fs.existsSync(erasedDir));
+
+    // Test checkExpiredErasures (should be false — no active erasure)
+    check('checkExpiredErasures false when no active', !eraser.checkExpiredErasures());
+
+    // Cleanup — close DBs and remove temp dir (may fail on Windows due to file locks)
+    try { convStore.close?.(); } catch { /* ignore */ }
+    try { memStore.close?.(); } catch { /* ignore */ }
+    try { usageStore.close?.(); } catch { /* ignore */ }
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* Windows file lock */ }
+  }
+
+  // Test protocol schemas for erasure messages
+  console.log('\n--- DataErasure Protocol Schemas ---');
+  {
+    const { DataErasureRequestPayloadSchema, DataErasurePreviewPayloadSchema,
+            DataErasureConfirmPayloadSchema, DataErasureCompletePayloadSchema,
+            DataErasureCancelPayloadSchema } = await import('@bastion/protocol');
+
+    check('erasure_request valid (empty)', DataErasureRequestPayloadSchema.safeParse({}).success);
+    check('erasure_request valid (with reason)', DataErasureRequestPayloadSchema.safeParse({ reason: 'leaving service' }).success);
+
+    check('erasure_preview valid', DataErasurePreviewPayloadSchema.safeParse({
+      conversations: 5, messages: 100, memories: 10, projectFiles: 3, skills: 0,
+      usageRecords: 50, softDeleteDays: 30, hardDeleteAt: '2026-05-03T00:00:00Z',
+      auditNote: 'Audit metadata preserved.',
+    }).success);
+    check('erasure_preview rejects negative conversations', !DataErasurePreviewPayloadSchema.safeParse({
+      conversations: -1, messages: 0, memories: 0, projectFiles: 0, skills: 0,
+      usageRecords: 0, softDeleteDays: 30, hardDeleteAt: '2026-05-03T00:00:00Z',
+      auditNote: 'note',
+    }).success);
+
+    check('erasure_confirm valid', DataErasureConfirmPayloadSchema.safeParse({ confirmed: true }).success);
+    check('erasure_confirm rejects false', !DataErasureConfirmPayloadSchema.safeParse({ confirmed: false }).success);
+    check('erasure_confirm valid with reason', DataErasureConfirmPayloadSchema.safeParse({ confirmed: true, reason: 'test' }).success);
+
+    check('erasure_complete valid', DataErasureCompletePayloadSchema.safeParse({
+      erasureId: 'abc-123', softDeleted: { conversations: 5, messages: 100, memories: 10, projectFiles: 3, usageRecords: 50 },
+      hardDeleteScheduledAt: '2026-05-03T00:00:00Z', receipt: 'BASTION-ERASURE-abc-123',
+    }).success);
+    check('erasure_complete rejects empty erasureId', !DataErasureCompletePayloadSchema.safeParse({
+      erasureId: '', softDeleted: { conversations: 0, messages: 0, memories: 0, projectFiles: 0, usageRecords: 0 },
+      hardDeleteScheduledAt: '2026-05-03T00:00:00Z', receipt: 'r',
+    }).success);
+
+    check('erasure_cancel valid', DataErasureCancelPayloadSchema.safeParse({ erasureId: 'abc-123' }).success);
+    check('erasure_cancel rejects empty id', !DataErasureCancelPayloadSchema.safeParse({ erasureId: '' }).success);
+  }
 
   // -------------------------------------------------------------------
   // Summary

@@ -138,6 +138,31 @@ export const aiDisclosure = hmrStore('__bastionAiDisclosure', createAiDisclosure
 export const fileTransfers: FileTransferStore = hmrStore('__bastionFileTransfers', createFileTransferStore);
 
 /** Data portability state (GDPR Article 20). */
+export interface ErasurePreviewState {
+  readonly conversations: number;
+  readonly messages: number;
+  readonly memories: number;
+  readonly projectFiles: number;
+  readonly skills: number;
+  readonly usageRecords: number;
+  readonly softDeleteDays: number;
+  readonly hardDeleteAt: string;
+  readonly auditNote: string;
+}
+
+export interface ErasureCompleteState {
+  readonly erasureId: string;
+  readonly softDeleted: {
+    readonly conversations: number;
+    readonly messages: number;
+    readonly memories: number;
+    readonly projectFiles: number;
+    readonly usageRecords: number;
+  };
+  readonly hardDeleteScheduledAt: string;
+  readonly receipt: string;
+}
+
 export interface DataPortabilityState {
   readonly exporting: boolean;
   readonly exportProgress: number;
@@ -174,6 +199,9 @@ export interface DataPortabilityState {
     readonly skipped: { conversations: number; memories: number; projectFiles: number; skills: number };
     readonly errors: readonly string[];
   } | null;
+  readonly erasureRequesting: boolean;
+  readonly erasurePreview: ErasurePreviewState | null;
+  readonly erasureComplete: ErasureCompleteState | null;
 }
 
 export const dataPortability: Writable<DataPortabilityState> = hmrStore('__bastionDataPortability', () =>
@@ -189,6 +217,9 @@ export const dataPortability: Writable<DataPortabilityState> = hmrStore('__basti
     importing: false,
     importValidation: null,
     importComplete: null,
+    erasureRequesting: false,
+    erasurePreview: null,
+    erasureComplete: null,
   }),
 );
 
@@ -1128,6 +1159,51 @@ function handleRelayMessage(data: string): void {
       },
     }));
     addNotification('Data import complete', 'success');
+    return;
+  }
+
+  // Data erasure preview → show deletion counts
+  if (type === 'data_erasure_preview') {
+    const p = payload as Record<string, unknown>;
+    dataPortability.update((s) => ({
+      ...s,
+      erasureRequesting: false,
+      erasurePreview: {
+        conversations: Number(p.conversations ?? 0),
+        messages: Number(p.messages ?? 0),
+        memories: Number(p.memories ?? 0),
+        projectFiles: Number(p.projectFiles ?? 0),
+        skills: Number(p.skills ?? 0),
+        usageRecords: Number(p.usageRecords ?? 0),
+        softDeleteDays: Number(p.softDeleteDays ?? 30),
+        hardDeleteAt: String(p.hardDeleteAt ?? ''),
+        auditNote: String(p.auditNote ?? ''),
+      },
+    }));
+    return;
+  }
+
+  // Data erasure complete → show receipt
+  if (type === 'data_erasure_complete') {
+    const p = payload as Record<string, unknown>;
+    const sd = p.softDeleted as Record<string, number> | undefined;
+    dataPortability.update((s) => ({
+      ...s,
+      erasurePreview: null,
+      erasureComplete: {
+        erasureId: String(p.erasureId ?? ''),
+        softDeleted: {
+          conversations: sd?.conversations ?? 0,
+          messages: sd?.messages ?? 0,
+          memories: sd?.memories ?? 0,
+          projectFiles: sd?.projectFiles ?? 0,
+          usageRecords: sd?.usageRecords ?? 0,
+        },
+        hardDeleteScheduledAt: String(p.hardDeleteScheduledAt ?? ''),
+        receipt: String(p.receipt ?? ''),
+      },
+    }));
+    addNotification('Data erasure initiated — 30-day cancellation window active', 'warning');
     return;
   }
 

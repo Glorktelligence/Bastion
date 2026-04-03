@@ -570,7 +570,9 @@ const SENDER_TYPE_RESTRICTIONS = {
   memory_delete: 'human', project_sync: 'human', project_list: 'human',
   project_delete: 'human', project_config: 'human',
   skill_list: 'human', skill_config: 'human',
+  data_erasure_request: 'human', data_erasure_confirm: 'human', data_erasure_cancel: 'human',
   // AI-only messages (AI → human)
+  data_erasure_preview: 'ai', data_erasure_complete: 'ai',
   denial: 'ai', challenge: 'ai', result: 'ai', status: 'ai',
   provider_status: 'ai', budget_alert: 'ai', budget_status: 'ai',
   challenge_status: 'ai', challenge_config_ack: 'ai',

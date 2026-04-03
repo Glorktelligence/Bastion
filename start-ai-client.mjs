@@ -26,6 +26,7 @@ import {
   AdapterRegistry,
   SkillStore,
   DataExporter,
+  DataEraser,
   ImportRegistry,
   BastionImportAdapter,
   ImportExecutor,
@@ -409,6 +410,28 @@ const dataExporter = new DataExporter({
   challengeManager,
 });
 console.log('[✓] Data exporter initialised (GDPR Article 20)');
+
+const dataEraser = new DataEraser({
+  conversationStore,
+  memoryStore,
+  projectStore,
+  usageTracker,
+  challengeConfigPath: CHALLENGE_CONFIG_PATH,
+  userContextPath: process.env.BASTION_USER_CONTEXT_PATH || '/var/lib/bastion/user-context.md',
+});
+
+// Check for expired soft deletes on startup (30-day window passed)
+if (dataEraser.checkExpiredErasures()) {
+  console.log('[!] Expired erasure found — running hard delete...');
+  dataEraser.hardDelete();
+  console.log('[✓] Hard delete complete — all soft-deleted data permanently removed');
+} else {
+  const activeErasure = dataEraser.getActiveErasure();
+  if (activeErasure) {
+    console.log(`[!] Active erasure: ${activeErasure.erasureId} (hard delete at ${activeErasure.hardDeleteAt})`);
+  }
+}
+console.log('[✓] Data eraser initialised (GDPR Article 17)');
 
 const importRegistry = new ImportRegistry();
 importRegistry.register(new BastionImportAdapter());
@@ -1940,6 +1963,157 @@ client.on('message', async (data) => {
       pendingImportAdapter = null;
     }
 
+    return;
+  }
+
+  // -----------------------------------------------------------------------
+  // Data Erasure (GDPR Article 17 — Right to Erasure)
+  // -----------------------------------------------------------------------
+
+  if (msg.type === 'data_erasure_request') {
+    console.log('[←] Data erasure request received');
+
+    // Check challenge hours — erasure blocked during vulnerable periods
+    const challengeCheck = challengeManager.checkAction('data_erasure');
+    if ('blocked' in challengeCheck && challengeCheck.blocked) {
+      console.log(`[!] Data erasure BLOCKED: ${challengeCheck.reason}`);
+      client.send(JSON.stringify({
+        type: 'error',
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        sender: IDENTITY,
+        payload: { code: 'BASTION-4006', message: `Erasure blocked: ${challengeCheck.reason}` },
+      }));
+      return;
+    }
+
+    // Check for existing active erasure
+    const existing = dataEraser.getActiveErasure();
+    if (existing) {
+      client.send(JSON.stringify({
+        type: 'error',
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        sender: IDENTITY,
+        payload: { code: 'BASTION-7005', message: `Erasure already active: ${existing.erasureId} (hard delete at ${existing.hardDeleteAt})` },
+      }));
+      return;
+    }
+
+    const preview = dataEraser.preview();
+    const hardDeleteAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    client.send(JSON.stringify({
+      type: 'data_erasure_preview',
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: IDENTITY,
+      payload: {
+        conversations: preview.conversations,
+        messages: preview.messages,
+        memories: preview.memories,
+        projectFiles: preview.projectFiles,
+        skills: preview.skills,
+        usageRecords: preview.usageRecords,
+        softDeleteDays: 30,
+        hardDeleteAt,
+        auditNote: 'Audit trail metadata preserved (content redacted). Chain integrity maintained.',
+      },
+    }));
+
+    console.log(`[✓] Erasure preview sent: ${preview.conversations}c ${preview.messages}m ${preview.memories}mem ${preview.projectFiles}p ${preview.usageRecords}u`);
+    return;
+  }
+
+  if (msg.type === 'data_erasure_confirm') {
+    console.log('[←] Data erasure confirmation received');
+
+    // Challenge hours check again (in case time passed between preview and confirm)
+    const challengeCheck = challengeManager.checkAction('data_erasure');
+    if ('blocked' in challengeCheck && challengeCheck.blocked) {
+      client.send(JSON.stringify({
+        type: 'error',
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        sender: IDENTITY,
+        payload: { code: 'BASTION-4006', message: `Erasure blocked: ${challengeCheck.reason}` },
+      }));
+      return;
+    }
+
+    const result = dataEraser.softDelete();
+
+    // Redact audit trail entries (preserve chain, redact content)
+    try {
+      const auditDb = auditLogger.getDb?.() ?? null;
+      if (auditDb) {
+        auditDb.prepare(
+          "UPDATE audit_log SET detail = json_object('REDACTED', ?) WHERE detail IS NOT NULL AND detail != '{}'"
+        ).run(`erasure_request_${result.erasureId}`);
+      }
+    } catch (err) {
+      console.log(`[!] Audit redaction warning: ${err.message}`);
+    }
+
+    // Log the erasure event itself
+    auditLogger.logEvent('DATA_ERASURE_SOFT', null, {
+      erasureId: result.erasureId,
+      conversations: result.softDeleted.conversations,
+      messages: result.softDeleted.messages,
+      memories: result.softDeleted.memories,
+      projectFiles: result.softDeleted.projectFiles,
+      usageRecords: result.softDeleted.usageRecords,
+      hardDeleteScheduledAt: result.hardDeleteScheduledAt,
+    });
+
+    const receipt = `BASTION-ERASURE-${result.erasureId}-${new Date().toISOString()}`;
+    client.send(JSON.stringify({
+      type: 'data_erasure_complete',
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: IDENTITY,
+      payload: {
+        erasureId: result.erasureId,
+        softDeleted: result.softDeleted,
+        hardDeleteScheduledAt: result.hardDeleteScheduledAt,
+        receipt,
+      },
+    }));
+
+    console.log(`[✓] Soft delete complete: erasureId=${result.erasureId}, hard delete at ${result.hardDeleteScheduledAt}`);
+    return;
+  }
+
+  if (msg.type === 'data_erasure_cancel') {
+    console.log('[←] Data erasure cancellation received');
+
+    const active = dataEraser.getActiveErasure();
+    if (!active) {
+      client.send(JSON.stringify({
+        type: 'error',
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        sender: IDENTITY,
+        payload: { code: 'BASTION-7005', message: 'No active erasure to cancel' },
+      }));
+      return;
+    }
+
+    dataEraser.cancelErasure();
+
+    auditLogger.logEvent('DATA_ERASURE_CANCELLED', null, {
+      erasureId: active.erasureId,
+    });
+
+    client.send(JSON.stringify({
+      type: 'result',
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: IDENTITY,
+      payload: { taskId: msg.payload?.erasureId || active.erasureId, result: 'Erasure cancelled — all data restored', success: true },
+    }));
+
+    console.log(`[✓] Erasure cancelled: ${active.erasureId} — data restored`);
     return;
   }
 

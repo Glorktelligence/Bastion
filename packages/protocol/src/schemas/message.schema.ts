@@ -838,6 +838,48 @@ export const DataImportCompletePayloadSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Data Erasure (GDPR Article 17 — Right to Erasure)
+// ---------------------------------------------------------------------------
+
+export const DataErasureRequestPayloadSchema = z.object({
+  reason: z.string().optional(),
+});
+
+export const DataErasurePreviewPayloadSchema = z.object({
+  conversations: z.number().int().nonnegative(),
+  messages: z.number().int().nonnegative(),
+  memories: z.number().int().nonnegative(),
+  projectFiles: z.number().int().nonnegative(),
+  skills: z.number().int().nonnegative(),
+  usageRecords: z.number().int().nonnegative(),
+  softDeleteDays: z.number().int().positive(),
+  hardDeleteAt: z.string().min(1),
+  auditNote: z.string().min(1),
+});
+
+export const DataErasureConfirmPayloadSchema = z.object({
+  confirmed: z.literal(true),
+  reason: z.string().optional(),
+});
+
+export const DataErasureCompletePayloadSchema = z.object({
+  erasureId: z.string().min(1),
+  softDeleted: z.object({
+    conversations: z.number().int().nonnegative(),
+    messages: z.number().int().nonnegative(),
+    memories: z.number().int().nonnegative(),
+    projectFiles: z.number().int().nonnegative(),
+    usageRecords: z.number().int().nonnegative(),
+  }),
+  hardDeleteScheduledAt: z.string().min(1),
+  receipt: z.string().min(1),
+});
+
+export const DataErasureCancelPayloadSchema = z.object({
+  erasureId: z.string().min(1),
+});
+
+// ---------------------------------------------------------------------------
 // Payload schema lookup map (message type → Zod schema)
 // ---------------------------------------------------------------------------
 
@@ -939,4 +981,9 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.DATA_IMPORT_VALIDATE]: DataImportValidatePayloadSchema,
   [MESSAGE_TYPES.DATA_IMPORT_CONFIRM]: DataImportConfirmPayloadSchema,
   [MESSAGE_TYPES.DATA_IMPORT_COMPLETE]: DataImportCompletePayloadSchema,
+  [MESSAGE_TYPES.DATA_ERASURE_REQUEST]: DataErasureRequestPayloadSchema,
+  [MESSAGE_TYPES.DATA_ERASURE_PREVIEW]: DataErasurePreviewPayloadSchema,
+  [MESSAGE_TYPES.DATA_ERASURE_CONFIRM]: DataErasureConfirmPayloadSchema,
+  [MESSAGE_TYPES.DATA_ERASURE_COMPLETE]: DataErasureCompletePayloadSchema,
+  [MESSAGE_TYPES.DATA_ERASURE_CANCEL]: DataErasureCancelPayloadSchema,
 } as const;

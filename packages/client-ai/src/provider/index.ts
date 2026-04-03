@@ -114,6 +114,10 @@ export type {
   ImportStoreRefs,
 } from './data-importer.js';
 
+// Data Erasure (GDPR Article 17)
+export { DataEraser } from './data-eraser.js';
+export type { DataEraserConfig, ErasurePreview, ErasureResult } from './data-eraser.js';
+
 // Usage Tracker
 export { UsageTracker } from './usage-tracker.js';
 export type {

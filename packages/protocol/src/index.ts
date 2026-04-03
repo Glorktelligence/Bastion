@@ -128,6 +128,11 @@ export type {
   DataImportValidatePayload,
   DataImportConfirmPayload,
   DataImportCompletePayload,
+  DataErasureRequestPayload,
+  DataErasurePreviewPayload,
+  DataErasureConfirmPayload,
+  DataErasureCompletePayload,
+  DataErasureCancelPayload,
   MessagePayload,
 } from './types/messages.js';
 
@@ -312,6 +317,11 @@ export {
   DataImportValidatePayloadSchema,
   DataImportConfirmPayloadSchema,
   DataImportCompletePayloadSchema,
+  DataErasureRequestPayloadSchema,
+  DataErasurePreviewPayloadSchema,
+  DataErasureConfirmPayloadSchema,
+  DataErasureCompletePayloadSchema,
+  DataErasureCancelPayloadSchema,
   PAYLOAD_SCHEMAS,
 } from './schemas/message.schema.js';
 

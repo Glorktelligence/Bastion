@@ -610,6 +610,69 @@ function handleImportDismiss(): void {
   }));
 }
 
+// ---------------------------------------------------------------------------
+// Data Erasure (GDPR Article 17)
+// ---------------------------------------------------------------------------
+
+let erasureConfirmText: string = $state('');
+
+function handleErasureRequest(): void {
+  const client = session.getClient();
+  if (!client) return;
+  session.dataPortability.update((s) => ({
+    ...s,
+    erasureRequesting: true,
+    erasurePreview: null,
+    erasureComplete: null,
+  }));
+  client.send(JSON.stringify({
+    type: 'data_erasure_request',
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: session.IDENTITY,
+    payload: {},
+  }));
+}
+
+function handleErasureConfirm(): void {
+  const client = session.getClient();
+  if (!client || erasureConfirmText !== 'DELETE MY DATA') return;
+  client.send(JSON.stringify({
+    type: 'data_erasure_confirm',
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: session.IDENTITY,
+    payload: { confirmed: true },
+  }));
+  erasureConfirmText = '';
+}
+
+function handleErasureCancel(): void {
+  const client = session.getClient();
+  if (!client || !dpState.erasureComplete) return;
+  client.send(JSON.stringify({
+    type: 'data_erasure_cancel',
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: session.IDENTITY,
+    payload: { erasureId: dpState.erasureComplete.erasureId },
+  }));
+  session.dataPortability.update((s) => ({
+    ...s,
+    erasureComplete: null,
+    erasurePreview: null,
+  }));
+}
+
+function handleErasureDismissPreview(): void {
+  session.dataPortability.update((s) => ({
+    ...s,
+    erasureRequesting: false,
+    erasurePreview: null,
+  }));
+  erasureConfirmText = '';
+}
+
 function handleContextSave(): void {
 	const client = session.getClient();
 	if (!client) return;
@@ -1123,6 +1186,67 @@ function handleContextSave(): void {
 				{/if}
 			{/if}
 		</div>
+		<div class="dp-section">
+			<h4 class="dp-subtitle">Delete All Data <span class="mem-count">GDPR Article 17</span></h4>
+			<p class="hint" style="margin-top:0">Permanently delete all your data after a 30-day cooling-off period.</p>
+
+			{#if dpState.erasureComplete}
+				<div class="erasure-active">
+					<div class="erasure-active-header">Data Erasure In Progress</div>
+					<div class="erasure-active-info">
+						<span class="label">Erasure ID</span>
+						<span class="value mono">{dpState.erasureComplete.erasureId.slice(0, 8)}...</span>
+						<span class="label">Soft deleted</span>
+						<span class="value">{new Date(dpState.erasureComplete.hardDeleteScheduledAt).toLocaleDateString()  !== 'Invalid Date' ? new Date(new Date(dpState.erasureComplete.hardDeleteScheduledAt).getTime() - 30 * 24 * 60 * 60 * 1000).toLocaleDateString() : 'now'}</span>
+						<span class="label">Hard delete</span>
+						<span class="value">{new Date(dpState.erasureComplete.hardDeleteScheduledAt).toLocaleDateString()}</span>
+						<span class="label">Deleted</span>
+						<span class="value">{dpState.erasureComplete.softDeleted.conversations}c {dpState.erasureComplete.softDeleted.messages}m {dpState.erasureComplete.softDeleted.memories}mem {dpState.erasureComplete.softDeleted.projectFiles}p {dpState.erasureComplete.softDeleted.usageRecords}u</span>
+					</div>
+					<p class="hint">Your data is marked for deletion. You can cancel within 30 days.</p>
+					<button class="btn-danger-outline" onclick={handleErasureCancel}>Cancel Erasure</button>
+				</div>
+			{:else if dpState.erasurePreview}
+				<div class="erasure-preview">
+					<div class="erasure-preview-header">Deletion Preview</div>
+					<div class="erasure-preview-counts">
+						<span>{dpState.erasurePreview.conversations} conversations ({dpState.erasurePreview.messages.toLocaleString()} messages)</span>
+						<span>{dpState.erasurePreview.memories} memories</span>
+						<span>{dpState.erasurePreview.projectFiles} project files</span>
+						<span>{dpState.erasurePreview.usageRecords.toLocaleString()} usage records</span>
+					</div>
+					<p class="hint">{dpState.erasurePreview.auditNote}</p>
+					<p class="hint">You have {dpState.erasurePreview.softDeleteDays} days to cancel this request.</p>
+					<div class="erasure-confirm-input">
+						<label>
+							<span class="label">Type 'DELETE MY DATA' to confirm</span>
+							<input type="text" class="config-input mono" placeholder="DELETE MY DATA" bind:value={erasureConfirmText} />
+						</label>
+					</div>
+					<div class="dp-import-actions">
+						<button class="btn-danger" onclick={handleErasureConfirm} disabled={erasureConfirmText !== 'DELETE MY DATA'}>Delete My Data</button>
+						<button class="btn-sm btn-cancel" onclick={handleErasureDismissPreview}>Cancel</button>
+					</div>
+				</div>
+			{:else if dpState.erasureRequesting}
+				<span class="hint">Requesting erasure preview...</span>
+			{:else}
+				<p class="hint">Export your data first if you want a copy. Erasure is permanent after 30 days.</p>
+				<div class="dp-import-actions">
+					{#if !dpState.exportReady}
+						<button class="btn-save" onclick={handleExportData} disabled={!session.getClient() || dpState.exporting}>
+							{dpState.exporting ? 'Exporting...' : 'Export My Data First'}
+						</button>
+					{/if}
+					<button class="btn-danger-outline" onclick={handleErasureRequest} disabled={!session.getClient()}>
+						{dpState.exportReady ? 'Delete My Data' : "I Don't Need An Export"}
+					</button>
+				</div>
+				{#if !session.getClient()}
+					<span class="hint">Connect to relay first</span>
+				{/if}
+			{/if}
+		</div>
 	</section>
 	{/if}
 
@@ -1326,6 +1450,24 @@ function handleContextSave(): void {
 	.ctx-total-row {
 		display: flex; justify-content: space-between; font-size: 0.8rem; padding: 0.125rem 0;
 	}
+
+	/* Data erasure */
+	.erasure-active, .erasure-preview {
+		background: var(--color-bg, #0f0f23); border: 1px solid var(--color-border, #2a2a4a);
+		border-radius: 0.375rem; padding: 0.75rem;
+	}
+	.erasure-active { border-color: #e5a100; }
+	.erasure-active-header, .erasure-preview-header {
+		font-size: 0.85rem; font-weight: 600; color: var(--color-text); margin-bottom: 0.5rem;
+	}
+	.erasure-active-info {
+		display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 0.75rem; font-size: 0.8rem; margin-bottom: 0.5rem;
+	}
+	.erasure-preview-counts {
+		display: flex; flex-direction: column; gap: 0.125rem; font-size: 0.8rem; color: var(--color-text); margin-bottom: 0.5rem;
+	}
+	.erasure-confirm-input { margin: 0.5rem 0; }
+	.erasure-confirm-input .config-input { width: 100%; }
 
 	.section {
 		background: var(--color-bg-secondary, #1a1a2e);

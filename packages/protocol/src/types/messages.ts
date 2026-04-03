@@ -908,6 +908,53 @@ export interface DataImportCompletePayload {
 }
 
 // ---------------------------------------------------------------------------
+// Data Erasure (GDPR Article 17 — Right to Erasure)
+// ---------------------------------------------------------------------------
+
+/** Human → AI: Request data erasure with optional reason. */
+export interface DataErasureRequestPayload {
+  readonly reason?: string;
+}
+
+/** AI → Human: Preview of what will be deleted. */
+export interface DataErasurePreviewPayload {
+  readonly conversations: number;
+  readonly messages: number;
+  readonly memories: number;
+  readonly projectFiles: number;
+  readonly skills: number;
+  readonly usageRecords: number;
+  readonly softDeleteDays: number;
+  readonly hardDeleteAt: string;
+  readonly auditNote: string;
+}
+
+/** Human → AI: Confirm erasure after preview. */
+export interface DataErasureConfirmPayload {
+  readonly confirmed: true;
+  readonly reason?: string;
+}
+
+/** AI → Human: Erasure complete receipt. */
+export interface DataErasureCompletePayload {
+  readonly erasureId: string;
+  readonly softDeleted: {
+    readonly conversations: number;
+    readonly messages: number;
+    readonly memories: number;
+    readonly projectFiles: number;
+    readonly usageRecords: number;
+  };
+  readonly hardDeleteScheduledAt: string;
+  readonly receipt: string;
+}
+
+/** Human → AI: Cancel erasure during 30-day window. */
+export interface DataErasureCancelPayload {
+  readonly erasureId: string;
+}
+
+// ---------------------------------------------------------------------------
 // Discriminated union of all payload types
 // ---------------------------------------------------------------------------
 
@@ -999,4 +1046,9 @@ export type MessagePayload =
   | { type: 'data_export_ready'; payload: DataExportReadyPayload }
   | { type: 'data_import_validate'; payload: DataImportValidatePayload }
   | { type: 'data_import_confirm'; payload: DataImportConfirmPayload }
-  | { type: 'data_import_complete'; payload: DataImportCompletePayload };
+  | { type: 'data_import_complete'; payload: DataImportCompletePayload }
+  | { type: 'data_erasure_request'; payload: DataErasureRequestPayload }
+  | { type: 'data_erasure_preview'; payload: DataErasurePreviewPayload }
+  | { type: 'data_erasure_confirm'; payload: DataErasureConfirmPayload }
+  | { type: 'data_erasure_complete'; payload: DataErasureCompletePayload }
+  | { type: 'data_erasure_cancel'; payload: DataErasureCancelPayload };

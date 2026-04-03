@@ -133,6 +133,13 @@ export const MESSAGE_TYPES = {
   DATA_IMPORT_CONFIRM: 'data_import_confirm',
   DATA_IMPORT_COMPLETE: 'data_import_complete',
 
+  // --- Data Erasure (GDPR Article 17 — Right to Erasure) ---
+  DATA_ERASURE_REQUEST: 'data_erasure_request',
+  DATA_ERASURE_PREVIEW: 'data_erasure_preview',
+  DATA_ERASURE_CONFIRM: 'data_erasure_confirm',
+  DATA_ERASURE_COMPLETE: 'data_erasure_complete',
+  DATA_ERASURE_CANCEL: 'data_erasure_cancel',
+
   // --- Self-Update System ---
   UPDATE_CHECK: 'update_check',
   UPDATE_AVAILABLE: 'update_available',
