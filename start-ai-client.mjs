@@ -1728,7 +1728,7 @@ client.on('message', async (data) => {
         usageTracker.record({
           timestamp: new Date().toISOString(),
           adapterId: selectedAdapter.activeModel || 'unknown',
-          adapterRole: reason || 'conversation',
+          adapterRole: adapterReason || 'conversation',
           purpose: msg.type === 'task' ? 'task' : 'conversation',
           conversationId: activeConversationId || null,
           inputTokens: result.response.usage.inputTokens,
