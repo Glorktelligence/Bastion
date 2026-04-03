@@ -240,9 +240,21 @@ migrate_ai() {
 
     # Step 4: Migrate /var/lib/bastion-ai → /var/lib/bastion (if old path exists)
     if [[ -d "/var/lib/bastion-ai" && ! -d "$BASTION_DATA" ]]; then
-        log_step "Moving /var/lib/bastion-ai → $BASTION_DATA"
-        mv "/var/lib/bastion-ai" "$BASTION_DATA"
-        log_info "Data directory moved"
+        # Check if it's a mount point (separate disk) — can't mv, must remount
+        if mountpoint -q "/var/lib/bastion-ai" 2>/dev/null; then
+            log_step "Detected /var/lib/bastion-ai is a mount point (separate disk)"
+            log_step "Updating fstab: /var/lib/bastion-ai → $BASTION_DATA"
+            sed -i "s|/var/lib/bastion-ai|$BASTION_DATA|g" /etc/fstab
+            mkdir -p "$BASTION_DATA"
+            umount /var/lib/bastion-ai
+            mount "$BASTION_DATA"
+            rmdir /var/lib/bastion-ai 2>/dev/null || true
+            log_info "Disk remounted at $BASTION_DATA (data preserved, zero copy)"
+        else
+            log_step "Moving /var/lib/bastion-ai → $BASTION_DATA"
+            mv "/var/lib/bastion-ai" "$BASTION_DATA"
+            log_info "Data directory moved"
+        fi
     elif [[ -d "/var/lib/bastion-ai" && -d "$BASTION_DATA" ]]; then
         log_warn "/var/lib/bastion-ai AND $BASTION_DATA both exist"
         log_warn "Merging: copying new files from old → new..."
