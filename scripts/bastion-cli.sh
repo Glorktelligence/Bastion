@@ -595,6 +595,19 @@ cmd_update() {
         log_info "Admin UI built"
     fi
 
+    # Self-update CLI if installed globally
+    if [[ -x /usr/local/bin/bastion && -f "$BASTION_ROOT/scripts/bastion-cli.sh" ]]; then
+        if ! diff -q "$BASTION_ROOT/scripts/bastion-cli.sh" /usr/local/bin/bastion &>/dev/null; then
+            log_step "CLI update available..."
+            if sudo cp "$BASTION_ROOT/scripts/bastion-cli.sh" /usr/local/bin/bastion 2>/dev/null && \
+               sudo chmod +x /usr/local/bin/bastion 2>/dev/null; then
+                log_info "CLI updated at /usr/local/bin/bastion"
+            else
+                log_warn "CLI update needs root: sudo cp $BASTION_ROOT/scripts/bastion-cli.sh /usr/local/bin/bastion"
+            fi
+        fi
+    fi
+
     local current_version
     current_version=$(get_version)
     log_info "Updated to version: $current_version"
