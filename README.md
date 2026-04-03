@@ -118,58 +118,70 @@ Every task submitted through Bastion is evaluated by the AI client's safety engi
 
 - **Node.js** >= 20.0.0 (developed on v24)
 - **PNPM** >= 9.0.0 (developed on v10.32)
-- **Rust** (for the desktop Human Client — [install via rustup](https://rustup.rs))
+- **Linux with systemd** (Ubuntu 22.04+ recommended)
+- **TLS certificates** for the relay (self-signed or Let's Encrypt)
 
-### Install and Build
+### Deploy Relay
 
 ```bash
-git clone https://github.com/Glorktelligence/Bastion.git
-cd bastion
-pnpm install
-pnpm build
+# Clone and install
+sudo mkdir -p /opt/bastion
+sudo chown $(whoami) /opt/bastion
+git clone https://github.com/Glorktelligence/Bastion.git /opt/bastion
+cd /opt/bastion
+
+# Run the installer (creates user, builds, installs services)
+sudo bash scripts/bastion-cli.sh install --vm relay
+
+# Configure
+cp .env.example .env
+# Edit .env with your settings (TLS cert paths, JWT secret, etc.)
+
+# Verify and start
+bastion doctor
+bastion start --component relay
+```
+
+### Deploy AI Client (separate VM recommended)
+
+```bash
+# Same clone + install process
+sudo mkdir -p /opt/bastion
+sudo chown $(whoami) /opt/bastion
+git clone https://github.com/Glorktelligence/Bastion.git /opt/bastion
+cd /opt/bastion
+
+sudo bash scripts/bastion-cli.sh install --vm ai
+
+# Configure
+cp .env.example .env
+# Edit .env: set ANTHROPIC_API_KEY, BASTION_RELAY_URL, etc.
+
+bastion doctor
+bastion start --component ai
+```
+
+### Update
+
+```bash
+sudo -u bastion bastion update --component relay   # Relay VM
+sudo -u bastion bastion update --component ai      # AI VM
+bastion restart --component all
+```
+
+### Human Client (Development)
+
+```bash
+cd packages/client-human
+pnpm dev
+# Opens at http://localhost:1420
 ```
 
 ### Run Tests
 
 ```bash
-# All package tests
-pnpm test
-
-# Individual packages
-node packages/tests/trace-test.mjs              # Protocol schema tests (289 checks)
-node packages/tests/integration-test.mjs         # Integration round-trip tests (118 checks)
-node packages/tests/file-transfer-integration-test.mjs  # File transfer E2E (105 checks)
-node packages/relay/trace-test.mjs               # Relay tests (353 checks)
-node packages/relay/quarantine-trace-test.mjs    # Relay quarantine tests (105 checks)
-node packages/relay/file-transfer-trace-test.mjs # Relay file-transfer routing (96 checks)
-node packages/relay/admin-trace-test.mjs          # Admin auth, routes, extensions (312 checks)
-node packages/crypto/trace-test.mjs              # Crypto tests (134 checks)
-node packages/client-ai/trace-test.mjs           # AI client: safety, provider, skills, adapters, challenge, budget (466 checks)
-node packages/client-ai/file-handling-trace-test.mjs  # AI client file handling (155 checks)
-node packages/client-human/trace-test.mjs        # Desktop client tests (321 checks)
-node packages/client-human-mobile/trace-test.mjs # Mobile client tests (123 checks)
-node packages/relay-admin-ui/trace-test.mjs      # Admin UI: stores, API, data service (239 checks)
-```
-
-### Typecheck
-
-```bash
-# All packages
-pnpm -r typecheck
-
-# Lint (requires Biome)
-pnpm lint
-```
-
-### Development
-
-```bash
-# Desktop client (Tauri + SvelteKit)
-cd packages/client-human
-pnpm tauri dev
-
-# Admin UI (SvelteKit dev server)
-pnpm --filter @bastion/relay-admin-ui dev
+pnpm test    # All 2,928+ tests across 14 files
+pnpm lint    # Biome linting
 ```
 
 ## Protocol
