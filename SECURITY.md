@@ -93,13 +93,18 @@ These cannot be disabled or configured away:
 
 Streaming responses (`conversation_stream` messages) are E2E encrypted — each chunk is encrypted with the current KDF ratchet key, same as any other message. The relay forwards encrypted chunks without decryption. The compaction summary is generated on the AI VM from decrypted content and stored locally in SQLite — it never leaves the AI VM as plaintext.
 
+### Operational Model
+
+All components run as a single `bastion` user on each VM. VM-level isolation (relay VLAN 30, AI VLAN 50) provides security separation — user-level isolation within VMs was removed as redundant. The `bastion` CLI tool (`scripts/bastion-cli.sh`, installed to `/usr/local/bin/bastion`) manages updates, restarts, status, and one-time migration from the old multi-user architecture.
+
 ### Admin Dashboard Access Model
 
 The admin dashboard is accessed via SSH tunnel — the tunnel is the access control:
 
 - **GET endpoints are unauthenticated**: Read-only monitoring (status, connections, audit, config) does not require credentials. The admin API server binds to `127.0.0.1` only — it is physically unreachable without an SSH tunnel or local access.
+- **Admin UI binding**: The admin UI uses SvelteKit adapter-node and **MUST** bind to `127.0.0.1` via the `HOST` environment variable. The systemd service template sets `Environment=HOST=127.0.0.1` to enforce this.
 - **Mutations require admin credentials**: POST/PUT/DELETE (approve provider, revoke, set capabilities) require Basic auth + TOTP verification with scrypt-hashed password.
-- **Self-signed certificate proxy**: The production admin UI (start-admin-ui.mjs) proxies `/api/*` requests to the admin HTTPS server with `rejectUnauthorized: false`. This is safe because both services run on `127.0.0.1` — traffic never leaves the loopback interface.
+- **Self-signed certificate proxy**: The production admin UI proxies `/api/*` requests to the admin HTTPS server with `rejectUnauthorized: false`. This is safe because both services run on `127.0.0.1` — traffic never leaves the loopback interface.
 
 ### Provider Registration Attack Surface
 

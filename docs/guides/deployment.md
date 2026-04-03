@@ -680,28 +680,32 @@ sudo systemctl restart bastion-ai-client
 
 **Interoperability:** Both implementations produce byte-identical NaCl ciphertext. The KDF ratchet uses SHA-512 truncated to 32 bytes on both sides.
 
-**Budget Guard:** Web search usage is tracked in SQLite at `BASTION_BUDGET_DB` (default: `/var/lib/bastion-ai/budget.db`). Budget configuration persisted at `BASTION_BUDGET_CONFIG` (default: `/var/lib/bastion-ai/budget-config.json`). Default limits: $10/month, 500 searches/month, 50/day, 20/session. Monthly cap increases take effect next month only (tighten-only mid-month). All config changes have a 7-day cooldown and are blocked during challenge hours.
+**Budget Guard:** Web search usage is tracked in SQLite at `BASTION_BUDGET_DB` (default: `/var/lib/bastion/budget.db`). Budget configuration persisted at `BASTION_BUDGET_CONFIG` (default: `/var/lib/bastion/budget-config.json`). Default limits: $10/month, 500 searches/month, 50/day, 20/session. Monthly cap increases take effect next month only (tighten-only mid-month). All config changes have a 7-day cooldown and are blocked during challenge hours.
 
-## Self-Update Agents
+## CLI Management Tool
 
-Bastion includes a self-update system that can pull, build, and restart all components remotely via the admin panel. See [`deploy/update-agent/`](../../deploy/update-agent/) for full deployment instructions.
+All components are managed via the `bastion` CLI tool (`scripts/bastion-cli.sh`). All components run as a single `bastion` user — VM-level isolation provides security separation.
 
-**Quick setup** (run on each VM as root):
+**Install:**
 
 ```bash
-cd deploy/update-agent
-chmod +x setup-updater.sh
-sudo ./setup-updater.sh
+sudo cp scripts/bastion-cli.sh /usr/local/bin/bastion
+sudo chmod +x /usr/local/bin/bastion
 ```
 
-This installs:
-- A `bastion-updater` system user with a minimal sudoers whitelist
-- A systemd service (`bastion-updater.service`) that auto-restarts
-- The agent connects to the relay and appears in the admin panel's `/update` page
+**Usage:**
 
-**Restart orchestration**: The relay persists update state to `/var/lib/bastion/pending-update.json` before restarting itself. On startup, it resumes from the restart phase, waits for all components to reconnect and report their new version, then marks the update as complete. If a component fails to reconnect within the timeout (60s local, 120s remote), the update is marked as failed.
+```bash
+bastion status                          # Show service status
+bastion update --component relay|ai     # Pull, install, build
+bastion restart --component relay|ai|admin|all
+bastion audit relay --live              # Live log stream
+bastion migrate --vm relay|ai           # One-time migration (run as root)
+```
 
-**Security**: The agent can only execute 3 whitelisted command types (`git_pull`, `pnpm_install`, `pnpm_build`). The sudoers file restricts what the agent can actually `sudo`. All update operations are logged in the tamper-evident audit chain.
+**Systemd service templates** are in `deploy/systemd/` — copy to `/etc/systemd/system/` or use `bastion migrate` to install them automatically.
+
+**Migration:** If upgrading from the old multi-user architecture (bastion-ai, bastion-updater users), run `sudo bastion migrate --vm relay` and `sudo bastion migrate --vm ai` once. This consolidates users, fixes ownership, updates paths, and installs systemd services.
 
 ## Security Checklist
 

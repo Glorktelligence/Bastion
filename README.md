@@ -1,9 +1,9 @@
 # Project Bastion
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-2%2C945_passing-brightgreen.svg)](#run-tests)
-[![Packages](https://img.shields.io/badge/Packages-10-purple.svg)](#packages)
-[![Protocol](https://img.shields.io/badge/Protocol-84_message_types-orange.svg)](#protocol)
+[![Tests](https://img.shields.io/badge/Tests-2%2C928_passing-brightgreen.svg)](#run-tests)
+[![Packages](https://img.shields.io/badge/Packages-9-purple.svg)](#packages)
+[![Protocol](https://img.shields.io/badge/Protocol-91_message_types-orange.svg)](#protocol)
 [![Node](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-339933.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-3178C6.svg)](https://www.typescriptlang.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -99,8 +99,7 @@ Most Human-AI interaction today happens through chat interfaces with no structur
 | `@bastion/client-human`        | Tauri + SvelteKit desktop app — messaging, challenge review, file transfers         |
 | `@bastion/client-human-mobile` | React Native mobile app — same protocol, mobile-native UI                           |
 | `@bastion/client-ai`           | Headless AI client for isolated VM — safety engine, 3 adapters, skills, file handling |
-| `@bastion/relay-admin-ui`      | SvelteKit admin panel — provider management, blocklist, quarantine, update lifecycle |
-| `@bastion/update-agent`      | Self-update agent — connects to relay, executes whitelisted build commands          |
+| `@bastion/relay-admin-ui`      | SvelteKit admin panel — provider management, blocklist, quarantine, 5-tab config    |
 | `@bastion/adapter-template`   | Community adapter reference template — build adapters for any AI provider           |
 
 ## The Three-Layer Safety Engine
@@ -150,7 +149,6 @@ node packages/client-ai/file-handling-trace-test.mjs  # AI client file handling 
 node packages/client-human/trace-test.mjs        # Desktop client tests (321 checks)
 node packages/client-human-mobile/trace-test.mjs # Mobile client tests (123 checks)
 node packages/relay-admin-ui/trace-test.mjs      # Admin UI: stores, API, data service (239 checks)
-node packages/update-agent/trace-test.mjs        # Update agent: config, commands, agent lifecycle (129 checks)
 ```
 
 ### Typecheck
@@ -176,7 +174,7 @@ pnpm --filter @bastion/relay-admin-ui dev
 
 ## Protocol
 
-Bastion defines 84 message types across structured categories:
+Bastion defines 91 message types across structured categories:
 
 - **Core** (10): `task`, `conversation`, `challenge`, `confirmation`, `denial`, `status`, `result`, `error`, `audit`, `heartbeat`
 - **File Transfer** (3): `file_manifest`, `file_offer`, `file_request`
@@ -214,13 +212,14 @@ Bastion includes deployment templates for self-hosted environments:
 - **[AppArmor Profiles](packages/infrastructure/apparmor/)** — Mandatory access control for AI client VM
 - **[Firewall Rules](packages/infrastructure/firewall/)** — nftables config for defence-in-depth
 - **[Automated Setup](packages/infrastructure/setup/)** — Intelligent provisioning with OS disk protection
-- **[Update Agent](deploy/update-agent/)** — Self-update agent with systemd service, sudoers whitelist, setup script
+- **[Systemd Templates](deploy/systemd/)** — Service files for relay, admin UI, AI client
+- **[CLI Tool](scripts/bastion-cli.sh)** — `bastion update|restart|status|audit|migrate` management CLI
 
 ## Documentation
 
 - [Getting Started Guide](docs/guides/getting-started.md) — Clone to running local instance walkthrough
 - [Deployment Guide](docs/guides/deployment.md) — Self-hosting with TLS, VLANs, and AI VM isolation
-- [Protocol Specification](docs/protocol/bastion-protocol-v0.5.0.md) — All 84 message types, envelope structure, E2E encryption, safety evaluation
+- [Protocol Specification](docs/protocol/bastion-protocol-v0.5.0.md) — All 91 message types, envelope structure, E2E encryption, safety evaluation
 - [Core Specification](docs/spec/Project-Bastion-Spec-v0.1.0.docx) — The full product specification
 - [Supplementary Specification](docs/spec/bastion-supplementary-spec.md) — Architectural decisions, session lifecycle, error codes, GDPR considerations
 - [Project Structure](docs/spec/bastion-project-structure.md) — Package layout and task breakdown
@@ -250,13 +249,15 @@ Skills are loaded from the `skills/` directory on startup and locked (no mid-ses
 | 4 | MCP tool integration with governed approval flow (JSON-RPC 2.0) | Deployed |
 | — | Multi-conversation persistence with hash-chained messages (SQLite) | Deployed |
 | — | Conversation compaction (AI summarises older messages, originals preserved) | Deployed |
-| — | Three official Anthropic adapters: Sonnet (conversation), Haiku (compaction/game), Opus (research/dream) | Deployed |
-| — | Soul Document v1.0 — three-layer system prompt (identity, values, operational guidance) | Deployed |
+| — | Three official Anthropic adapters: Sonnet 4.6 (1M), Haiku 4.5 (200k), Opus 4.6 (1M) | Deployed |
+| — | Soul Document v1.0 — compartmentalized 4-zone system prompt (system, operator, user, conversation) | Deployed |
+| — | Usage tracking — every API call recorded to SQLite with per-adapter cost breakdown | Deployed |
+| — | GDPR Article 20 data portability — full conversation export/import | Deployed |
 | — | Per-conversation tool trust isolation | Deployed |
 | — | Streaming responses (real-time AI typing with SSE) | Deployed |
 | 5 | Skills System — trigger-based contextual knowledge loading | Deployed |
 | — | Multi-adapter routing with AdapterRegistry + adapter hint resolution | Deployed |
-| — | Self-update system with E2E encrypted commands, multi-agent orchestration | Deployed |
+| — | CLI management tool — `bastion update\|restart\|status\|audit\|migrate` | Deployed |
 | — | Community adapter template (@bastion/adapter-template) | Deployed |
 | — | File transfer pipeline with 3-stage custody chain (fully wired) | Deployed |
 | — | Protocol extension system with sandboxed UI iframes + message bridge | Deployed |
@@ -282,35 +283,17 @@ These cannot be disabled, bypassed, or configured away:
 
 ## Status
 
-**Pre-Release (v0.7.1).** The protocol, crypto layer, relay, AI client, desktop client, admin UI, update agent, adapter template, and infrastructure templates are all implemented and tested across 2,945 passing tests in 14 test files.
+**Pre-Release (v0.8.0+).** The protocol, crypto layer, relay, AI client, desktop client, admin UI, adapter template, and infrastructure templates are all implemented and tested across 2,928+ passing tests in 14 test files. All components run as a single `bastion` user with VM-level isolation providing security separation.
 
-The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. E2E encryption is active with interoperable tweetnacl (browser) and libsodium (Node.js) implementations. The protocol is stable at 84 message types with 48 error codes across 8 categories. Three official Anthropic adapters (Sonnet, Haiku, Opus) provide role-based model selection with adapter hint routing (cheapest/smartest/fastest). The Layer 5 Skills System enables on-demand contextual knowledge loading. The Soul Document defines a three-layer constitution for AI behaviour. The reference implementation works.
+The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. E2E encryption is active with interoperable tweetnacl (browser) and libsodium (Node.js) implementations. The protocol is stable at 91 message types with 48 error codes across 8 categories. Three official Anthropic adapters — Sonnet 4.6 (1M context), Haiku 4.5 (200k context), Opus 4.6 (1M context) — provide role-based model selection with adapter hint routing. The compartmentalized 4-zone system prompt enforces token budgets per zone. Usage tracking records every API call to SQLite. The CLI tool (`bastion`) manages updates, restarts, status, and one-time migration to single-user architecture. The reference implementation works.
 
 > **Mobile client note:** The React Native mobile client (`packages/client-human-mobile`) was built during the initial development phases and builds successfully, but has not been updated with Layer 2-4 features, the setup wizard, or Challenge Me More. Mobile client modernisation is on the roadmap.
-
-### Self-Update System (Beta)
-
-The self-update system is deployed with multi-agent support (relay + AI VM agents). The setup script is idempotent (safe to rerun). Remaining items:
-
-- End-to-end update flow (Check → Build → Restart → Verify) has not completed a full cycle in production yet
-- Relay self-restart coordination is the most complex phase and is untested in production
-- First-time deployment requires manual steps — see [deploy/update-agent/README.md](deploy/update-agent/README.md)
 
 See [GitHub Issues](https://github.com/Glorktelligence/Bastion/issues) for other items.
 
 This is a framework and protocol — not a consumer product. The hard parts are done. Fork it, adapt it, build on it.
 
 Feedback, security review, and contributions are welcome.
-
-## Known Issues
-
-### Messaging throws `reason is not defined` after successful API response (v0.8.0+)
-
-After upgrading to Sonnet 4.6 (`claude-sonnet-4-6`), the API call succeeds and streams chunks correctly, but an error is thrown during post-response processing: `Unexpected error calling API: reason is not defined`. This is likely a variable reference to a `reason` field that exists in the Sonnet 4 response format but is named differently or absent in the Sonnet 4.6 response. The conversation message IS delivered to the human client despite the error.
-
-**Status:** Under investigation
-**Workaround:** Messages still deliver; the error is non-fatal
-**Introduced:** Model upgrade from `claude-sonnet-4-20250514` to `claude-sonnet-4-6`
 
 ## Licence
 

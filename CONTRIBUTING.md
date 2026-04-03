@@ -36,7 +36,6 @@ Bastion is a PNPM monorepo. All packages live in `packages/`:
 - `client-human-mobile` — React Native mobile app
 - `client-ai` — Headless AI client for isolated VM
 - `relay-admin-ui` — SvelteKit admin panel
-- `update-agent` — Self-update agent (connects to relay, executes whitelisted build commands)
 - `adapter-template` — Community adapter reference template
 - `tests` — Cross-package integration tests
 

@@ -14,7 +14,6 @@ import {
   HashVerifier,
   PurgeScheduler,
   FileTransferRouter,
-  UpdateOrchestrator,
   Allowlist,
 } from './packages/relay/dist/index.js';
 
@@ -25,7 +24,6 @@ import {
 //   PERSISTS:
 //     ✅ Admin credentials      → /var/lib/bastion/admin-credentials.json
 //     ✅ Audit trail             → /var/lib/bastion/audit.db (SQLite)
-//     ✅ Update state            → /var/lib/bastion/pending-update.json
 //     ✅ Disclosure config       → /var/lib/bastion/disclosure-config.json
 //     ✅ TLS certs               → /opt/bastion/certs/
 //   RECONSTRUCTED ON STARTUP (no persistence needed):
@@ -372,20 +370,6 @@ const statusProvider = {
   },
 };
 
-// Update orchestrator — manages multi-phase update lifecycle
-const UPDATE_STATE_FILE = process.env.BASTION_UPDATE_STATE_FILE || '/var/lib/bastion/pending-update.json';
-const updateOrchestrator = new UpdateOrchestrator({
-  auditLogger,
-  send: (connectionId, data) => relay.send(connectionId, data),
-  stateFilePath: UPDATE_STATE_FILE,
-});
-const resumedUpdate = updateOrchestrator.loadPendingState();
-if (resumedUpdate) {
-  console.log('[!] Resumed pending update from state file — waiting for reconnections');
-} else {
-  console.log('[✓] Update orchestrator initialised (no pending update)');
-}
-
 // ---------------------------------------------------------------------------
 // AI Disclosure — must be loaded BEFORE AdminRoutes (needs disclosureConfig)
 // Precedence: file > env vars > defaults.
@@ -417,43 +401,10 @@ const adminRoutes = new AdminRoutes({
   auditLogger,
   statusProvider,
   extensionRegistry,
-  updateOrchestrator,
   currentVersion: CURRENT_VERSION,
   initialDisclosureConfig: disclosureConfig,
   disclosureConfigPath: DISCLOSURE_CONFIG_PATH,
   onDisclosureUpdate: (cfg) => updateDisclosureConfig(cfg),
-  onUpdateMessage: (type, payload) => {
-    if (updaterClients.size === 0) {
-      console.log(`[!] No updater clients connected — cannot send ${type}`);
-      return;
-    }
-    const msg = JSON.stringify({
-      type,
-      id: randomUUID(),
-      timestamp: new Date().toISOString(),
-      sender: { id: 'relay', type: 'relay', displayName: 'Bastion Relay' },
-      payload,
-    });
-    // Target a specific component if the payload specifies one, otherwise broadcast
-    const targetComponent = payload?.targetComponent;
-    if (targetComponent) {
-      // Targeted: find the updater for this component
-      for (const [agentId, info] of updaterClients) {
-        if (info.component === targetComponent || agentId === targetComponent) {
-          relay.send(info.connectionId, msg);
-          console.log(`[→] ${type} sent to updater ${agentId} (${info.component})`);
-          return;
-        }
-      }
-      // Fall back to broadcast if no specific match
-      console.log(`[!] No updater for component "${targetComponent}" — broadcasting ${type} to all`);
-    }
-    // Broadcast to all updaters
-    for (const [agentId, info] of updaterClients) {
-      relay.send(info.connectionId, msg);
-      console.log(`[→] ${type} sent to updater ${agentId} (${info.component})`);
-    }
-  },
   onChallengeConfigUpdate: (schedule, cooldowns) => {
     // Forward challenge_config to the connected AI client via relay
     if (!aiConnectionId) {
@@ -492,8 +443,6 @@ console.log('[✓] Admin server configured (127.0.0.1 only — use SSH tunnel fo
 
 let humanConnectionId = null;
 let aiConnectionId = null;
-/** All connected updater clients: agentId → { connectionId, component } */
-const updaterClients = new Map();
 
 /** Session IDs keyed by connection ID (for audit logging). */
 const sessionIds = new Map();
@@ -629,10 +578,6 @@ const SENDER_TYPE_RESTRICTIONS = {
   project_sync_ack: 'ai', project_list_response: 'ai', project_config_ack: 'ai',
   skill_list_response: 'ai',
   tool_registry_sync: 'ai', tool_request: 'ai', tool_result: 'ai', tool_alert: 'ai',
-  // Updater-only messages (updater ↔ relay) — must NEVER reach AI or human clients
-  update_available: 'updater', up_to_date: 'updater', update_prepare_ack: 'updater',
-  update_build_status: 'updater', update_reconnected: 'updater',
-  update_complete: 'updater', update_failed: 'updater',
 };
 
 /** Check if a message's sender type matches the expected type for that message. */
@@ -745,12 +690,6 @@ relay.on('message', async (data, info) => {
     } else if (identity.type === 'ai') {
       aiConnectionId = connId;
       console.log(`[✓] AI client registered: ${identity.displayName}`);
-    } else if (identity.type === 'updater') {
-      // Register in multi-updater map: derive component from agentId (e.g. "updater-relay" → "relay")
-      const component = identity.id.replace(/^updater-/, '') || identity.id;
-      updaterClients.set(identity.id, { connectionId: connId, component });
-      updateOrchestrator.registerAgent(connId, identity.id, component);
-      console.log(`[✓] Updater client registered: ${identity.displayName} (${identity.id}, component: ${component}) [${updaterClients.size} updater(s)]`);
     }
 
     // Auto-pair when both sides are connected
@@ -930,28 +869,10 @@ relay.on('message', async (data, info) => {
 
   // ----- key_exchange: forward between paired clients (relay is zero-knowledge) -----
   if (msg.type === 'key_exchange') {
-    // Check if sender is an updater
-    const senderIsUpdater = [...updaterClients.values()].some((u) => u.connectionId === connId);
-    if (senderIsUpdater) {
-      // Updater → human only
-      if (humanConnectionId) {
-        relay.send(humanConnectionId, data);
-        console.log(`[→] key_exchange forwarded from updater to human ${humanConnectionId.slice(0, 8)}`);
-      }
-    } else {
-      // Human or AI → forward to paired peer (standard key exchange)
-      const peerId = router.getPeer(connId);
-      if (peerId) {
-        relay.send(peerId, data);
-        console.log(`[→] key_exchange forwarded to peer ${peerId.slice(0, 8)} (relay sees public key only)`);
-      }
-      // Human → ALSO forward to ALL updaters (for update channel E2E)
-      if (connId === humanConnectionId && updaterClients.size > 0) {
-        for (const [agentId, info] of updaterClients) {
-          relay.send(info.connectionId, data);
-          console.log(`[→] key_exchange also forwarded from human to updater ${agentId}`);
-        }
-      }
+    const peerId = router.getPeer(connId);
+    if (peerId) {
+      relay.send(peerId, data);
+      console.log(`[→] key_exchange forwarded to peer ${peerId.slice(0, 8)} (relay sees public key only)`);
     }
     const sid = sessionIds.get(connId);
     if (sid) auditLogger.logEvent('key_exchange', sid, {
@@ -1119,66 +1040,6 @@ relay.on('message', async (data, info) => {
         });
       }
     }
-    return;
-  }
-
-  // ----- update_* messages: route between updater client and admin with audit -----
-  if (msg.type === 'update_check' || msg.type === 'update_available' || msg.type === 'up_to_date' || msg.type === 'update_prepare' || msg.type === 'update_prepare_ack' || msg.type === 'update_execute' || msg.type === 'update_build_status' || msg.type === 'update_restart' || msg.type === 'update_reconnected' || msg.type === 'update_complete' || msg.type === 'update_failed') {
-    const sid = sessionIds.get(connId);
-
-    // Map update messages to orchestrator + admin status tracking
-    const p = msg.payload || {};
-    if (msg.type === 'update_available') {
-      updateOrchestrator.handleUpdateAvailable(p.availableVersion, p.commitHash);
-      adminRoutes.setUpdateStatus('checking', { targetVersion: p.availableVersion });
-      adminRoutes.setCheckResult({ status: 'update_available', component: p.component, currentVersion: p.currentVersion, availableVersion: p.availableVersion, commitHash: p.commitHash, commitCount: p.commitCount });
-    } else if (msg.type === 'up_to_date') {
-      adminRoutes.setUpdateStatus('idle', {});
-      adminRoutes.setCheckResult({ status: 'up_to_date', component: p.component, currentVersion: p.currentVersion, fetchFailed: p.fetchFailed });
-      console.log(`[✓] Agent reports ${p.component || 'unknown'} is up to date (v${p.currentVersion || 'unknown'})`);
-    } else if (msg.type === 'update_prepare_ack') {
-      updateOrchestrator.handlePrepareAck(p.component);
-    } else if (msg.type === 'update_build_status') {
-      updateOrchestrator.handleBuildStatus(p.component, p.phase, p.duration, p.error);
-      if (p.phase === 'complete') adminRoutes.setUpdateStatus('complete', { component: p.component });
-      else if (p.phase === 'failed') adminRoutes.setUpdateStatus('failed', { component: p.component, error: p.error });
-      else adminRoutes.setUpdateStatus('building', { component: p.component });
-    } else if (msg.type === 'update_reconnected') {
-      updateOrchestrator.handleReconnected(p.component, p.version);
-    } else if (msg.type === 'update_complete') {
-      adminRoutes.setUpdateStatus('complete', { targetVersion: p.toVersion });
-    } else if (msg.type === 'update_failed') {
-      adminRoutes.setUpdateStatus('failed', { component: p.component, error: p.error });
-    } else if (msg.type === 'update_restart') {
-      adminRoutes.setUpdateStatus('restarting', { component: p.targetComponent });
-    } else if (msg.type === 'update_prepare') {
-      adminRoutes.setUpdateStatus('preparing', { targetVersion: p.targetVersion });
-    }
-
-    // Audit update lifecycle messages (metadata only)
-    if (sid) {
-      auditLogger.logEvent(msg.type, sid, {
-        messageType: msg.type,
-        component: p.component || p.targetComponent || null,
-        version: p.version || p.availableVersion || p.toVersion || null,
-        phase: p.phase || null,
-      });
-    }
-
-    // Forward to updater or admin depending on sender
-    // Relay cannot read encrypted payloads — it only routes and audits metadata
-    const senderIsUpdater = [...updaterClients.values()].some((u) => u.connectionId === connId);
-    if (senderIsUpdater) {
-      // From updater → admin panel can poll /api/update/status
-      console.log(`[→] ${msg.type} from updater (admin will see status via API)`);
-    } else if (updaterClients.size > 0) {
-      // From admin-initiated → forward to all updaters (orchestrator handles per-agent targeting)
-      for (const [agentId, info] of updaterClients) {
-        relay.send(info.connectionId, data);
-        console.log(`[→] ${msg.type} forwarded to updater ${agentId}`);
-      }
-    }
-
     return;
   }
 
@@ -1525,16 +1386,6 @@ relay.on('disconnection', (info, code, reason) => {
         timestamp: new Date().toISOString(),
       }));
     }
-  } else if ([...updaterClients.values()].some((u) => u.connectionId === connId)) {
-    // Find and remove the disconnected updater by connectionId
-    for (const [agentId, info] of updaterClients) {
-      if (info.connectionId === connId) {
-        updaterClients.delete(agentId);
-        console.log(`[-] Updater client disconnected: ${agentId} (${info.component}) [${updaterClients.size} remaining]`);
-        break;
-      }
-    }
-    updateOrchestrator.unregisterAgent(connId);
   } else if (connId === aiConnectionId) {
     aiConnectionId = null;
     registeredProvider = null;

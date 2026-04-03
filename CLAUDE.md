@@ -23,7 +23,7 @@ These are HARDCODED and NON-NEGOTIABLE. Never make them configurable. Never weak
 - Content scanning (13 dangerous patterns) on project_sync at relay + AI client.
 
 ### Protocol First
-- ALL message type changes start in `@bastion/protocol` package (81 message types, 48 error codes).
+- ALL message type changes start in `@bastion/protocol` package (91 message types, 48 error codes).
 - Other packages consume protocol types — they never define their own message structures.
 - Protocol extensions use namespaced message types (`namespace:type` format).
 - Protocol version bumps require an Architecture Decision Record in `docs/architecture/decisions/`.
@@ -33,10 +33,10 @@ These are HARDCODED and NON-NEGOTIABLE. Never make them configurable. Never weak
 - When working with Node.js native modules or database libraries, check compatibility with the current Node version BEFORE attempting installation. Run `node --version` first.
 - When a feature spans multiple packages (protocol → relay → client), implement ALL sides before considering the task complete. Explicitly call out if any package update is still missing.
 - **Startup script wiring**: Library code must be wired in `start-relay.mjs` and/or `start-ai-client.mjs`. All previously "built but not wired" patterns are resolved — don't create new ones.
-- Run `pnpm lint --write` then `pnpm lint` before committing. Run the full 14-file test suite.
+- Run `pnpm lint --write` then `pnpm lint` before committing. Run the full test suite (`pnpm test`).
 - Always write new code in TypeScript with proper type annotations. Check `tsconfig.json` before writing new files.
 - **Svelte 5 store subscriptions**: In `.svelte` route files, use `onMount()` (NOT `$effect()`) for `store.subscribe()` calls. Our custom stores call subscribers synchronously, and `$effect` tracks reactive reads — if a subscribe callback reads `$state` inside `$effect`, it creates an infinite loop (`effect_update_depth_exceeded`). `onMount` has no reactive tracking, so this cannot occur.
-- **Browser packages CANNOT import `@bastion/protocol` values** — only `import type` is safe. The protocol package re-exports `hash.ts` which uses `node:crypto`, breaking Vite browser builds. Affected: `client-human`, `relay-admin-ui`, `client-human-mobile`. Use Vite `define` for version (`__BASTION_VERSION__`), and hardcode safety floor values with comments referencing the protocol source. Node.js packages (`relay`, `client-ai`, `crypto`, `update-agent`) can import freely.
+- **Browser packages CANNOT import `@bastion/protocol` values** — only `import type` is safe. The protocol package re-exports `hash.ts` which uses `node:crypto`, breaking Vite browser builds. Affected: `client-human`, `relay-admin-ui`, `client-human-mobile`. Use Vite `define` for version (`__BASTION_VERSION__`), and hardcode safety floor values with comments referencing the protocol source. Node.js packages (`relay`, `client-ai`, `crypto`) can import freely.
 
 ### Version Management
 - The `VERSION` file at repo root is the **single source of truth** for the project version.
@@ -51,18 +51,23 @@ These are HARDCODED and NON-NEGOTIABLE. Never make them configurable. Never weak
 - Apache 2.0 licence header required on every source file.
 
 ## Architecture
+
+Single `bastion` user on all VMs. VM-level isolation (relay VLAN 30, AI VLAN 50) provides security separation.
+
 ```
 packages/
-├── protocol/           → @bastion/protocol (81 message types, schemas, constants — FOUNDATION)
+├── protocol/           → @bastion/protocol (91 message types, schemas, constants — FOUNDATION)
 ├── crypto/             → @bastion/crypto (E2E encryption, hashing, key management)
 ├── relay/              → @bastion/relay (WebSocket server, routing, audit, quarantine, admin API)
 ├── client-human/       → @bastion/client-human (Tauri + SvelteKit desktop app)
 ├── client-human-mobile/→ @bastion/client-human-mobile (React Native mobile app)
 ├── client-ai/          → @bastion/client-ai (headless AI client for isolated VM)
 ├── relay-admin-ui/     → @bastion/relay-admin-ui (SvelteKit admin panel)
-├── update-agent/       → @bastion/update-agent (self-update agent, command executor)
 ├── tests/              → Integration & cross-package tests
 └── infrastructure/     → Docker Compose, Proxmox VM templates
+
+scripts/bastion-cli.sh  → CLI tool: bastion update|restart|status|audit|migrate
+deploy/systemd/         → Systemd service templates for all components
 ```
 
 Startup scripts (root level):
@@ -76,11 +81,6 @@ Startup scripts (root level):
 - Project structure: `docs/spec/bastion-project-structure.md`
 - Skills: `.claude/skills/` (9 skills covering all development patterns)
 
-## Known Issues
-
-### `reason is not defined` after API response (v0.8.0+)
-After the Sonnet 4.6 model upgrade, the API call succeeds and response is delivered, but `start-ai-client.mjs` throws `Unexpected error calling API: reason is not defined` during post-response processing. The `reason` variable is referenced in the response handling block (likely around the adapter selection log line or usage tracker recording) but is only defined when `adapterRegistry.selectAdapter()` is called — if the code path bypasses that call (e.g. default adapter used directly), `reason` is undefined. The error is non-fatal: messages still reach the human client. Fix: find where `reason` is referenced in the conversation handler and ensure it has a fallback value.
-
 ## Error Codes
 Format: `BASTION-CXXX` — 45 codes across 8 categories:
 1XXX=Connection (7) | 2XXX=Auth (6) | 3XXX=Protocol (6) | 4XXX=Safety (6) | 5XXX=File (7) | 6XXX=Provider (6) | 7XXX=Config (5) | 8XXX=Budget (5)
@@ -89,11 +89,11 @@ Total: 48 codes.
 ## Three Bastion Official Adapters
 All share `ANTHROPIC_API_KEY`. Each targets a different model with role-specific config.
 
-| Adapter | Model | Roles | Temperature | Pricing (in/out per MTok) |
-|---------|-------|-------|-------------|---------------------------|
-| **Sonnet** | claude-sonnet-4-6 | default, conversation, task | 1.0 | $3 / $15 |
-| **Haiku** | claude-haiku-4.5 | compaction, game | 0.3 | $1 / $5 |
-| **Opus** | claude-opus-4-6 | research, dream | 1.0 | $5 / $25 |
+| Adapter | Model | Context | Roles | Temperature | Pricing (in/out per MTok) |
+|---------|-------|---------|-------|-------------|---------------------------|
+| **Sonnet** | claude-sonnet-4-6 | 1M | default, conversation, task | 1.0 | $3 / $15 |
+| **Haiku** | claude-haiku-4-5-20251001 | 200k | compaction, game | 0.3 | $1 / $5 |
+| **Opus** | claude-opus-4-6 | 1M | research, dream | 1.0 | $5 / $25 |
 
 Env vars: `BASTION_SONNET_MODEL`, `BASTION_HAIKU_MODEL`, `BASTION_OPUS_MODEL` (override model IDs).
 
@@ -105,4 +105,4 @@ The AI client's system prompt is a three-layer "soul document" (`packages/client
 Compaction uses Layer 0 only (via `ConversationManager.getCoreContext()`).
 
 ## Tech Stack
-PNPM workspaces | TypeScript (ES2022/Node16) | Zod (validation) | node:test (testing, 2,896 tests) | Biome (linting) | WebSocket over TLS | tweetnacl + libsodium (E2E encryption) | node:sqlite DatabaseSync (audit) | SQLite (memories, budget) | jose (JWT) | Tauri + SvelteKit (desktop) | React Native (mobile)
+PNPM workspaces | TypeScript (ES2022/Node16) | Zod (validation) | node:test (testing, 2,928+ tests) | Biome (linting) | WebSocket over TLS | tweetnacl + libsodium (E2E encryption) | node:sqlite DatabaseSync (audit, usage) | SQLite (memories, budget, conversations) | jose (JWT) | Tauri + SvelteKit (desktop) | React Native (mobile)
