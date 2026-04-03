@@ -223,6 +223,33 @@ export const dataPortability: Writable<DataPortabilityState> = hmrStore('__basti
   }),
 );
 
+/** AI-issued challenge state. */
+export interface AiChallengeState {
+  readonly challengeId: string;
+  readonly reason: string;
+  readonly severity: 'info' | 'warning' | 'critical';
+  readonly suggestedAction: string;
+  readonly waitSeconds: number;
+  readonly challengeHoursActive: boolean;
+  readonly requestedAction: string;
+  readonly receivedAt: number;
+}
+export const activeAiChallenge: Writable<AiChallengeState | null> = hmrStore('__bastionAiChallenge', () =>
+  writable<AiChallengeState | null>(null),
+);
+
+/** AI-initiated memory proposal state. */
+export interface AiMemoryProposalState {
+  readonly proposalId: string;
+  readonly content: string;
+  readonly category: string;
+  readonly reason: string;
+}
+export const activeAiMemoryProposal: Writable<AiMemoryProposalState | null> = hmrStore(
+  '__bastionAiMemoryProposal',
+  () => writable<AiMemoryProposalState | null>(null),
+);
+
 /** Prompt budget zone — mirrors PromptZone from ConversationManager. */
 export interface PromptBudgetZone {
   readonly name: 'system' | 'operator' | 'user' | 'dynamic';
@@ -1204,6 +1231,38 @@ function handleRelayMessage(data: string): void {
       },
     }));
     addNotification('Data erasure initiated — 30-day cancellation window active', 'warning');
+    return;
+  }
+
+  // AI-issued challenge → show challenge dialog
+  if (type === 'ai_challenge') {
+    const p = payload as Record<string, unknown>;
+    const ctx = p.context as Record<string, unknown> | undefined;
+    activeAiChallenge.set({
+      challengeId: String(p.challengeId ?? ''),
+      reason: String(p.reason ?? ''),
+      severity: (['info', 'warning', 'critical'].includes(String(p.severity)) ? String(p.severity) : 'warning') as
+        | 'info'
+        | 'warning'
+        | 'critical',
+      suggestedAction: String(p.suggestedAction ?? ''),
+      waitSeconds: Number(p.waitSeconds ?? 10),
+      challengeHoursActive: Boolean(ctx?.challengeHoursActive),
+      requestedAction: String(ctx?.requestedAction ?? ''),
+      receivedAt: Date.now(),
+    });
+    return;
+  }
+
+  // AI memory proposal → show approval UI
+  if (type === 'ai_memory_proposal') {
+    const p = payload as Record<string, unknown>;
+    activeAiMemoryProposal.set({
+      proposalId: String(p.proposalId ?? ''),
+      content: String(p.content ?? ''),
+      category: String(p.category ?? 'fact'),
+      reason: String(p.reason ?? ''),
+    });
     return;
   }
 

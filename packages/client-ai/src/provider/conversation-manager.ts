@@ -378,12 +378,58 @@ export class ConversationManager {
       const isActive = this.challengeManager.isActive();
       const config = this.challengeManager.getConfig();
       const tz = this.challengeManager.timezone;
-      let temporal = `--- Temporal Context ---\nCurrent server time: ${now.toISOString()} (${tz})\nChallenge Me More: ${isActive ? 'ACTIVE' : 'inactive'}`;
+
+      // Human-readable local time
+      const localFormatter = new Intl.DateTimeFormat('en-GB', {
+        timeZone: tz,
+        weekday: 'short',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+      const localTime = localFormatter.format(now);
+
+      let temporal = `--- Temporal Context ---\nServer: ${now.toISOString()} (${tz}, ${localTime})`;
+
       if (isActive) {
-        temporal += `\nChallenge hours: weekdays ${config.schedule.weekdays.start}\u2013${config.schedule.weekdays.end}, weekends ${config.schedule.weekends.start}\u2013${config.schedule.weekends.end} (server time)
-The user has configured these hours because they know they may be more impulsive during this time.
-Support the challenge system. Push back on risky requests. The sober user who set these boundaries is the user who matters.`;
+        // Calculate time remaining
+        const dayFmt = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short' });
+        const isWeekend = dayFmt.format(now) === 'Sat' || dayFmt.format(now) === 'Sun';
+        const period = isWeekend ? config.schedule.weekends : config.schedule.weekdays;
+        const timeFmt = new Intl.DateTimeFormat('en-GB', {
+          timeZone: tz,
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        });
+        const currentTime = timeFmt.format(now);
+        const endParts = period.end.split(':');
+        const nowParts = currentTime.split(':');
+        const endMinutes = Number.parseInt(endParts[0] ?? '0') * 60 + Number.parseInt(endParts[1] ?? '0');
+        const nowMinutes = Number.parseInt(nowParts[0] ?? '0') * 60 + Number.parseInt(nowParts[1] ?? '0');
+        const remainingMins = endMinutes > nowMinutes ? endMinutes - nowMinutes : 1440 - nowMinutes + endMinutes;
+        const remainH = Math.floor(remainingMins / 60);
+        const remainM = remainingMins % 60;
+
+        temporal += `\nChallenge Me More: \u26a0\ufe0f ACTIVE (since ${period.start}, ends ${period.end}, ${remainH}h ${remainM}m remaining)`;
+        temporal +=
+          '\nStatus: CHALLENGE HOURS \u2014 you MUST use [BASTION:CHALLENGE] for risky or irreversible requests.';
+        temporal += '\nThe user who configured these hours did so to protect themselves during vulnerable periods.';
+      } else {
+        const schedule = config.schedule;
+        temporal += '\nChallenge Me More: INACTIVE';
+        temporal += `\nSchedule: weekdays ${schedule.weekdays.start}\u2013${schedule.weekdays.end}, weekends ${schedule.weekends.start}\u2013${schedule.weekends.end}`;
+
+        // Calculate next active period
+        const dayFmt = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short' });
+        const dayStr = dayFmt.format(now);
+        const isWeekend = dayStr === 'Sat' || dayStr === 'Sun';
+        const isFriday = dayStr === 'Fri';
+        const nextPeriod = isFriday || isWeekend ? schedule.weekends : schedule.weekdays;
+        temporal += `\nNext active: today at ${nextPeriod.start}`;
+        temporal += '\nStatus: Normal operation \u2014 no additional friction required';
       }
+
       parts.push(temporal);
       components.push('Temporal Context');
     }
@@ -500,6 +546,39 @@ Support the challenge system. Push back on risky requests. The sober user who se
         parts.push(`--- Active Skills (${allSkills.length}) ---\n${skillContent}`);
         components.push(`Skills (${allSkills.length})`);
       }
+    }
+
+    // Available Actions — AI native toolbox
+    {
+      const actionParts: string[] = [];
+      actionParts.push('--- Available Actions ---');
+      actionParts.push('You can take structured actions by including tagged blocks in your response.');
+      actionParts.push('These trigger REAL UI elements \u2014 use them meaningfully, not casually.\n');
+
+      // CHALLENGE action — only during active challenge hours
+      if (this.challengeManager?.isActive()) {
+        actionParts.push('CHALLENGE (use during active challenge hours for risky/irreversible requests):');
+        actionParts.push(
+          '[BASTION:CHALLENGE]{"reason":"why","severity":"info|warning|critical","suggestedAction":"what to do instead","waitSeconds":0|10|30}[/BASTION:CHALLENGE]\n',
+        );
+      }
+
+      // MEMORY action — always available
+      actionParts.push('MEMORY PROPOSAL (when you notice something worth remembering):');
+      actionParts.push(
+        '[BASTION:MEMORY]{"content":"what to remember","category":"fact|preference|workflow|project","reason":"why save this"}[/BASTION:MEMORY]\n',
+      );
+
+      actionParts.push('Rules:');
+      if (this.challengeManager?.isActive()) {
+        actionParts.push('- CHALLENGE: Only for genuinely risky actions during these active challenge hours');
+      }
+      actionParts.push('- MEMORY: Only when genuinely useful, max 1 per response, user approves all saves');
+      actionParts.push('- These blocks are stripped from your visible response \u2014 the human sees clean text');
+      actionParts.push('- Do NOT use these for normal conversation or minor decisions');
+
+      parts.push(actionParts.join('\n'));
+      components.push('Available Actions');
     }
 
     // Project context

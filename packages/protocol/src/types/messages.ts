@@ -955,6 +955,39 @@ export interface DataErasureCancelPayload {
 }
 
 // ---------------------------------------------------------------------------
+// AI Native Actions
+// ---------------------------------------------------------------------------
+
+/** AI → Human: AI-issued challenge for risky/irreversible actions. */
+export interface AiChallengePayload {
+  readonly challengeId: string;
+  readonly reason: string;
+  readonly severity: 'info' | 'warning' | 'critical';
+  readonly suggestedAction: string;
+  readonly waitSeconds: number;
+  readonly context: {
+    readonly challengeHoursActive: boolean;
+    readonly requestedAction: string;
+  };
+}
+
+/** Human → AI: Response to AI-issued challenge. */
+export interface AiChallengeResponsePayload {
+  readonly challengeId: string;
+  readonly decision: 'accept' | 'override' | 'cancel';
+}
+
+/** AI → Human: AI-initiated memory proposal. */
+export interface AiMemoryProposalPayload {
+  readonly proposalId: string;
+  readonly content: string;
+  readonly category: 'fact' | 'preference' | 'workflow' | 'project';
+  readonly reason: string;
+  readonly sourceMessageId: string;
+  readonly conversationId: string;
+}
+
+// ---------------------------------------------------------------------------
 // Discriminated union of all payload types
 // ---------------------------------------------------------------------------
 
@@ -1051,4 +1084,7 @@ export type MessagePayload =
   | { type: 'data_erasure_preview'; payload: DataErasurePreviewPayload }
   | { type: 'data_erasure_confirm'; payload: DataErasureConfirmPayload }
   | { type: 'data_erasure_complete'; payload: DataErasureCompletePayload }
-  | { type: 'data_erasure_cancel'; payload: DataErasureCancelPayload };
+  | { type: 'data_erasure_cancel'; payload: DataErasureCancelPayload }
+  | { type: 'ai_challenge'; payload: AiChallengePayload }
+  | { type: 'ai_challenge_response'; payload: AiChallengeResponsePayload }
+  | { type: 'ai_memory_proposal'; payload: AiMemoryProposalPayload };

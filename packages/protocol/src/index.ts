@@ -133,6 +133,9 @@ export type {
   DataErasureConfirmPayload,
   DataErasureCompletePayload,
   DataErasureCancelPayload,
+  AiChallengePayload,
+  AiChallengeResponsePayload,
+  AiMemoryProposalPayload,
   MessagePayload,
 } from './types/messages.js';
 
@@ -322,6 +325,9 @@ export {
   DataErasureConfirmPayloadSchema,
   DataErasureCompletePayloadSchema,
   DataErasureCancelPayloadSchema,
+  AiChallengePayloadSchema,
+  AiChallengeResponsePayloadSchema,
+  AiMemoryProposalPayloadSchema,
   PAYLOAD_SCHEMAS,
 } from './schemas/message.schema.js';
 

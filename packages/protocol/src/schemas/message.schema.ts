@@ -880,6 +880,36 @@ export const DataErasureCancelPayloadSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// AI Native Actions
+// ---------------------------------------------------------------------------
+
+export const AiChallengePayloadSchema = z.object({
+  challengeId: z.string().min(1),
+  reason: z.string().min(1),
+  severity: z.enum(['info', 'warning', 'critical']),
+  suggestedAction: z.string().min(1),
+  waitSeconds: z.number().int().nonnegative(),
+  context: z.object({
+    challengeHoursActive: z.boolean(),
+    requestedAction: z.string(),
+  }),
+});
+
+export const AiChallengeResponsePayloadSchema = z.object({
+  challengeId: z.string().min(1),
+  decision: z.enum(['accept', 'override', 'cancel']),
+});
+
+export const AiMemoryProposalPayloadSchema = z.object({
+  proposalId: z.string().min(1),
+  content: z.string().min(1),
+  category: z.enum(['fact', 'preference', 'workflow', 'project']),
+  reason: z.string().min(1),
+  sourceMessageId: z.string().min(1),
+  conversationId: z.string().min(1),
+});
+
+// ---------------------------------------------------------------------------
 // Payload schema lookup map (message type → Zod schema)
 // ---------------------------------------------------------------------------
 
@@ -986,4 +1016,7 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.DATA_ERASURE_CONFIRM]: DataErasureConfirmPayloadSchema,
   [MESSAGE_TYPES.DATA_ERASURE_COMPLETE]: DataErasureCompletePayloadSchema,
   [MESSAGE_TYPES.DATA_ERASURE_CANCEL]: DataErasureCancelPayloadSchema,
+  [MESSAGE_TYPES.AI_CHALLENGE]: AiChallengePayloadSchema,
+  [MESSAGE_TYPES.AI_CHALLENGE_RESPONSE]: AiChallengeResponsePayloadSchema,
+  [MESSAGE_TYPES.AI_MEMORY_PROPOSAL]: AiMemoryProposalPayloadSchema,
 } as const;

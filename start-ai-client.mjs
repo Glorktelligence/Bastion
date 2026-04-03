@@ -543,6 +543,74 @@ function sendUsageStatusDebounced() {
 }
 
 // ---------------------------------------------------------------------------
+// AI Action Block Parser — extract structured actions from AI response
+// ---------------------------------------------------------------------------
+
+const ACTION_BLOCK_RE = /\[BASTION:(CHALLENGE|MEMORY)\]([\s\S]*?)\[\/BASTION:\1\]/g;
+
+/**
+ * Parse [BASTION:ACTION]{...}[/BASTION:ACTION] blocks from response text.
+ * Returns cleaned text (blocks removed) and extracted actions.
+ */
+function parseActionBlocks(text) {
+  const actions = [];
+  let cleanText = text;
+
+  let match;
+  while ((match = ACTION_BLOCK_RE.exec(text)) !== null) {
+    const actionType = match[1];
+    const jsonStr = match[2].trim();
+    try {
+      const data = JSON.parse(jsonStr);
+      actions.push({ type: actionType, data });
+    } catch {
+      console.log(`[!] Failed to parse BASTION:${actionType} block — invalid JSON`);
+    }
+  }
+
+  // Strip all action blocks from displayed text
+  cleanText = cleanText.replace(ACTION_BLOCK_RE, '').trim();
+  // Clean up excessive whitespace left by block removal
+  cleanText = cleanText.replace(/\n{3,}/g, '\n\n');
+
+  return { cleanText, actions };
+}
+
+/**
+ * Rate limiter for AI-initiated actions.
+ * - ai_challenge: max 1 per response (enforced by for-loop), max 3 per session
+ * - ai_memory_proposal: max 1 per response, max 1 per 5 messages, max 3 per session
+ */
+const aiActionLimits = {
+  challengeCount: 0,
+  memoryCount: 0,
+  messagesSinceLastMemory: 0,
+  maxChallengesPerSession: 3,
+  maxMemoriesPerSession: 3,
+  memoryMinMessageGap: 5,
+
+  canChallenge() {
+    return this.challengeCount < this.maxChallengesPerSession;
+  },
+  recordChallenge() {
+    this.challengeCount++;
+  },
+  canMemory() {
+    return (
+      this.memoryCount < this.maxMemoriesPerSession &&
+      this.messagesSinceLastMemory >= this.memoryMinMessageGap
+    );
+  },
+  recordMemory() {
+    this.memoryCount++;
+    this.messagesSinceLastMemory = 0;
+  },
+  recordMessage() {
+    this.messagesSinceLastMemory++;
+  },
+};
+
+// ---------------------------------------------------------------------------
 // E2E Encryption — X25519 key exchange + KDF ratchet
 // ---------------------------------------------------------------------------
 
@@ -1649,6 +1717,7 @@ client.on('message', async (data) => {
 
   // Handle conversation messages — call Anthropic API
   if (msg.type === 'conversation' || msg.type === 'task') {
+    aiActionLimits.recordMessage();
     const content = msg.type === 'task'
       ? `Task: ${(msg.payload || msg).action} on ${(msg.payload || msg).target}`
       : (msg.payload?.content || msg.content || '');
@@ -1721,8 +1790,56 @@ client.on('message', async (data) => {
       }, STREAMING_ENABLED ? { streaming: true, onChunk } : undefined);
 
       if (result.ok) {
-        const responseText = result.response.textContent;
+        const rawResponseText = result.response.textContent;
         const cost = result.response.cost;
+
+        // Parse and strip AI action blocks before display/storage
+        const { cleanText: responseText, actions } = parseActionBlocks(rawResponseText);
+
+        // Process extracted actions — send protocol messages BEFORE response
+        for (const action of actions) {
+          if (action.type === 'CHALLENGE' && aiActionLimits.canChallenge()) {
+            aiActionLimits.recordChallenge();
+            const payload = action.data;
+            sendSecure({
+              type: 'ai_challenge',
+              id: randomUUID(),
+              timestamp: new Date().toISOString(),
+              sender: IDENTITY,
+              payload: {
+                challengeId: randomUUID(),
+                reason: String(payload.reason || ''),
+                severity: ['info', 'warning', 'critical'].includes(payload.severity) ? payload.severity : 'warning',
+                suggestedAction: String(payload.suggestedAction || ''),
+                waitSeconds: typeof payload.waitSeconds === 'number' ? payload.waitSeconds : 10,
+                context: {
+                  challengeHoursActive: challengeManager.isActive(),
+                  requestedAction: String(payload.requestedAction || ''),
+                },
+              },
+            });
+            console.log(`[→] AI challenge issued: ${payload.severity} — ${String(payload.reason || '').substring(0, 60)}`);
+          } else if (action.type === 'MEMORY' && aiActionLimits.canMemory()) {
+            aiActionLimits.recordMemory();
+            const payload = action.data;
+            const proposalId = randomUUID();
+            sendSecure({
+              type: 'ai_memory_proposal',
+              id: randomUUID(),
+              timestamp: new Date().toISOString(),
+              sender: IDENTITY,
+              payload: {
+                proposalId,
+                content: String(payload.content || ''),
+                category: ['fact', 'preference', 'workflow', 'project'].includes(payload.category) ? payload.category : 'fact',
+                reason: String(payload.reason || ''),
+                sourceMessageId: msg.id || '',
+                conversationId: activeConversationId || '',
+              },
+            });
+            console.log(`[→] AI memory proposal: "${String(payload.content || '').substring(0, 60)}"`);
+          }
+        }
 
         // Send final stream chunk marker if streaming was active
         if (STREAMING_ENABLED && streamChunkIndex > 0) {
@@ -1735,7 +1852,7 @@ client.on('message', async (data) => {
           });
         }
 
-        // Add to conversation buffer and persist
+        // Add to conversation buffer and persist (clean text, no action blocks)
         conversationManager.addAssistantMessage(responseText);
         persistMessage('assistant', 'conversation', responseText);
 

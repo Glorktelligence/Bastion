@@ -15,6 +15,17 @@ const { children } = $props();
 const initialSetup = browser ? session.getConfigStore().get('setupComplete') : true;
 let setupComplete = $state(initialSetup);
 
+// AI challenge dialog state
+/** @type {import('$lib/session.js').AiChallengeState | null} */
+let aiChallenge = $state(null);
+let challengeTimerRemaining = $state(0);
+let challengeTimerInterval = $state(null);
+
+// AI memory proposal state
+/** @type {import('$lib/session.js').AiMemoryProposalState | null} */
+let aiMemoryProposal = $state(null);
+let memoryEditText = $state('');
+
 function handleSetupComplete() {
 	setupComplete = true;
 	if (browser) session.tryAutoConnect();
@@ -81,6 +92,26 @@ onMount(() => {
 		session.fileTransfers.store.subscribe((v) => {
 			pendingFileOffer = v.pendingOffer;
 		}),
+		session.activeAiChallenge.subscribe((v) => {
+			aiChallenge = v;
+			if (v && v.waitSeconds > 0) {
+				challengeTimerRemaining = v.waitSeconds;
+				if (challengeTimerInterval) clearInterval(challengeTimerInterval);
+				challengeTimerInterval = setInterval(() => {
+					challengeTimerRemaining--;
+					if (challengeTimerRemaining <= 0 && challengeTimerInterval) {
+						clearInterval(challengeTimerInterval);
+						challengeTimerInterval = null;
+					}
+				}, 1000);
+			} else {
+				challengeTimerRemaining = 0;
+			}
+		}),
+		session.activeAiMemoryProposal.subscribe((v) => {
+			aiMemoryProposal = v;
+			memoryEditText = v?.content ?? '';
+		}),
 	];
 
 	return () => {
@@ -130,6 +161,42 @@ function handleFileAccept() {
 			manifestMessageId: offer.messageId,
 		},
 	}));
+}
+
+function handleChallengeResponse(decision) {
+	const client = session.getClient();
+	if (!client || !aiChallenge) return;
+	client.send(JSON.stringify({
+		type: 'ai_challenge_response',
+		id: crypto.randomUUID(),
+		timestamp: new Date().toISOString(),
+		sender: session.getIdentity(),
+		payload: { challengeId: aiChallenge.challengeId, decision },
+	}));
+	session.activeAiChallenge.set(null);
+	if (challengeTimerInterval) { clearInterval(challengeTimerInterval); challengeTimerInterval = null; }
+}
+
+function handleMemoryProposalSave(editedContent) {
+	const client = session.getClient();
+	if (!client || !aiMemoryProposal) return;
+	client.send(JSON.stringify({
+		type: 'memory_proposal',
+		id: crypto.randomUUID(),
+		timestamp: new Date().toISOString(),
+		sender: session.getIdentity(),
+		payload: {
+			proposalId: aiMemoryProposal.proposalId,
+			content: editedContent || aiMemoryProposal.content,
+			category: aiMemoryProposal.category,
+			sourceMessageId: 'ai-proposal',
+		},
+	}));
+	session.activeAiMemoryProposal.set(null);
+}
+
+function handleMemoryProposalDismiss() {
+	session.activeAiMemoryProposal.set(null);
 }
 
 function handleFileReject() {
@@ -276,11 +343,46 @@ function relativeTime(iso) {
 			<AiDisclosureBanner disclosure={disclosureData} dismissed={disclosureDismissed} onDismiss={() => session.aiDisclosure.dismiss()} />
 		{/if}
 		{@render children()}
+
+		{#if aiMemoryProposal}
+		<div class="ai-memory-toast">
+			<div class="ai-memory-header">Claude suggests remembering:</div>
+			<div class="ai-memory-content">"{aiMemoryProposal.content}"</div>
+			<div class="ai-memory-meta">Category: {aiMemoryProposal.category} &middot; {aiMemoryProposal.reason}</div>
+			<div class="ai-memory-actions">
+				<button class="ai-mem-btn ai-mem-save" onclick={() => handleMemoryProposalSave(null)}>Save</button>
+				<button class="ai-mem-btn ai-mem-dismiss" onclick={handleMemoryProposalDismiss}>Dismiss</button>
+			</div>
+		</div>
+		{/if}
+
 		{#if disclosureData?.position === 'footer'}
 			<AiDisclosureBanner disclosure={disclosureData} dismissed={disclosureDismissed} onDismiss={() => session.aiDisclosure.dismiss()} />
 		{/if}
 	</main>
 </div>
+
+{#if aiChallenge}
+<div class="challenge-overlay">
+	<div class="challenge-dialog" class:challenge-critical={aiChallenge.severity === 'critical'} class:challenge-warning={aiChallenge.severity === 'warning'}>
+		<div class="challenge-header">
+			{#if aiChallenge.severity === 'critical'}&#9888;&#65039;{:else if aiChallenge.severity === 'warning'}&#9888;&#65039;{:else}&#8505;&#65039;{/if}
+			AI Challenge
+		</div>
+		<p class="challenge-reason">{aiChallenge.reason}</p>
+		{#if aiChallenge.suggestedAction}
+		<p class="challenge-suggestion"><strong>Suggested:</strong> {aiChallenge.suggestedAction}</p>
+		{/if}
+		<div class="challenge-actions">
+			<button class="ai-mem-btn ai-mem-save" onclick={() => handleChallengeResponse('accept')} disabled={challengeTimerRemaining > 0}>
+				Accept{#if challengeTimerRemaining > 0} ({challengeTimerRemaining}s){/if}
+			</button>
+			<button class="ai-mem-btn ai-mem-dismiss" onclick={() => handleChallengeResponse('override')}>Override</button>
+			<button class="ai-mem-btn" onclick={() => handleChallengeResponse('cancel')}>Cancel</button>
+		</div>
+	</div>
+</div>
+{/if}
 {/if}
 
 <style>
@@ -356,7 +458,45 @@ function relativeTime(iso) {
 	.nav-separator { height: 1px; background: var(--color-border); margin: 0.375rem 0.75rem; }
 	.nav-ext { display: flex; align-items: center; gap: 0.375rem; }
 	.nav-ext-icon { font-size: 0.8rem; }
-	.main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+	.main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+
+	/* AI Challenge Dialog */
+	.challenge-overlay {
+		position: fixed; inset: 0; z-index: 1000;
+		background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center;
+	}
+	.challenge-dialog {
+		background: var(--color-surface, #1a1a2e); border: 2px solid #e5a100;
+		border-radius: 0.75rem; padding: 1.5rem; max-width: 420px; width: 90%;
+	}
+	.challenge-critical { border-color: #ef4444; }
+	.challenge-warning { border-color: #e5a100; }
+	.challenge-header {
+		font-size: 1.1rem; font-weight: 700; color: var(--color-text); margin-bottom: 0.75rem;
+	}
+	.challenge-reason { font-size: 0.9rem; color: var(--color-text); margin-bottom: 0.5rem; line-height: 1.5; }
+	.challenge-suggestion { font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1rem; }
+	.challenge-actions { display: flex; gap: 0.5rem; }
+
+	/* AI Memory Proposal Toast */
+	.ai-memory-toast {
+		position: absolute; bottom: 1rem; right: 1rem; z-index: 100;
+		background: var(--color-surface, #1a1a2e); border: 1px solid var(--color-accent, #4a9eff);
+		border-radius: 0.5rem; padding: 0.75rem 1rem; max-width: 360px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+	}
+	.ai-memory-header { font-size: 0.75rem; color: var(--color-accent, #4a9eff); font-weight: 600; margin-bottom: 0.25rem; }
+	.ai-memory-content { font-size: 0.85rem; color: var(--color-text); font-style: italic; margin-bottom: 0.25rem; }
+	.ai-memory-meta { font-size: 0.7rem; color: var(--color-text-muted); margin-bottom: 0.5rem; }
+	.ai-memory-actions { display: flex; gap: 0.375rem; }
+	.ai-mem-btn {
+		padding: 0.25rem 0.625rem; border-radius: 4px; border: 1px solid var(--color-border);
+		background: transparent; color: var(--color-text-muted); font-size: 0.75rem; cursor: pointer;
+	}
+	.ai-mem-btn:hover { background: var(--color-border); color: var(--color-text); }
+	.ai-mem-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	.ai-mem-save { border-color: var(--color-accent, #4a9eff); color: var(--color-accent, #4a9eff); }
+	.ai-mem-dismiss { border-color: var(--color-text-muted); }
 
 	/* Version footer */
 	.sidebar-footer {

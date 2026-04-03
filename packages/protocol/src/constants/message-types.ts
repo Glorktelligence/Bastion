@@ -140,6 +140,11 @@ export const MESSAGE_TYPES = {
   DATA_ERASURE_COMPLETE: 'data_erasure_complete',
   DATA_ERASURE_CANCEL: 'data_erasure_cancel',
 
+  // --- AI Native Actions ---
+  AI_CHALLENGE: 'ai_challenge',
+  AI_CHALLENGE_RESPONSE: 'ai_challenge_response',
+  AI_MEMORY_PROPOSAL: 'ai_memory_proposal',
+
   // --- Self-Update System ---
   UPDATE_CHECK: 'update_check',
   UPDATE_AVAILABLE: 'update_available',

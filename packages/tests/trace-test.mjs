@@ -345,6 +345,9 @@ function validPayloads() {
     data_erasure_confirm: { confirmed: true },
     data_erasure_complete: { erasureId: 'abc-123', softDeleted: { conversations: 5, messages: 100, memories: 10, projectFiles: 3, usageRecords: 50 }, hardDeleteScheduledAt: '2026-05-03T00:00:00Z', receipt: 'BASTION-ERASURE-abc-123' },
     data_erasure_cancel: { erasureId: 'abc-123' },
+    ai_challenge: { challengeId: 'c-1', reason: 'late night deletion', severity: 'critical', suggestedAction: 'sleep on it', waitSeconds: 30, context: { challengeHoursActive: true, requestedAction: 'delete data' } },
+    ai_challenge_response: { challengeId: 'c-1', decision: 'accept' },
+    ai_memory_proposal: { proposalId: 'p-1', content: 'User prefers TypeScript', category: 'preference', reason: 'stated', sourceMessageId: 'm-1', conversationId: 'conv-1' },
   };
 }
 
@@ -436,7 +439,7 @@ async function run() {
       }
     }
     check('all 81 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 96 entries', ALL_MESSAGE_TYPES.length === 96);
+    check('ALL_MESSAGE_TYPES has 99 entries', ALL_MESSAGE_TYPES.length === 99);
   }
   console.log();
 
@@ -472,8 +475,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 96 entries', typeKeys.length === 96);
-    check('PAYLOAD_SCHEMAS has 96 entries', Object.keys(PAYLOAD_SCHEMAS).length === 96);
+    check('MESSAGE_TYPES has 99 entries', typeKeys.length === 99);
+    check('PAYLOAD_SCHEMAS has 99 entries', Object.keys(PAYLOAD_SCHEMAS).length === 99);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];

@@ -2404,6 +2404,189 @@ async function run() {
   }
 
   // -------------------------------------------------------------------
+  // Temporal Context Clarity
+  // -------------------------------------------------------------------
+
+  console.log('\n--- Temporal Context Clarity ---');
+  {
+    const tmpPath = (await import('node:path')).join((await import('node:os')).tmpdir(), `bastion-cm-${Date.now()}.json`);
+    const testCm = new ChallengeManager(tmpPath);
+    const cm = new ConversationManager({ tokenBudget: 100000, maxContextTokens: 200000, systemBudget: 5000 });
+    const prompt = cm.getSystemPrompt();
+    // Without challenge manager, no temporal context
+    check('no temporal context without challenge manager', !prompt.includes('Temporal Context'));
+
+    // With challenge manager (inactive by default during daytime test runs)
+    const cmWithChallenge = new ConversationManager({
+      tokenBudget: 100000,
+      maxContextTokens: 200000,
+      systemBudget: 5000,
+      challengeManager: testCm,
+    });
+    const promptWithChallenge = cmWithChallenge.getSystemPrompt();
+    check('temporal context present with challenge manager', promptWithChallenge.includes('Temporal Context'));
+    check('temporal context has server time', promptWithChallenge.includes('Server:'));
+    // Should include schedule info
+    check('temporal context has schedule', promptWithChallenge.includes('Schedule:') || promptWithChallenge.includes('ACTIVE'));
+    check('temporal context has status line', promptWithChallenge.includes('Status:'));
+  }
+
+  // -------------------------------------------------------------------
+  // Action Block Parser
+  // -------------------------------------------------------------------
+
+  console.log('\n--- Action Block Parser ---');
+  {
+    // Import parseActionBlocks from the test context — we'll test the regex pattern directly
+    const ACTION_BLOCK_RE = /\[BASTION:(CHALLENGE|MEMORY)\]([\s\S]*?)\[\/BASTION:\1\]/g;
+
+    function testParseActions(text) {
+      const actions = [];
+      let match;
+      const re = new RegExp(ACTION_BLOCK_RE.source, ACTION_BLOCK_RE.flags);
+      while ((match = re.exec(text)) !== null) {
+        try {
+          actions.push({ type: match[1], data: JSON.parse(match[2].trim()) });
+        } catch { /* invalid JSON */ }
+      }
+      const cleanText = text.replace(new RegExp(ACTION_BLOCK_RE.source, ACTION_BLOCK_RE.flags), '').trim().replace(/\n{3,}/g, '\n\n');
+      return { cleanText, actions };
+    }
+
+    // Test CHALLENGE extraction
+    const challengeText = 'Here is my response.\n\n[BASTION:CHALLENGE]{"reason":"late night deletion","severity":"critical","suggestedAction":"sleep on it","waitSeconds":30}[/BASTION:CHALLENGE]\n\nMore text.';
+    const r1 = testParseActions(challengeText);
+    check('CHALLENGE block extracted', r1.actions.length === 1);
+    check('CHALLENGE type correct', r1.actions[0]?.type === 'CHALLENGE');
+    check('CHALLENGE reason parsed', r1.actions[0]?.data?.reason === 'late night deletion');
+    check('CHALLENGE severity parsed', r1.actions[0]?.data?.severity === 'critical');
+    check('CHALLENGE stripped from text', !r1.cleanText.includes('BASTION:CHALLENGE'));
+    check('clean text preserved', r1.cleanText.includes('Here is my response.'));
+    check('clean text includes trailing', r1.cleanText.includes('More text.'));
+
+    // Test MEMORY extraction
+    const memoryText = 'Got it!\n\n[BASTION:MEMORY]{"content":"User prefers TypeScript","category":"preference","reason":"stated preference"}[/BASTION:MEMORY]';
+    const r2 = testParseActions(memoryText);
+    check('MEMORY block extracted', r2.actions.length === 1);
+    check('MEMORY type correct', r2.actions[0]?.type === 'MEMORY');
+    check('MEMORY content parsed', r2.actions[0]?.data?.content === 'User prefers TypeScript');
+    check('MEMORY category parsed', r2.actions[0]?.data?.category === 'preference');
+    check('MEMORY stripped from text', !r2.cleanText.includes('BASTION:MEMORY'));
+
+    // Test no blocks
+    const plainText = 'Just a normal response without any blocks.';
+    const r3 = testParseActions(plainText);
+    check('no blocks in plain text', r3.actions.length === 0);
+    check('plain text unchanged', r3.cleanText === plainText);
+
+    // Test invalid JSON
+    const badJson = '[BASTION:MEMORY]{invalid json}[/BASTION:MEMORY]rest';
+    const r4 = testParseActions(badJson);
+    check('invalid JSON produces no actions', r4.actions.length === 0);
+    check('invalid JSON still stripped from text', !r4.cleanText.includes('BASTION'));
+
+    // Test multiple blocks
+    const multiText = 'A\n\n[BASTION:MEMORY]{"content":"a","category":"fact","reason":"r"}[/BASTION:MEMORY]\n\nB\n\n[BASTION:CHALLENGE]{"reason":"x","severity":"info","suggestedAction":"y","waitSeconds":0}[/BASTION:CHALLENGE]\n\nC';
+    const r5 = testParseActions(multiText);
+    check('multiple blocks extracted', r5.actions.length === 2);
+    check('first is MEMORY', r5.actions[0]?.type === 'MEMORY');
+    check('second is CHALLENGE', r5.actions[1]?.type === 'CHALLENGE');
+  }
+
+  // -------------------------------------------------------------------
+  // AI Action Rate Limiting
+  // -------------------------------------------------------------------
+
+  console.log('\n--- AI Action Rate Limiting ---');
+  {
+    const limits = {
+      challengeCount: 0, memoryCount: 0, messagesSinceLastMemory: 0,
+      maxChallengesPerSession: 3, maxMemoriesPerSession: 3, memoryMinMessageGap: 5,
+      canChallenge() { return this.challengeCount < this.maxChallengesPerSession; },
+      recordChallenge() { this.challengeCount++; },
+      canMemory() { return this.memoryCount < this.maxMemoriesPerSession && this.messagesSinceLastMemory >= this.memoryMinMessageGap; },
+      recordMemory() { this.memoryCount++; this.messagesSinceLastMemory = 0; },
+      recordMessage() { this.messagesSinceLastMemory++; },
+    };
+
+    check('challenge allowed initially', limits.canChallenge());
+    check('memory blocked initially (no messages yet)', !limits.canMemory());
+
+    // Simulate 5 messages
+    for (let i = 0; i < 5; i++) limits.recordMessage();
+    check('memory allowed after 5 messages', limits.canMemory());
+
+    limits.recordMemory();
+    check('memory blocked after recording (gap reset)', !limits.canMemory());
+    check('memory count is 1', limits.memoryCount === 1);
+
+    // Exhaust challenges
+    limits.recordChallenge();
+    limits.recordChallenge();
+    limits.recordChallenge();
+    check('challenges exhausted after 3', !limits.canChallenge());
+  }
+
+  // -------------------------------------------------------------------
+  // AI Native Protocol Schemas
+  // -------------------------------------------------------------------
+
+  console.log('\n--- AI Native Protocol Schemas ---');
+  {
+    const { AiChallengePayloadSchema, AiChallengeResponsePayloadSchema,
+            AiMemoryProposalPayloadSchema } = await import('@bastion/protocol');
+
+    check('ai_challenge valid', AiChallengePayloadSchema.safeParse({
+      challengeId: 'c-1', reason: 'risky action', severity: 'warning',
+      suggestedAction: 'reconsider', waitSeconds: 10,
+      context: { challengeHoursActive: true, requestedAction: 'delete' },
+    }).success);
+    check('ai_challenge rejects invalid severity', !AiChallengePayloadSchema.safeParse({
+      challengeId: 'c-1', reason: 'r', severity: 'extreme',
+      suggestedAction: 's', waitSeconds: 0,
+      context: { challengeHoursActive: false, requestedAction: '' },
+    }).success);
+
+    check('ai_challenge_response valid accept', AiChallengeResponsePayloadSchema.safeParse({
+      challengeId: 'c-1', decision: 'accept',
+    }).success);
+    check('ai_challenge_response valid override', AiChallengeResponsePayloadSchema.safeParse({
+      challengeId: 'c-1', decision: 'override',
+    }).success);
+    check('ai_challenge_response rejects invalid decision', !AiChallengeResponsePayloadSchema.safeParse({
+      challengeId: 'c-1', decision: 'skip',
+    }).success);
+
+    check('ai_memory_proposal valid', AiMemoryProposalPayloadSchema.safeParse({
+      proposalId: 'p-1', content: 'User likes TypeScript', category: 'preference',
+      reason: 'stated', sourceMessageId: 'm-1', conversationId: 'c-1',
+    }).success);
+    check('ai_memory_proposal rejects invalid category', !AiMemoryProposalPayloadSchema.safeParse({
+      proposalId: 'p-1', content: 'c', category: 'random',
+      reason: 'r', sourceMessageId: 'm-1', conversationId: 'c-1',
+    }).success);
+  }
+
+  // -------------------------------------------------------------------
+  // Available Actions Prompt Injection
+  // -------------------------------------------------------------------
+
+  console.log('\n--- Available Actions Prompt ---');
+  {
+    // With challenge manager (inactive → no CHALLENGE instruction)
+    const actionTestCm = new ChallengeManager();
+    const cmInactive = new ConversationManager({
+      tokenBudget: 100000,
+      maxContextTokens: 200000,
+      systemBudget: 5000,
+      challengeManager: actionTestCm,
+    });
+    const report = cmInactive.getPromptBudgetReport();
+    const dynamicZone = report.zones.find(z => z.name === 'dynamic');
+    check('dynamic zone has Available Actions component', dynamicZone?.components?.includes('Available Actions'));
+  }
+
+  // -------------------------------------------------------------------
   // Summary
   // -------------------------------------------------------------------
   console.log('=================================================');
