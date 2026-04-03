@@ -58,17 +58,6 @@ import {
   BudgetAlertPayloadSchema,
   BudgetStatusPayloadSchema,
   BudgetConfigPayloadSchema,
-  UpdateCheckPayloadSchema,
-  UpdateAvailablePayloadSchema,
-  UpdatePreparePayloadSchema,
-  UpdatePrepareAckPayloadSchema,
-  UpdateExecutePayloadSchema,
-  UpdateBuildStatusPayloadSchema,
-  UpdateRestartPayloadSchema,
-  UpdateReconnectedPayloadSchema,
-  UpdateCompletePayloadSchema,
-  UpdateFailedPayloadSchema,
-
   // Schemas — file transfer
   FileTransferStateSchema,
   FileTransferDirectionSchema,
@@ -323,16 +312,6 @@ function validPayloads() {
     skill_list_response: { skills: [{ id: 'test', name: 'Test', description: 'A test skill', version: '1.0.0', author: 'test', triggers: ['test'], modes: ['conversation'], estimatedTokens: 100 }], totalCount: 1, totalEstimatedTokens: 100 },
     skill_config: { skillId: 'test', alwaysLoad: true },
     ai_disclosure: { text: 'You are interacting with an AI system.', style: 'info', position: 'banner', dismissible: true, link: 'https://example.com/ai-policy', linkText: 'Learn more', jurisdiction: 'EU AI Act Article 50' },
-    update_check: { source: 'github', repo: 'Glorktelligence/Bastion', currentVersion: '0.1.0' },
-    update_available: { currentVersion: '0.1.0', availableVersion: '0.2.0', commitHash: 'abc123def456', changelog: ['feat: self-update system', 'fix: relay routing'], components: ['relay', 'ai-client', 'admin-ui'], estimatedBuildTime: 120 },
-    update_prepare: { targetVersion: '0.2.0', commitHash: 'abc123def456', reason: 'Scheduled update' },
-    update_prepare_ack: { component: 'relay', stateSaved: true, currentVersion: '0.1.0' },
-    update_execute: { targetComponent: 'relay', commands: [{ type: 'git_pull' }, { type: 'pnpm_install' }, { type: 'pnpm_build', filter: '@bastion/relay' }], version: '0.2.0', commitHash: 'abc123def456' },
-    update_build_status: { component: 'relay', phase: 'building', progress: 45, duration: 30 },
-    update_restart: { targetComponent: 'relay', service: 'bastion-relay', timeout: 30 },
-    update_reconnected: { component: 'relay', version: '0.2.0', previousVersion: '0.1.0' },
-    update_complete: { fromVersion: '0.1.0', toVersion: '0.2.0', duration: 180, components: [{ name: 'relay', buildTime: 60, restartTime: 5 }, { name: 'ai-client', buildTime: 90, restartTime: 10 }] },
-    update_failed: { phase: 'build', component: 'relay', error: 'TypeScript compilation failed', recoverable: true },
     data_export_request: { format: 'bdp' },
     data_export_progress: { percentage: 50, phase: 'Exporting conversations' },
     data_export_ready: { transferId: 'abc-123', filename: 'export.bdp', sizeBytes: 1024, hash: 'deadbeef', contentCounts: { conversations: 5, memories: 10, projectFiles: 3, skills: 2 } },
@@ -439,7 +418,7 @@ async function run() {
       }
     }
     check('all 81 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 99 entries', ALL_MESSAGE_TYPES.length === 99);
+    check('ALL_MESSAGE_TYPES has 89 entries', ALL_MESSAGE_TYPES.length === 89);
   }
   console.log();
 
@@ -475,8 +454,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 99 entries', typeKeys.length === 99);
-    check('PAYLOAD_SCHEMAS has 99 entries', Object.keys(PAYLOAD_SCHEMAS).length === 99);
+    check('MESSAGE_TYPES has 89 entries', typeKeys.length === 89);
+    check('PAYLOAD_SCHEMAS has 89 entries', Object.keys(PAYLOAD_SCHEMAS).length === 89);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -971,92 +950,6 @@ async function run() {
   }
   console.log();
 
-  // =========================================================================
-  // Test 22: Self-Update System validation
-  // =========================================================================
-  console.log('--- Test 22: Self-Update System validation ---');
-  {
-    // update_check
-    check('update_check valid', UpdateCheckPayloadSchema.safeParse(payloads.update_check).success);
-    check('update_check requires github source', !UpdateCheckPayloadSchema.safeParse({ ...payloads.update_check, source: 'gitlab' }).success);
-    check('update_check requires repo', !UpdateCheckPayloadSchema.safeParse({ source: 'github', currentVersion: '0.1.0' }).success);
-
-    // update_available
-    check('update_available valid', UpdateAvailablePayloadSchema.safeParse(payloads.update_available).success);
-    check('update_available optional estimatedBuildTime', UpdateAvailablePayloadSchema.safeParse({ ...payloads.update_available, estimatedBuildTime: undefined }).success);
-
-    // update_execute command whitelist — CRITICAL security test
-    check('update_execute valid with whitelist commands', UpdateExecutePayloadSchema.safeParse(payloads.update_execute).success);
-    check('update_execute rejects unknown command type', !UpdateExecutePayloadSchema.safeParse({
-      ...payloads.update_execute,
-      commands: [{ type: 'shell_exec', command: 'rm -rf /' }],
-    }).success);
-    check('update_execute rejects eval command', !UpdateExecutePayloadSchema.safeParse({
-      ...payloads.update_execute,
-      commands: [{ type: 'eval', code: 'process.exit(1)' }],
-    }).success);
-    check('update_execute rejects arbitrary strings', !UpdateExecutePayloadSchema.safeParse({
-      ...payloads.update_execute,
-      commands: [{ type: 'sudo rm -rf /' }],
-    }).success);
-    check('update_execute accepts git_pull with repo', UpdateExecutePayloadSchema.safeParse({
-      ...payloads.update_execute,
-      commands: [{ type: 'git_pull', repo: 'https://github.com/Glorktelligence/Bastion.git' }],
-    }).success);
-    check('update_execute accepts pnpm_build with filter', UpdateExecutePayloadSchema.safeParse({
-      ...payloads.update_execute,
-      commands: [{ type: 'pnpm_build', filter: '@bastion/relay' }],
-    }).success);
-    check('update_execute targetComponent enum', !UpdateExecutePayloadSchema.safeParse({
-      ...payloads.update_execute,
-      targetComponent: 'database',
-    }).success);
-
-    // update_build_status
-    check('update_build_status valid', UpdateBuildStatusPayloadSchema.safeParse(payloads.update_build_status).success);
-    check('update_build_status all phases valid', ['pulling', 'installing', 'building', 'complete', 'failed'].every(
-      phase => UpdateBuildStatusPayloadSchema.safeParse({ ...payloads.update_build_status, phase }).success
-    ));
-    check('update_build_status invalid phase fails', !UpdateBuildStatusPayloadSchema.safeParse({ ...payloads.update_build_status, phase: 'compiling' }).success);
-    check('update_build_status with error', UpdateBuildStatusPayloadSchema.safeParse({ component: 'relay', phase: 'failed', error: 'tsc error' }).success);
-
-    // update_restart
-    check('update_restart valid', UpdateRestartPayloadSchema.safeParse(payloads.update_restart).success);
-    check('update_restart requires positive timeout', !UpdateRestartPayloadSchema.safeParse({ ...payloads.update_restart, timeout: 0 }).success);
-
-    // update_reconnected
-    check('update_reconnected valid', UpdateReconnectedPayloadSchema.safeParse(payloads.update_reconnected).success);
-
-    // update_complete
-    check('update_complete valid', UpdateCompletePayloadSchema.safeParse(payloads.update_complete).success);
-    check('update_complete with empty components', UpdateCompletePayloadSchema.safeParse({ ...payloads.update_complete, components: [] }).success);
-
-    // update_failed
-    check('update_failed valid', UpdateFailedPayloadSchema.safeParse(payloads.update_failed).success);
-    check('update_failed all phases valid', ['check', 'prepare', 'build', 'restart', 'verify'].every(
-      phase => UpdateFailedPayloadSchema.safeParse({ ...payloads.update_failed, phase }).success
-    ));
-    check('update_failed invalid phase', !UpdateFailedPayloadSchema.safeParse({ ...payloads.update_failed, phase: 'deploy' }).success);
-    check('update_failed optional component', UpdateFailedPayloadSchema.safeParse({ phase: 'check', error: 'Network error', recoverable: true }).success);
-
-    // update_prepare + update_prepare_ack
-    check('update_prepare valid', UpdatePreparePayloadSchema.safeParse(payloads.update_prepare).success);
-    check('update_prepare_ack valid', UpdatePrepareAckPayloadSchema.safeParse(payloads.update_prepare_ack).success);
-
-    // Round-trip serialisation for update types
-    const updateTypes = ['update_check', 'update_available', 'update_prepare', 'update_prepare_ack', 'update_execute', 'update_build_status', 'update_restart', 'update_reconnected', 'update_complete', 'update_failed'];
-    let allUpdateRoundTrips = true;
-    for (const type of updateTypes) {
-      const env = makeEnvelope(type, payloads[type], makeSender('updater'));
-      const ser = serialise(env);
-      const des = deserialise(ser.wire);
-      if (!des.success) {
-        allUpdateRoundTrips = false;
-        console.log(`  FAIL round-trip for ${type}: ${JSON.stringify(des.errors)}`);
-      }
-    }
-    check('all 10 update types survive serialisation round-trip', allUpdateRoundTrips);
-  }
   console.log();
 
   // =========================================================================

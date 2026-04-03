@@ -1337,7 +1337,7 @@ function handleContextSave(): void {
 			<span class="label">Version</span>
 			<span class="value mono">{__BASTION_VERSION__}</span>
 			<span class="label">Protocol</span>
-			<span class="value">91 message types, 48 error codes</span>
+			<span class="value">89 message types, 48 error codes</span>
 			<span class="label">Extensions</span>
 			<span class="value">{extensionCount} loaded, {extensionMessageTypes} message types</span>
 			{#if providerInfo}

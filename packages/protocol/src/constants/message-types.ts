@@ -144,18 +144,6 @@ export const MESSAGE_TYPES = {
   AI_CHALLENGE: 'ai_challenge',
   AI_CHALLENGE_RESPONSE: 'ai_challenge_response',
   AI_MEMORY_PROPOSAL: 'ai_memory_proposal',
-
-  // --- Self-Update System ---
-  UPDATE_CHECK: 'update_check',
-  UPDATE_AVAILABLE: 'update_available',
-  UPDATE_PREPARE: 'update_prepare',
-  UPDATE_PREPARE_ACK: 'update_prepare_ack',
-  UPDATE_EXECUTE: 'update_execute',
-  UPDATE_BUILD_STATUS: 'update_build_status',
-  UPDATE_RESTART: 'update_restart',
-  UPDATE_RECONNECTED: 'update_reconnected',
-  UPDATE_COMPLETE: 'update_complete',
-  UPDATE_FAILED: 'update_failed',
 } as const;
 
 /** Union type of all valid message type strings. */
