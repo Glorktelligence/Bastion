@@ -583,6 +583,13 @@ cmd_update() {
     pnpm build
     log_info "Build complete"
 
+    # Build admin UI app (relay only — SvelteKit needs separate vite build)
+    if [[ "$component" == "relay" && -d "$BASTION_ROOT/packages/relay-admin-ui" ]]; then
+        log_step "Building admin UI..."
+        pnpm --filter @bastion/relay-admin-ui run build:app 2>&1 || log_warn "Admin UI build failed (non-fatal)"
+        log_info "Admin UI built"
+    fi
+
     local current_version
     current_version=$(get_version)
     log_info "Updated to version: $current_version"
