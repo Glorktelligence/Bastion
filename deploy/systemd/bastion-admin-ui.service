@@ -1,0 +1,32 @@
+# Bastion Admin UI — systemd service template
+# Copyright 2026 Glorktelligence — Harry Smith
+# Licensed under the Apache License, Version 2.0
+#
+# Install: sudo cp bastion-admin-ui.service /etc/systemd/system/
+#          sudo systemctl daemon-reload && sudo systemctl enable bastion-admin-ui
+
+[Unit]
+Description=Bastion Admin UI
+After=bastion-relay.service
+Requires=bastion-relay.service
+
+[Service]
+Type=simple
+User=bastion
+Group=bastion
+WorkingDirectory=/opt/bastion/packages/relay-admin-ui
+ExecStart=/usr/bin/node /opt/bastion/packages/relay-admin-ui/build/index.js
+Restart=always
+RestartSec=5
+EnvironmentFile=-/opt/bastion/.env
+Environment=NODE_ENV=production
+Environment=PORT=9445
+Environment=ORIGIN=http://127.0.0.1:9445
+
+# Security hardening
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

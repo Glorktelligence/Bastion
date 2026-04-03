@@ -36,7 +36,7 @@ import {
 // Configuration
 //
 // PERSISTENCE AUDIT — what survives an AI client restart:
-//   PERSISTS (on AI VM, /var/lib/bastion-ai/):
+//   PERSISTS (on AI VM, /var/lib/bastion/):
 //     ✅ Challenge config        → challenge-config.json
 //     ✅ Budget database          → budget.db (SQLite)
 //     ✅ Budget config            → budget-config.json
@@ -181,7 +181,7 @@ console.log('[✓] Adapter registry locked');
 // Memory store — persistent Layer 2 memory
 // ---------------------------------------------------------------------------
 
-const MEMORIES_DB = process.env.BASTION_MEMORIES_DB || '/var/lib/bastion-ai/memories.db';
+const MEMORIES_DB = process.env.BASTION_MEMORIES_DB || '/var/lib/bastion/memories.db';
 const memoryStore = new MemoryStore({ path: MEMORIES_DB, maxPromptMemories: 20 });
 console.log(`[✓] Memory store initialised (${memoryStore.count} memories, db: ${MEMORIES_DB})`);
 
@@ -192,7 +192,7 @@ const pendingProposals = new Map();
 // Project store — Layer 3 project context
 // ---------------------------------------------------------------------------
 
-const PROJECT_DIR = process.env.BASTION_PROJECT_DIR || '/var/lib/bastion-ai/project';
+const PROJECT_DIR = process.env.BASTION_PROJECT_DIR || '/var/lib/bastion/project';
 const projectStore = new ProjectStore({ rootDir: PROJECT_DIR });
 console.log(`[✓] Project store initialised (${projectStore.fileCount} files, dir: ${PROJECT_DIR})`);
 
@@ -216,7 +216,7 @@ console.log(`[✓] Skill registry locked (${skillStore.skillCount} skills, ${ski
 // Challenge Me More — temporal governance (must be created before ConversationManager)
 // ---------------------------------------------------------------------------
 
-const CHALLENGE_CONFIG_PATH = process.env.BASTION_CHALLENGE_CONFIG || '/var/lib/bastion-ai/challenge-config.json';
+const CHALLENGE_CONFIG_PATH = process.env.BASTION_CHALLENGE_CONFIG || '/var/lib/bastion/challenge-config.json';
 const challengeManager = new ChallengeManager(CHALLENGE_CONFIG_PATH);
 console.log(`[✓] Challenge manager: ${challengeManager.enabled ? 'ENABLED' : 'disabled'} (tz: ${challengeManager.timezone}, active: ${challengeManager.isActive()})`);
 
@@ -231,8 +231,8 @@ const USER_BUDGET = parseInt(process.env.BASTION_USER_CONTEXT_BUDGET || '20000',
 
 const conversationManager = new ConversationManager({
   tokenBudget: parseInt(process.env.BASTION_TOKEN_BUDGET || String(SONNET_MAX_CONTEXT), 10),
-  userContextPath: process.env.BASTION_USER_CONTEXT_PATH || '/var/lib/bastion-ai/user-context.md',
-  operatorContextPath: process.env.BASTION_OPERATOR_CONTEXT_PATH || '/var/lib/bastion-ai/operator-context.md',
+  userContextPath: process.env.BASTION_USER_CONTEXT_PATH || '/var/lib/bastion/user-context.md',
+  operatorContextPath: process.env.BASTION_OPERATOR_CONTEXT_PATH || '/var/lib/bastion/operator-context.md',
   systemBudget: SYSTEM_BUDGET,
   operatorBudget: OPERATOR_BUDGET,
   userBudget: USER_BUDGET,
@@ -256,7 +256,7 @@ if (conversationManager.getUserContext()) {
 // Conversation store — multi-conversation persistence (SQLite)
 // ---------------------------------------------------------------------------
 
-const CONVERSATIONS_DB = process.env.BASTION_CONVERSATIONS_DB || '/var/lib/bastion-ai/conversations.db';
+const CONVERSATIONS_DB = process.env.BASTION_CONVERSATIONS_DB || '/var/lib/bastion/conversations.db';
 const conversationStore = new ConversationStore({ path: CONVERSATIONS_DB });
 
 // Migration: if no conversations exist, create default + migrate buffer
@@ -432,8 +432,8 @@ console.log('[✓] Safety engine armed (3-layer evaluation)');
 // Budget Guard — immutable enforcement (same tier as MaliClaw)
 // ---------------------------------------------------------------------------
 
-const BUDGET_DB = process.env.BASTION_BUDGET_DB || '/var/lib/bastion-ai/budget.db';
-const BUDGET_CONFIG_PATH = process.env.BASTION_BUDGET_CONFIG || '/var/lib/bastion-ai/budget-config.json';
+const BUDGET_DB = process.env.BASTION_BUDGET_DB || '/var/lib/bastion/budget.db';
+const BUDGET_CONFIG_PATH = process.env.BASTION_BUDGET_CONFIG || '/var/lib/bastion/budget-config.json';
 const budgetGuard = new BudgetGuard({
   dbPath: BUDGET_DB,
   configPath: BUDGET_CONFIG_PATH,
@@ -459,7 +459,7 @@ function sendBudgetStatus() {
 // Usage Tracker — all API token usage with SQLite persistence
 // ---------------------------------------------------------------------------
 
-const USAGE_DB = process.env.BASTION_USAGE_DB || '/var/lib/bastion-ai/usage.db';
+const USAGE_DB = process.env.BASTION_USAGE_DB || '/var/lib/bastion/usage.db';
 const usageTracker = new UsageTracker({ path: USAGE_DB });
 console.log(`[✓] Usage tracker initialised (db: ${USAGE_DB}, ${usageTracker.totalRecords} records)`);
 

@@ -1,0 +1,29 @@
+# Bastion Relay Server — systemd service template
+# Copyright 2026 Glorktelligence — Harry Smith
+# Licensed under the Apache License, Version 2.0
+#
+# Install: sudo cp bastion-relay.service /etc/systemd/system/
+#          sudo systemctl daemon-reload && sudo systemctl enable bastion-relay
+
+[Unit]
+Description=Bastion Relay Server
+After=network.target
+
+[Service]
+Type=simple
+User=bastion
+Group=bastion
+WorkingDirectory=/opt/bastion
+ExecStart=/usr/bin/node /opt/bastion/start-relay.mjs
+Restart=always
+RestartSec=5
+EnvironmentFile=-/opt/bastion/.env
+Environment=NODE_ENV=production
+
+# Security hardening
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

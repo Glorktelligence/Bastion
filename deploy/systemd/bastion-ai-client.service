@@ -1,0 +1,32 @@
+# Bastion AI Client — systemd service template
+# Copyright 2026 Glorktelligence — Harry Smith
+# Licensed under the Apache License, Version 2.0
+#
+# Install: sudo cp bastion-ai-client.service /etc/systemd/system/
+#          sudo systemctl daemon-reload && sudo systemctl enable bastion-ai-client
+
+[Unit]
+Description=Bastion AI Client
+After=network.target
+
+[Service]
+Type=simple
+User=bastion
+Group=bastion
+WorkingDirectory=/opt/bastion
+ExecStart=/usr/bin/node --env-file=.env /opt/bastion/start-ai-client.mjs
+Restart=always
+RestartSec=5
+EnvironmentFile=-/opt/bastion/.env
+Environment=NODE_ENV=production
+
+# Security hardening
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+
+# Data directory access
+ReadWritePaths=/var/lib/bastion
+
+[Install]
+WantedBy=multi-user.target
