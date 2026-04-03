@@ -411,27 +411,7 @@ const dataExporter = new DataExporter({
 });
 console.log('[✓] Data exporter initialised (GDPR Article 20)');
 
-const dataEraser = new DataEraser({
-  conversationStore,
-  memoryStore,
-  projectStore,
-  usageTracker,
-  challengeConfigPath: CHALLENGE_CONFIG_PATH,
-  userContextPath: process.env.BASTION_USER_CONTEXT_PATH || '/var/lib/bastion/user-context.md',
-});
-
-// Check for expired soft deletes on startup (30-day window passed)
-if (dataEraser.checkExpiredErasures()) {
-  console.log('[!] Expired erasure found — running hard delete...');
-  dataEraser.hardDelete();
-  console.log('[✓] Hard delete complete — all soft-deleted data permanently removed');
-} else {
-  const activeErasure = dataEraser.getActiveErasure();
-  if (activeErasure) {
-    console.log(`[!] Active erasure: ${activeErasure.erasureId} (hard delete at ${activeErasure.hardDeleteAt})`);
-  }
-}
-console.log('[✓] Data eraser initialised (GDPR Article 17)');
+// DataEraser initialised after UsageTracker (below) — requires usageTracker reference
 
 const importRegistry = new ImportRegistry();
 importRegistry.register(new BastionImportAdapter());
@@ -485,6 +465,32 @@ function sendBudgetStatus() {
 const USAGE_DB = process.env.BASTION_USAGE_DB || '/var/lib/bastion/usage.db';
 const usageTracker = new UsageTracker({ path: USAGE_DB });
 console.log(`[✓] Usage tracker initialised (db: ${USAGE_DB}, ${usageTracker.totalRecords} records)`);
+
+// ---------------------------------------------------------------------------
+// Data Eraser — GDPR Article 17 (must be after UsageTracker)
+// ---------------------------------------------------------------------------
+
+const dataEraser = new DataEraser({
+  conversationStore,
+  memoryStore,
+  projectStore,
+  usageTracker,
+  challengeConfigPath: CHALLENGE_CONFIG_PATH,
+  userContextPath: process.env.BASTION_USER_CONTEXT_PATH || '/var/lib/bastion/user-context.md',
+});
+
+// Check for expired soft deletes on startup (30-day window passed)
+if (dataEraser.checkExpiredErasures()) {
+  console.log('[!] Expired erasure found — running hard delete...');
+  dataEraser.hardDelete();
+  console.log('[✓] Hard delete complete — all soft-deleted data permanently removed');
+} else {
+  const activeErasure = dataEraser.getActiveErasure();
+  if (activeErasure) {
+    console.log(`[!] Active erasure: ${activeErasure.erasureId} (hard delete at ${activeErasure.hardDeleteAt})`);
+  }
+}
+console.log('[✓] Data eraser initialised (GDPR Article 17)');
 
 /** Debounce timer for usage_status — max once per 30 seconds. */
 let usageStatusTimer = null;
