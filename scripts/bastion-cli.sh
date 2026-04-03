@@ -10,6 +10,10 @@
 # Usage:
 #   bastion version                          Show installed version
 #   bastion status [component]               Show systemd service status
+#   bastion doctor                           Health check (prerequisites, services, network)
+#   bastion install --vm relay|ai            Fresh install (run as root)
+#   bastion install --fresh --vm relay|ai    Reset build artifacts (preserves data)
+#   bastion install --fresh --data --vm relay|ai  Reset everything including data
 #   bastion update --component relay|ai      Pull, install, build
 #   bastion restart --component relay|ai|admin|all
 #   bastion start --component relay|ai|admin|all
@@ -710,6 +714,449 @@ cmd_audit() {
 }
 
 # ---------------------------------------------------------------------------
+# Doctor — Health Check
+# ---------------------------------------------------------------------------
+
+cmd_doctor() {
+    local passed=0 failed=0 warnings=0
+
+    doctor_pass() { echo -e "  ${GREEN}[✓]${NC} $*"; ((passed++)); }
+    doctor_fail() { echo -e "  ${RED}[✗]${NC} $*"; ((failed++)); }
+    doctor_warn() { echo -e "  ${YELLOW}[!]${NC} $*"; ((warnings++)); }
+
+    log_header "Project Bastion — Doctor"
+
+    # --- Prerequisites ---
+    echo -e "${BOLD}Prerequisites:${NC}"
+
+    # Node.js
+    if command -v node &>/dev/null; then
+        local node_ver
+        node_ver=$(node --version 2>/dev/null | sed 's/^v//')
+        local node_major
+        node_major=$(echo "$node_ver" | cut -d. -f1)
+        if [[ "$node_major" -ge 20 ]]; then
+            doctor_pass "Node.js v${node_ver} (minimum: v20)"
+        else
+            doctor_fail "Node.js v${node_ver} (minimum: v20 — upgrade required)"
+        fi
+    else
+        doctor_fail "Node.js not found (install: https://nodejs.org)"
+    fi
+
+    # pnpm
+    if command -v pnpm &>/dev/null; then
+        doctor_pass "pnpm $(pnpm --version 2>/dev/null)"
+    else
+        doctor_fail "pnpm not found (run: corepack enable)"
+    fi
+
+    # git
+    if command -v git &>/dev/null; then
+        doctor_pass "git $(git --version 2>/dev/null | awk '{print $3}')"
+    else
+        doctor_fail "git not found"
+    fi
+
+    # systemd
+    if command -v systemctl &>/dev/null; then
+        doctor_pass "systemd available"
+    else
+        doctor_fail "systemd not available"
+    fi
+
+    # corepack
+    if command -v corepack &>/dev/null; then
+        doctor_pass "corepack available"
+    else
+        doctor_fail "corepack not enabled (run: corepack enable)"
+    fi
+
+    # --- User & Permissions ---
+    echo ""
+    echo -e "${BOLD}User & Permissions:${NC}"
+
+    if id "$BASTION_USER" &>/dev/null; then
+        doctor_pass "$BASTION_USER user exists"
+    else
+        doctor_fail "$BASTION_USER user does not exist"
+    fi
+
+    if [[ -d "$BASTION_ROOT" ]]; then
+        local repo_owner
+        repo_owner=$(stat -c '%U' "$BASTION_ROOT" 2>/dev/null)
+        if [[ "$repo_owner" == "$BASTION_USER" ]]; then
+            doctor_pass "$BASTION_ROOT owned by $BASTION_USER"
+        else
+            doctor_fail "$BASTION_ROOT owned by $repo_owner (expected $BASTION_USER)"
+        fi
+    else
+        doctor_fail "$BASTION_ROOT does not exist"
+    fi
+
+    if [[ -d "$BASTION_DATA" ]]; then
+        local data_owner
+        data_owner=$(stat -c '%U' "$BASTION_DATA" 2>/dev/null)
+        if [[ "$data_owner" == "$BASTION_USER" ]]; then
+            doctor_pass "$BASTION_DATA owned by $BASTION_USER"
+        else
+            doctor_fail "$BASTION_DATA owned by $data_owner (expected $BASTION_USER)"
+        fi
+    else
+        doctor_fail "$BASTION_DATA does not exist"
+    fi
+
+    local bastion_home
+    bastion_home=$(eval echo "~$BASTION_USER" 2>/dev/null)
+    if [[ -d "$bastion_home/.cache" ]]; then
+        local cache_owner
+        cache_owner=$(stat -c '%U' "$bastion_home/.cache" 2>/dev/null)
+        if [[ "$cache_owner" == "$BASTION_USER" ]]; then
+            doctor_pass "$bastion_home/.cache owned by $BASTION_USER"
+        else
+            doctor_fail "$bastion_home/.cache owned by $cache_owner (expected $BASTION_USER)"
+        fi
+    else
+        doctor_warn "$bastion_home/.cache does not exist"
+    fi
+
+    if [[ -x /usr/local/bin/bastion ]]; then
+        doctor_pass "/usr/local/bin/bastion installed"
+    else
+        doctor_fail "/usr/local/bin/bastion not found (CLI not installed globally)"
+    fi
+
+    # --- Services ---
+    echo ""
+    echo -e "${BOLD}Services:${NC}"
+
+    for svc_pair in "bastion-relay:Relay" "bastion-admin-ui:Admin UI" "bastion-ai-client:AI Client"; do
+        local svc="${svc_pair%%:*}"
+        local label="${svc_pair##*:}"
+        local svc_status
+        svc_status=$(systemctl is-active "$svc" 2>/dev/null || echo "not found")
+        if [[ "$svc_status" == "active" ]]; then
+            doctor_pass "$label ($svc): active"
+        elif [[ "$svc_status" == "inactive" ]]; then
+            doctor_fail "$label ($svc): inactive"
+        elif [[ "$svc_status" == "not found" ]]; then
+            # Not installed — only warn, may not be relevant to this VM
+            doctor_warn "$label ($svc): not installed"
+        else
+            doctor_fail "$label ($svc): $svc_status"
+        fi
+    done
+
+    # --- Network ---
+    echo ""
+    echo -e "${BOLD}Network:${NC}"
+
+    if command -v ss &>/dev/null; then
+        # Port 9443 (relay WSS)
+        if ss -tlnp 2>/dev/null | grep -q ':9443 '; then
+            doctor_pass "Port 9443 (relay WSS): listening"
+        else
+            doctor_fail "Port 9443 (relay WSS): not listening"
+        fi
+
+        # Port 9444 (admin API)
+        if ss -tlnp 2>/dev/null | grep -q ':9444 '; then
+            local bind_9444
+            bind_9444=$(ss -tlnp 2>/dev/null | grep ':9444 ' | awk '{print $4}' | head -1)
+            if echo "$bind_9444" | grep -q '127.0.0.1'; then
+                doctor_pass "Port 9444 (admin API): listening on 127.0.0.1"
+            elif echo "$bind_9444" | grep -q '0.0.0.0\|\*'; then
+                doctor_fail "Port 9444 (admin API): WARNING — bound to 0.0.0.0 (should be 127.0.0.1!)"
+            else
+                doctor_pass "Port 9444 (admin API): listening on $bind_9444"
+            fi
+        else
+            doctor_fail "Port 9444 (admin API): not listening"
+        fi
+
+        # Port 9445 (admin UI)
+        if ss -tlnp 2>/dev/null | grep -q ':9445 '; then
+            local bind_9445
+            bind_9445=$(ss -tlnp 2>/dev/null | grep ':9445 ' | awk '{print $4}' | head -1)
+            if echo "$bind_9445" | grep -q '127.0.0.1'; then
+                doctor_pass "Port 9445 (admin UI): listening on 127.0.0.1"
+            elif echo "$bind_9445" | grep -q '0.0.0.0\|\*'; then
+                doctor_fail "Port 9445 (admin UI): WARNING — bound to 0.0.0.0 (should be 127.0.0.1!)"
+            else
+                doctor_pass "Port 9445 (admin UI): listening on $bind_9445"
+            fi
+        else
+            doctor_fail "Port 9445 (admin UI): not listening"
+        fi
+    else
+        doctor_warn "ss not available — skipping network checks"
+    fi
+
+    # --- Data ---
+    echo ""
+    echo -e "${BOLD}Data:${NC}"
+
+    if [[ -d "$BASTION_DATA" ]]; then
+        if mountpoint -q "$BASTION_DATA" 2>/dev/null; then
+            doctor_pass "$BASTION_DATA exists (disk mounted)"
+        else
+            doctor_pass "$BASTION_DATA exists"
+        fi
+    else
+        doctor_fail "$BASTION_DATA does not exist"
+    fi
+
+    # Check key database files
+    for db_file in "audit.db" "conversations.db" "memories.db" "budget.db" "usage.db"; do
+        if [[ -f "$BASTION_DATA/$db_file" ]]; then
+            local db_size
+            db_size=$(stat -c '%s' "$BASTION_DATA/$db_file" 2>/dev/null || echo "0")
+            if [[ "$db_size" -gt 0 ]]; then
+                doctor_pass "$db_file: $(( db_size / 1024 ))KB"
+            else
+                doctor_warn "$db_file: empty"
+            fi
+        fi
+        # Don't fail on missing DBs — they may not exist on this VM type
+    done
+
+    if [[ -f "$BASTION_ROOT/$VERSION_FILE" ]]; then
+        doctor_pass "VERSION file: $(cat "$BASTION_ROOT/$VERSION_FILE")"
+    else
+        doctor_fail "VERSION file not found"
+    fi
+
+    # --- Configuration ---
+    echo ""
+    echo -e "${BOLD}Configuration:${NC}"
+
+    if [[ -f "$BASTION_ROOT/.env" ]]; then
+        doctor_pass ".env file present"
+    else
+        doctor_fail ".env file not found"
+    fi
+
+    if [[ -d "$BASTION_ROOT/certs" ]] && ls "$BASTION_ROOT/certs/"*.pem &>/dev/null 2>&1; then
+        doctor_pass "TLS certificates found"
+    elif [[ -d "$BASTION_ROOT/certs" ]] && ls "$BASTION_ROOT/certs/"*.crt &>/dev/null 2>&1; then
+        doctor_pass "TLS certificates found"
+    else
+        doctor_fail "TLS certificates not found in $BASTION_ROOT/certs/"
+    fi
+
+    if [[ -f "$BASTION_DATA/admin-credentials.json" ]]; then
+        doctor_pass "Admin credentials configured"
+    else
+        doctor_warn "Admin credentials not configured (auto-generated on first relay start)"
+    fi
+
+    # --- Summary ---
+    echo ""
+    echo -e "${BOLD}Summary:${NC} ${GREEN}$passed passed${NC}, ${RED}$failed failed${NC}, ${YELLOW}$warnings warnings${NC}"
+    echo ""
+
+    if [[ "$failed" -gt 0 ]]; then
+        return 1
+    fi
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Install — Fresh Setup / Reset
+# ---------------------------------------------------------------------------
+
+cmd_install() {
+    local vm_type="${1:-}"
+    local fresh="${2:-false}"
+    local wipe_data="${3:-false}"
+
+    if [[ -z "$vm_type" ]]; then
+        log_error "Missing --vm flag. Usage: bastion install --vm relay|ai"
+        exit 1
+    fi
+
+    require_root
+
+    if [[ "$fresh" == "true" ]]; then
+        cmd_install_fresh "$vm_type" "$wipe_data"
+        return
+    fi
+
+    log_header "Project Bastion — Fresh Install ($vm_type)"
+
+    # Step 1: Create bastion user
+    if id "$BASTION_USER" &>/dev/null; then
+        log_info "User '$BASTION_USER' already exists"
+    else
+        log_step "Creating $BASTION_USER user..."
+        useradd --system --create-home --shell /bin/bash "$BASTION_USER"
+        log_info "User created"
+    fi
+
+    # Step 2: Set repository ownership
+    if [[ -d "$BASTION_ROOT" ]]; then
+        log_step "Setting ownership: $BASTION_ROOT → $BASTION_USER:$BASTION_GROUP"
+        chown -R "$BASTION_USER:$BASTION_GROUP" "$BASTION_ROOT"
+        log_info "Repository ownership set"
+    else
+        log_error "$BASTION_ROOT does not exist — clone the repo first"
+        echo "    git clone $BASTION_REPO $BASTION_ROOT"
+        exit 1
+    fi
+
+    # Step 3: Create data directory
+    if [[ -d "$BASTION_DATA" ]]; then
+        log_info "$BASTION_DATA already exists"
+    else
+        log_step "Creating $BASTION_DATA..."
+        mkdir -p "$BASTION_DATA"
+        log_info "Data directory created"
+    fi
+    chown -R "$BASTION_USER:$BASTION_GROUP" "$BASTION_DATA"
+
+    # Step 4: Fix cache directories
+    local bastion_home
+    bastion_home=$(eval echo "~$BASTION_USER")
+    mkdir -p "$bastion_home/.cache"
+    chown -R "$BASTION_USER:$BASTION_GROUP" "$bastion_home/.cache"
+    log_info "Cache directories configured"
+
+    # Step 5: Install dependencies
+    log_step "Installing dependencies..."
+    sudo -u "$BASTION_USER" bash -c "cd '$BASTION_ROOT' && pnpm install --frozen-lockfile"
+    log_info "Dependencies installed"
+
+    # Step 6: Build packages
+    log_step "Building packages..."
+    sudo -u "$BASTION_USER" bash -c "cd '$BASTION_ROOT' && pnpm build"
+    log_info "Build complete"
+
+    # Step 7: Build admin UI (relay only)
+    if [[ "$vm_type" == "relay" && -d "$BASTION_ROOT/packages/relay-admin-ui" ]]; then
+        log_step "Building admin UI..."
+        sudo -u "$BASTION_USER" bash -c "cd '$BASTION_ROOT' && pnpm --filter @bastion/relay-admin-ui run build:app" 2>&1 || log_warn "Admin UI build failed (non-fatal)"
+        log_info "Admin UI built"
+    fi
+
+    # Step 8: Install systemd services
+    case "$vm_type" in
+        relay) install_systemd_relay ;;
+        ai)    install_systemd_ai ;;
+        *)     log_error "Unknown VM type: $vm_type (use: relay or ai)"; exit 1 ;;
+    esac
+
+    # Step 9: Install CLI
+    install_cli
+
+    log_header "Installation Complete"
+    echo "  Next steps:"
+    echo "    1. Configure TLS certificates in $BASTION_ROOT/certs/"
+    echo "    2. Create .env file (see .env.example)"
+    echo "    3. Run: bastion doctor"
+    echo "    4. Run: bastion start --component $vm_type"
+    echo ""
+}
+
+cmd_install_fresh() {
+    local vm_type="$1"
+    local wipe_data="$2"
+
+    if [[ "$wipe_data" == "true" ]]; then
+        log_header "Project Bastion — Fresh Reset ($vm_type) + DATA WIPE"
+        echo ""
+        echo -e "  ${RED}⚠️  This will PERMANENTLY DELETE ALL USER DATA.${NC}"
+        echo "    This includes: audit trail, conversations, memories,"
+        echo "    project files, skills, budget history, challenge config."
+        echo ""
+        echo -e "  ${RED}THIS CANNOT BE UNDONE.${NC}"
+        echo ""
+        echo -n "    Type 'DELETE ALL DATA' to confirm: "
+        local confirm
+        read -r confirm
+        if [[ "$confirm" != "DELETE ALL DATA" ]]; then
+            log_error "Confirmation failed — aborting"
+            exit 1
+        fi
+    else
+        log_header "Project Bastion — Fresh Reset ($vm_type)"
+        echo ""
+        echo -e "  ${YELLOW}⚠️  This will reset the Bastion $vm_type installation.${NC}"
+        echo "    Configuration and build artifacts will be removed."
+        echo "    User data (audit trail, conversations) will be PRESERVED."
+        echo ""
+        echo -n "    Type 'RESET' to confirm: "
+        local confirm
+        read -r confirm
+        if [[ "$confirm" != "RESET" ]]; then
+            log_error "Confirmation failed — aborting"
+            exit 1
+        fi
+    fi
+
+    # Step 1: Stop services
+    log_step "Stopping services..."
+    case "$vm_type" in
+        relay)
+            systemctl stop "$SVC_RELAY" 2>/dev/null || true
+            systemctl stop "$SVC_ADMIN" 2>/dev/null || true
+            ;;
+        ai)
+            systemctl stop "$SVC_AI" 2>/dev/null || true
+            ;;
+    esac
+    log_info "Services stopped"
+
+    # Step 2: Wipe data if requested
+    if [[ "$wipe_data" == "true" ]]; then
+        log_step "Removing user data from $BASTION_DATA/..."
+        if mountpoint -q "$BASTION_DATA" 2>/dev/null; then
+            # Mount point — delete contents, not the directory
+            rm -rf "${BASTION_DATA:?}/"*
+            log_info "All user data deleted (mount point preserved)"
+        else
+            rm -rf "${BASTION_DATA:?}/"*
+            log_info "All user data deleted"
+        fi
+    fi
+
+    # Step 3: Clean build artifacts
+    log_step "Cleaning build artifacts..."
+    cd "$BASTION_ROOT"
+    rm -rf node_modules
+    # Clean per-package artifacts
+    find packages -maxdepth 2 -type d \( -name "node_modules" -o -name "dist" -o -name "build" -o -name ".svelte-kit" \) -exec rm -rf {} + 2>/dev/null || true
+    log_info "node_modules, dist/, build/, .svelte-kit/ removed"
+
+    # Step 4: Reinstall dependencies
+    log_step "Reinstalling dependencies..."
+    sudo -u "$BASTION_USER" bash -c "cd '$BASTION_ROOT' && pnpm install --frozen-lockfile"
+    log_info "Dependencies installed"
+
+    # Step 5: Rebuild
+    log_step "Rebuilding..."
+    sudo -u "$BASTION_USER" bash -c "cd '$BASTION_ROOT' && pnpm build"
+    log_info "Build complete"
+
+    # Step 6: Rebuild admin UI (relay only)
+    if [[ "$vm_type" == "relay" && -d "$BASTION_ROOT/packages/relay-admin-ui" ]]; then
+        log_step "Rebuilding admin UI..."
+        sudo -u "$BASTION_USER" bash -c "cd '$BASTION_ROOT' && pnpm --filter @bastion/relay-admin-ui run build:app" 2>&1 || log_warn "Admin UI build failed (non-fatal)"
+        log_info "Admin UI built"
+    fi
+
+    # Step 7: Reinstall systemd services
+    log_step "Reinstalling systemd services..."
+    case "$vm_type" in
+        relay) install_systemd_relay ;;
+        ai)    install_systemd_ai ;;
+    esac
+
+    log_header "Reset Complete"
+    echo "  Run: bastion start --component $vm_type"
+    echo ""
+}
+
+# ---------------------------------------------------------------------------
 # Help
 # ---------------------------------------------------------------------------
 
@@ -720,14 +1167,18 @@ cmd_help() {
     echo "  VM-level isolation provides security separation."
     echo ""
     echo "Usage:"
-    echo "  bastion version                          Show version"
-    echo "  bastion status [component]               Show service status"
-    echo "  bastion update --component relay|ai      Pull, install, build"
+    echo "  bastion version                                Show version"
+    echo "  bastion status [component]                     Show service status"
+    echo "  bastion doctor                                 Health check"
+    echo "  bastion install --vm relay|ai                  Fresh install (root)"
+    echo "  bastion install --fresh --vm relay|ai          Reset (preserves data)"
+    echo "  bastion install --fresh --data --vm relay|ai   Reset + wipe all data"
+    echo "  bastion update --component relay|ai            Pull, install, build"
     echo "  bastion restart --component relay|ai|admin|all"
     echo "  bastion start --component relay|ai|admin|all"
     echo "  bastion stop --component relay|ai|admin|all"
     echo "  bastion audit <component> [--live|--full]"
-    echo "  bastion migrate --vm relay|ai            One-time migration (run as root)"
+    echo "  bastion migrate --vm relay|ai                  One-time migration (root)"
     echo ""
     echo "Components: relay, admin, ai, all"
     echo ""
@@ -746,6 +1197,23 @@ case "$COMMAND" in
         ;;
     status)
         cmd_status "${1:-all}"
+        ;;
+    doctor)
+        cmd_doctor
+        ;;
+    install)
+        INSTALL_VM=""
+        INSTALL_FRESH="false"
+        INSTALL_DATA="false"
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --vm) INSTALL_VM="$2"; shift 2 ;;
+                --fresh) INSTALL_FRESH="true"; shift ;;
+                --data) INSTALL_DATA="true"; shift ;;
+                *) INSTALL_VM="$1"; shift ;;
+            esac
+        done
+        cmd_install "$INSTALL_VM" "$INSTALL_FRESH" "$INSTALL_DATA"
         ;;
     update)
         COMPONENT=""
