@@ -1,0 +1,37 @@
+# Project Bastion — Line ending normalisation
+# All text files use LF (Unix) line endings in the repository.
+# Windows users get CRLF on checkout, LF on commit.
+
+# Auto-detect text files and normalise
+* text=auto eol=lf
+
+# Explicitly declare text files
+*.ts text eol=lf
+*.mjs text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.html text eol=lf
+*.svelte text eol=lf
+*.css text eol=lf
+*.sh text eol=lf
+*.sql text eol=lf
+*.toml text eol=lf
+*.env text eol=lf
+*.txt text eol=lf
+
+# Explicitly declare binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.db binary
+*.sqlite binary
+*.bdp binary
