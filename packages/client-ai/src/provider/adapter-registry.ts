@@ -20,7 +20,7 @@ import type { ProviderAdapter } from '@bastion/protocol';
 // ---------------------------------------------------------------------------
 
 export type AdapterRole = 'default' | 'conversation' | 'task' | 'compaction' | 'game' | 'research' | 'dream';
-export type OperationType = 'conversation' | 'task' | 'compaction' | 'dream';
+export type OperationType = 'conversation' | 'task' | 'compaction' | 'dream' | 'game';
 
 export interface RegisteredAdapter {
   readonly adapter: ProviderAdapter;
@@ -193,6 +193,13 @@ export class AdapterRegistry {
         if (comp) return { adapter: comp, reason: 'fallback: compaction for dream' };
         const cheap = this.getCheapest();
         if (cheap) return { adapter: cheap, reason: 'fallback: cheapest for dream' };
+        break;
+      }
+      case 'game': {
+        const game = this.getByRole('game');
+        if (game) return { adapter: game, reason: 'role: game' };
+        const cheap = this.getCheapest();
+        if (cheap) return { adapter: cheap, reason: 'fallback: cheapest for game' };
         break;
       }
       case 'conversation':

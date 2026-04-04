@@ -127,3 +127,7 @@ export type {
   AdapterUsageSummary,
   UsageTrackerConfig,
 } from './usage-tracker.js';
+
+// Extension Dispatcher
+export { ExtensionDispatcher } from './extension-dispatcher.js';
+export type { ExtensionContext, ExtensionHandler } from './extension-dispatcher.js';

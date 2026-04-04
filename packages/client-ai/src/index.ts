@@ -67,6 +67,7 @@ export {
   UsageTracker,
   BastionImportAdapter,
   ImportExecutor,
+  ExtensionDispatcher,
 } from './provider/index.js';
 export type {
   ToolRegistry,
@@ -141,6 +142,8 @@ export type {
   DailyUsage,
   AdapterUsageSummary,
   UsageTrackerConfig,
+  ExtensionContext,
+  ExtensionHandler,
 } from './provider/index.js';
 
 // ---------------------------------------------------------------------------

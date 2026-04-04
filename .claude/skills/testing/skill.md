@@ -21,7 +21,7 @@ pnpm build && pnpm test
 
 ---
 
-## Test Suite — 14 Files, 2,964 Tests
+## Test Suite — 14 Files, 2,993 Tests
 
 | # | File | Tests | Package | Scope |
 |---|------|-------|---------|-------|
@@ -39,7 +39,7 @@ pnpm build && pnpm test
 | 12 | packages/client-human-mobile/trace-test.mjs | 123 | @bastion/client-human-mobile | Mobile stores, connection, components |
 | 13 | packages/relay-admin-ui/trace-test.mjs | 239 | @bastion/relay-admin-ui | Admin UI stores, data service, API client |
 
-**All 14 files must pass before committing.** Expected: 2,964+ tests, 0 failures.
+**All 14 files must pass before committing.** Expected: 2,993+ tests, 0 failures.
 
 ---
 
@@ -163,7 +163,7 @@ check('accepts clean markdown', validateProjectSync({path: 'a.md', content: '# H
 ## Before Marking "Tested"
 
 ```
-□ All 14 test files pass (2,964+ tests, 0 failures)
+□ All 14 test files pass (2,993+ tests, 0 failures)
 □ Safety floor tests included
 □ MaliClaw tests included (all 13 identifiers + regex)
 □ Error codes tested (BASTION-CXXX format)

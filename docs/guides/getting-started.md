@@ -77,7 +77,7 @@ Integration: 82 checks passed
 File Transfer Integration: 105 checks passed
 ```
 
-All 2,964 tests should pass.
+All 2,993 tests should pass.
 
 ## Step 1: Generate TLS Certificates
 

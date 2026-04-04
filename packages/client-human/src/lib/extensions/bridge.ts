@@ -31,11 +31,18 @@ export interface BridgeComponent {
 
 export interface BridgeMessage {
   readonly bridge: 'bastion';
-  readonly action: 'send' | 'getTheme' | 'getConversationId' | 'isChallengeHoursActive' | 'requestConfirmation';
+  readonly action:
+    | 'send'
+    | 'getTheme'
+    | 'getConversationId'
+    | 'isChallengeHoursActive'
+    | 'requestConfirmation'
+    | 'getExtensionState';
   readonly type?: string;
   readonly payload?: unknown;
   readonly requestId?: string;
   readonly message?: string;
+  readonly namespace?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +159,19 @@ export const BRIDGE_SCRIPT = `
         window.addEventListener('message', handler);
         window.parent.postMessage({ bridge: 'bastion', action: 'requestConfirmation', requestId: rid, message: message }, '*');
       });
+    },
+    getExtensionState: function(namespace) {
+      return new Promise(function(resolve) {
+        var rid = Math.random().toString(36).slice(2);
+        function handler(event) {
+          if (event.data && event.data.bridge === 'bastion-reply' && event.data.requestId === rid) {
+            window.removeEventListener('message', handler);
+            resolve(event.data.value);
+          }
+        }
+        window.addEventListener('message', handler);
+        window.parent.postMessage({ bridge: 'bastion', action: 'getExtensionState', requestId: rid, namespace: namespace }, '*');
+      });
     }
   };
   // Receive messages forwarded by host
@@ -248,6 +268,16 @@ export class ExtensionBridgeManager {
             : false,
         );
         break;
+      case 'getExtensionState': {
+        const requestId = data.requestId;
+        const namespace = data.namespace;
+        if (!requestId || !namespace) break;
+        // Send a protocol message to request extension state from AI client.
+        // The AI client would respond via a forwarded message.
+        // For now, reply with null (state bridge requires AI client handler).
+        this.reply(component.iframe, requestId, null);
+        break;
+      }
     }
   }
 

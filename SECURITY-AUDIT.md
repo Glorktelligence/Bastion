@@ -445,12 +445,12 @@ No `PUT /api/config` or `PUT /api/safety` endpoint exists in `packages/relay/src
 All fixes verified:
 - **Build**: `pnpm build` — clean (no TypeScript errors)
 - **Lint**: `pnpm lint` — 0 issues
-- **Tests**: `pnpm test` — 2,964 passed, 0 failed (14 test files)
+- **Tests**: `pnpm test` — 2,993 passed, 0 failed (14 test files)
 - **Security**: All 4 CRITICAL, 1 HIGH, 8 MEDIUM, 2 LOW findings resolved
 
 ---
 
-*Audit performed 2026-03-31. Fixes applied same day. Current: v0.5.9, 2,964 tests.*
+*Audit performed 2026-03-31. Fixes applied same day. Current: v0.5.9, 2,993 tests.*
 
 ---
 

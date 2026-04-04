@@ -35,6 +35,11 @@ export interface ExtensionMessageType {
   readonly safety: ExtensionSafetyLevel;
   /** Adapter selection hint: 'cheapest' | 'fastest' | 'smartest' | 'default' | adapter ID. */
   readonly adapterHint?: string;
+  /** Whether this message type can be compacted (summarised). Default: true.
+   *  Set to false for structural data (game state, tension updates) that must be preserved verbatim.
+   *  When false, messages of this type are stored with pinned=true in the ConversationStore,
+   *  which excludes them from compaction via the existing getCompactableMessages() filter. */
+  readonly compactable?: boolean;
   readonly audit: {
     readonly logEvent: string;
     readonly logContent: boolean;
@@ -103,6 +108,8 @@ export type ExtensionLoadResult =
 // ---------------------------------------------------------------------------
 
 const NAMESPACE_PATTERN = /^[a-z0-9-]+$/;
+
+const VALID_SAFETY_LEVELS = new Set<string>(['passthrough', 'task', 'admin', 'blocked']);
 
 const RESERVED_NAMESPACES = new Set([
   'bastion',
@@ -271,6 +278,12 @@ export class ExtensionRegistry {
           error: `Extension Violation Detected — Missing [safety] for message type "${mt.name}" in ${namespace}`,
         };
       }
+      if (!VALID_SAFETY_LEVELS.has(mt.safety as string)) {
+        return {
+          ok: false,
+          error: `Message type "${mt.name}": safety must be one of: passthrough, task, admin, blocked (got: "${mt.safety}")`,
+        };
+      }
       if (!mt.audit || typeof mt.audit !== 'object') {
         return {
           ok: false,
@@ -286,6 +299,7 @@ export class ExtensionRegistry {
         fields: (mt.fields as Record<string, { type: string; required: boolean; description: string }>) ?? {},
         safety: mt.safety as ExtensionSafetyLevel,
         adapterHint: typeof mt.adapterHint === 'string' ? (mt.adapterHint as string) : undefined,
+        compactable: typeof mt.compactable === 'boolean' ? (mt.compactable as boolean) : undefined,
         audit: {
           logEvent: (audit.logEvent as string) ?? (mt.name as string),
           logContent: audit.logContent === true, // Forced false for E2E payloads at routing level

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ensureSodium } from './packages/crypto/dist/index.js';
 import { createHash } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
 import {
   BastionAiClient,
   createApiKeyManager,
@@ -31,6 +32,7 @@ import {
   BastionImportAdapter,
   ImportExecutor,
   UsageTracker,
+  ExtensionDispatcher,
 } from './packages/client-ai/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -96,6 +98,10 @@ const API_TIMEOUT = parseIntEnv('BASTION_TIMEOUT', 120000, 5000, 600000);
 const STREAMING_ENABLED = process.env.BASTION_STREAMING !== 'false';
 const REJECT_UNAUTHORIZED = process.env.BASTION_TLS_REJECT_UNAUTHORIZED !== 'false';
 // Note: defaults to true (strict TLS) — set BASTION_TLS_REJECT_UNAUTHORIZED=false for self-signed certs
+
+// Extension system — data directory for extension-namespaced state
+const EXTENSIONS_DATA = process.env.BASTION_EXTENSIONS_DATA || '/var/lib/bastion/extensions';
+try { mkdirSync(EXTENSIONS_DATA, { recursive: true }); } catch {}
 
 // Three Bastion Official Adapters — Sonnet, Haiku, Opus
 // All share ANTHROPIC_API_KEY. Each targets a different model with role-specific config.
@@ -207,6 +213,16 @@ for (const ra of registeredAdapters) {
   console.log(`    → ${ra.adapter.providerId} [${ra.adapter.activeModel}] (${ra.roles.join(', ')})`);
 }
 console.log('[✓] Adapter registry locked');
+
+// ---------------------------------------------------------------------------
+// Extension dispatcher — routes namespace:type messages to handlers
+// ---------------------------------------------------------------------------
+
+const extensionDispatcher = new ExtensionDispatcher();
+// Extensions would register handlers here before lock:
+// extensionDispatcher.registerHandler('game:turn_submit', handleTurnSubmit);
+extensionDispatcher.lock();
+console.log(`[✓] Extension dispatcher: ${extensionDispatcher.size} handlers registered, locked`);
 
 // ---------------------------------------------------------------------------
 // Memory store — persistent Layer 2 memory
@@ -2273,6 +2289,61 @@ client.on('message', async (data) => {
     }));
 
     console.log(`[✓] Erasure cancelled: ${active.erasureId} — data restored`);
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Extension message dispatch — handles namespace:type messages
+  // ---------------------------------------------------------------------------
+  if (msg.type && typeof msg.type === 'string' && msg.type.includes(':')) {
+    const handler = extensionDispatcher.getHandler(msg.type);
+    if (handler) {
+      // Resolve adapter hint from extension type metadata
+      const adapterHint = 'default'; // Default — extensions that register handlers can pass hints via message payload
+      const hintResult = adapterRegistry.resolveHint(adapterHint, 'game');
+
+      const namespace = msg.type.split(':')[0];
+      const extDataDir = `${EXTENSIONS_DATA}/${namespace}`;
+      try { mkdirSync(extDataDir, { recursive: true }); } catch {}
+
+      try {
+        await handler({
+          message: msg,
+          adapterId: hintResult?.providerId ?? null,
+          adapterHint,
+          conversationManager,
+          conversationStore,
+          memoryStore,
+          send: (responseType, payload) => {
+            sendSecure({
+              type: responseType,
+              id: randomUUID(),
+              timestamp: new Date().toISOString(),
+              sender: IDENTITY,
+              payload,
+            });
+          },
+          dataDir: extDataDir,
+        });
+      } catch (err) {
+        console.error(`[!] Extension handler error for ${msg.type}: ${err.message}`);
+        sendSecure({
+          type: 'error',
+          id: randomUUID(),
+          timestamp: new Date().toISOString(),
+          sender: IDENTITY,
+          payload: { code: 'BASTION-3006', message: `Extension handler failed: ${err.message}` },
+        });
+      }
+
+      // Persist extension message in conversation store
+      if (activeConversationId) {
+        const content = JSON.stringify(msg.payload || {});
+        conversationStore.addMessage(activeConversationId, 'user', msg.type, content);
+      }
+    } else {
+      console.log(`[←] Extension message: ${msg.type} (no handler registered — forwarding silently)`);
+    }
     return;
   }
 

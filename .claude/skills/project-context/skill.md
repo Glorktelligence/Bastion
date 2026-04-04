@@ -144,7 +144,7 @@ These are **hardcoded** and **non-negotiable**. Never make them configurable.
 | Mobile client | React Native (Android) |
 | Database | node:sqlite DatabaseSync (audit), SQLite (memories, budget) |
 | Linting | Biome |
-| Testing | node:test (trace-test.mjs pattern), 2,964 tests across 14 files |
+| Testing | node:test (trace-test.mjs pattern), 2,993 tests across 14 files |
 
 ---
 
@@ -160,7 +160,7 @@ Safety floors can be tightened but NEVER loosened below factory defaults.
 
 ## Testing
 
-14 test files, 2,964 tests total. Run all with:
+14 test files, 2,993 tests total. Run all with:
 ```bash
 pnpm test    # or run individually with: node packages/<path>/trace-test.mjs
 ```

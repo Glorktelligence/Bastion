@@ -1620,6 +1620,48 @@ async function run() {
     const all = reg.getAllExtensions();
     check('getAllExtensions returns 1', all.length === 1);
     check('getAllExtensions first is games', all[0].namespace === 'games');
+
+    // P4: Safety enum validation
+    const regSafety = new ExtensionRegistry();
+    const rInvalid = regSafety.register({
+      namespace: 'badsafety', name: 'BadSafety', version: '1.0.0',
+      messageTypes: [{ name: 'x', description: 'test', safety: 'invalid_value', audit: { logEvent: 'x', logContent: false }, fields: {} }],
+    });
+    check('invalid safety enum rejected', !rInvalid.ok);
+    check('safety error mentions invalid value', !rInvalid.ok && rInvalid.error.includes('invalid_value'));
+
+    const rBlocked = regSafety.register({
+      namespace: 'blockedext', name: 'Blocked', version: '1.0.0',
+      messageTypes: [{ name: 'danger', description: 'blocked type', safety: 'blocked', audit: { logEvent: 'danger', logContent: true }, fields: {} }],
+    });
+    check('blocked safety level accepted', rBlocked.ok);
+
+    const rAdmin = regSafety.register({
+      namespace: 'adminext', name: 'Admin', version: '1.0.0',
+      messageTypes: [{ name: 'cfg', description: 'admin type', safety: 'admin', audit: { logEvent: 'admin_cfg', logContent: false }, fields: {} }],
+    });
+    check('admin safety level accepted', rAdmin.ok);
+
+    const rTask = regSafety.register({
+      namespace: 'taskext', name: 'Task', version: '1.0.0',
+      messageTypes: [{ name: 'work', description: 'task type', safety: 'task', audit: { logEvent: 'task_work', logContent: false }, fields: {} }],
+    });
+    check('task safety level accepted', rTask.ok);
+
+    // Compactable flag
+    const regCompact = new ExtensionRegistry();
+    const rCompact = regCompact.register({
+      namespace: 'comptest', name: 'CompTest', version: '1.0.0',
+      messageTypes: [
+        { name: 'compactable-msg', description: 'can compact', safety: 'passthrough', audit: { logEvent: 'comp', logContent: false }, fields: {}, compactable: true },
+        { name: 'state-update', description: 'no compact', safety: 'passthrough', audit: { logEvent: 'state', logContent: false }, fields: {}, compactable: false },
+      ],
+    });
+    check('compactable extension registered', rCompact.ok);
+    const compResolved = regCompact.resolveMessageType('comptest:state-update');
+    check('compactable false on state-update', compResolved?.messageType?.compactable === false);
+    const compResolved2 = regCompact.resolveMessageType('comptest:compactable-msg');
+    check('compactable true on compactable-msg', compResolved2?.messageType?.compactable === true);
   }
   console.log();
 

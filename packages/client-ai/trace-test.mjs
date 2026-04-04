@@ -26,6 +26,7 @@ import {
   AdapterRegistry,
   SkillStore,
   DataEraser,
+  ExtensionDispatcher,
 } from './dist/index.js';
 import {
   BastionRelay,
@@ -2585,6 +2586,88 @@ async function run() {
     const dynamicZone = report.zones.find(z => z.name === 'dynamic');
     check('dynamic zone has Available Actions component', dynamicZone?.components?.includes('Available Actions'));
   }
+
+  // -------------------------------------------------------------------
+  // ExtensionDispatcher
+  // -------------------------------------------------------------------
+  console.log('--- ExtensionDispatcher ---');
+  {
+    const dispatcher = new ExtensionDispatcher();
+
+    // Registration
+    check('starts empty', dispatcher.size === 0);
+    check('not locked', !dispatcher.isLocked);
+
+    let handlerCalled = false;
+    dispatcher.registerHandler('game:turn_submit', async () => { handlerCalled = true; });
+    check('handler registered', dispatcher.size === 1);
+    check('has handler', dispatcher.hasHandler('game:turn_submit'));
+    check('no handler for unknown', !dispatcher.hasHandler('game:unknown'));
+    check('registered types', dispatcher.registeredTypes.length === 1);
+    check('registered types includes game:turn_submit', dispatcher.registeredTypes[0] === 'game:turn_submit');
+
+    // Multiple registrations
+    dispatcher.registerHandler('game:turn_result', async () => {});
+    dispatcher.registerHandler('faction:status', async () => {});
+    check('3 handlers registered', dispatcher.size === 3);
+
+    // Get handler and invoke
+    const handler = dispatcher.getHandler('game:turn_submit');
+    check('get handler returns function', typeof handler === 'function');
+    await handler({ message: { type: 'game:turn_submit' } });
+    check('handler invoked', handlerCalled);
+
+    // Namespace:type format required
+    let formatError = false;
+    try { dispatcher.registerHandler('no_colon', async () => {}); } catch { formatError = true; }
+    check('rejects non-namespaced type', formatError);
+
+    // Lock
+    dispatcher.lock();
+    check('is locked', dispatcher.isLocked);
+
+    let lockError = false;
+    try { dispatcher.registerHandler('game:new', async () => {}); } catch { lockError = true; }
+    check('rejects post-lock registration', lockError);
+
+    // Handlers still accessible after lock
+    check('handler accessible after lock', dispatcher.hasHandler('game:turn_submit'));
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // OperationType 'game' in AdapterRegistry
+  // -------------------------------------------------------------------
+  console.log('--- AdapterRegistry: game operation type ---');
+  {
+    const reg = new AdapterRegistry();
+    const mockHaiku = { providerId: 'haiku', providerName: 'Haiku', model: 'claude-haiku-4-5', maxTokens: 4096, temperature: 0.3 };
+    const mockSonnet = { providerId: 'sonnet', providerName: 'Sonnet', model: 'claude-sonnet-4-6', maxTokens: 4096, temperature: 1.0 };
+
+    reg.registerAdapter(mockHaiku, ['game', 'compaction'], { pricingInputPerMTok: 1, maxContextTokens: 200000 });
+    reg.registerAdapter(mockSonnet, ['default', 'conversation', 'task'], { pricingInputPerMTok: 3, maxContextTokens: 1000000 });
+
+    // selectAdapter with 'game' operation
+    const result = reg.selectAdapter('game');
+    check('game operation selects adapter', result.adapter !== undefined);
+    check('game operation selects haiku', result.adapter.providerId === 'haiku');
+
+    // resolveHint �� returns ProviderAdapter | undefined (not wrapped in object)
+    const cheapest = reg.resolveHint('cheapest', 'game');
+    check('cheapest hint resolves', cheapest !== undefined);
+    check('cheapest hint is haiku', cheapest?.providerId === 'haiku');
+
+    const smartest = reg.resolveHint('smartest', 'game');
+    check('smartest hint resolves', smartest !== undefined);
+
+    const defaultHint = reg.resolveHint('default', 'game');
+    check('default hint resolves', defaultHint !== undefined);
+
+    // Unknown hint falls back
+    const unknown = reg.resolveHint('nonexistent', 'game');
+    check('unknown hint falls back', unknown !== undefined);
+  }
+  console.log();
 
   // -------------------------------------------------------------------
   // Summary

@@ -65,12 +65,15 @@ function prepareHTML(comp: ExtensionUIComponentInfo): string | null {
     return null;
   }
 
-  // Inject bridge script before </head>
+  // CSP meta tag — blocks all external resources, allows only inline scripts/styles and data/blob images
+  const CSP_META = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:;">`;
+
+  // Inject CSP meta tag and bridge script before </head>
   if (content.includes('</head>')) {
-    return content.replace('</head>', `${BRIDGE_SCRIPT}</head>`);
+    return content.replace('</head>', `${CSP_META}${BRIDGE_SCRIPT}</head>`);
   }
   // If no </head> tag, wrap with minimal structure
-  return `<!DOCTYPE html><html><head>${BRIDGE_SCRIPT}</head><body>${content}</body></html>`;
+  return `<!DOCTYPE html><html><head>${CSP_META}${BRIDGE_SCRIPT}</head><body>${content}</body></html>`;
 }
 
 function onIframeLoad(comp: ExtensionUIComponentInfo, iframe: HTMLIFrameElement): void {

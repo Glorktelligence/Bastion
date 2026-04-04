@@ -1354,6 +1354,50 @@ relay.on('message', async (data, info) => {
     return;
   }
 
+  // ---------------------------------------------------------------------------
+  // Extension message validation — namespace:type messages
+  // ---------------------------------------------------------------------------
+  if (msg.type && typeof msg.type === 'string' && msg.type.includes(':')) {
+    const extType = extensionRegistry.resolveMessageType(msg.type);
+    if (!extType) {
+      // Unknown extension type — reject
+      relay.send(connId, JSON.stringify({
+        type: 'error',
+        id: msg.id || randomUUID(),
+        timestamp: new Date().toISOString(),
+        payload: { code: 'BASTION-3005', message: `Unknown extension message type: ${msg.type}` },
+      }));
+      console.log(`[!] Unknown extension type "${msg.type}" — rejected`);
+      return;
+    }
+
+    // P3: Safety level enforcement
+    const safety = extType.messageType.safety;
+    if (safety === 'blocked') {
+      relay.send(connId, JSON.stringify({
+        type: 'error',
+        id: msg.id || randomUUID(),
+        timestamp: new Date().toISOString(),
+        payload: { code: 'BASTION-4005', message: `Extension message type "${msg.type}" is blocked` },
+      }));
+      console.log(`[!] Blocked extension type "${msg.type}" — safety: blocked`);
+      return;
+    }
+
+    // P2: Extension audit config
+    const auditConfig = extType.messageType.audit;
+    if (auditConfig && auditConfig.logEvent) {
+      const detail = { messageType: msg.type, namespace: extType.extension.namespace, safety };
+      if (auditConfig.logContent && msg.payload) {
+        detail.payload = msg.payload;
+      }
+      const sid = sessionIds.get(connId);
+      if (sid) auditLogger.logEvent(auditConfig.logEvent, sid, detail);
+    }
+
+    // Fall through to generic peer-forward below
+  }
+
   // ----- Regular message: forward to paired peer -----
   const peerId = router.getPeer(connId);
   if (!peerId) {
