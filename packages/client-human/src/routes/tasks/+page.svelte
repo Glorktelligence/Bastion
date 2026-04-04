@@ -33,7 +33,7 @@ function handleResolveChallenge(taskId: string, decision: string): void {
 	if (!client) return;
 
 	client.send(JSON.stringify({
-		type: 'challenge_response',
+		type: 'confirmation',
 		id: crypto.randomUUID(),
 		timestamp: new Date().toISOString(),
 		sender: session.IDENTITY,

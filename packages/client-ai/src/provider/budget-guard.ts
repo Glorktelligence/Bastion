@@ -60,9 +60,9 @@ export interface BudgetStatus {
 }
 
 export interface BudgetGuardOptions {
-  /** Path to SQLite database. Default: /var/lib/bastion-ai/budget.db */
+  /** Path to SQLite database. Default: /var/lib/bastion/budget.db */
   readonly dbPath?: string;
-  /** Path to config JSON. Default: /var/lib/bastion-ai/budget-config.json */
+  /** Path to config JSON. Default: /var/lib/bastion/budget-config.json */
   readonly configPath?: string;
   /** System timezone (from ChallengeManager). */
   readonly timezone?: string;
@@ -103,8 +103,8 @@ export class BudgetGuard {
   private searchesThisSession: number;
 
   constructor(options: BudgetGuardOptions = {}) {
-    const dbPath = options.dbPath ?? '/var/lib/bastion-ai/budget.db';
-    this.configPath = options.configPath ?? '/var/lib/bastion-ai/budget-config.json';
+    const dbPath = options.dbPath ?? '/var/lib/bastion/budget.db';
+    this.configPath = options.configPath ?? '/var/lib/bastion/budget-config.json';
     this.timezone = options.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
     this.searchesThisSession = 0;
     this.config = { ...DEFAULT_CONFIG, limits: { ...DEFAULT_LIMITS } };

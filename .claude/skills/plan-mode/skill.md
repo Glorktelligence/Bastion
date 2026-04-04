@@ -39,7 +39,7 @@ Before ANY implementation:
 
 ```
 □ Read relevant spec section (docs/)
-□ Check @bastion/protocol for existing types (81 message types, 45 error codes)
+□ Check @bastion/protocol for existing types (89 message types, 48 error codes)
 □ Find existing utilities in @bastion/crypto
 □ Check for similar implementations in existing stores/handlers
 □ Identify which packages are affected

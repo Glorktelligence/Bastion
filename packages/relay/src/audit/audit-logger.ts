@@ -73,16 +73,6 @@ export const AUDIT_EVENT_TYPES = {
   SENDER_MISMATCH: 'sender_mismatch',
   ALLOWLIST_REJECTED: 'allowlist_rejected',
   MALICLAW_REJECTED: 'maliclaw_rejected',
-
-  // Self-update system
-  UPDATE_CHECK_INITIATED: 'update_check_initiated',
-  UPDATE_PREPARE_SENT: 'update_prepare_sent',
-  UPDATE_BUILD_STARTED: 'update_build_started',
-  UPDATE_BUILD_COMPLETE: 'update_build_complete',
-  UPDATE_BUILD_FAILED: 'update_build_failed',
-  UPDATE_RESTART_ISSUED: 'update_restart_issued',
-  UPDATE_COMPLETED: 'update_completed',
-  UPDATE_FAILED: 'update_failed',
 } as const;
 
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[keyof typeof AUDIT_EVENT_TYPES];

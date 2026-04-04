@@ -30,7 +30,7 @@ export interface ProjectConfig {
 }
 
 export interface ProjectStoreConfig {
-  /** Root directory for project files. Default: '/var/lib/bastion-ai/project'. */
+  /** Root directory for project files. Default: '/var/lib/bastion/project'. */
   readonly rootDir?: string;
   /** Max file size in bytes. Default: 1MB. */
   readonly maxFileSize?: number;
@@ -46,7 +46,7 @@ export type ProjectSaveResult =
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_ROOT = '/var/lib/bastion-ai/project';
+const DEFAULT_ROOT = '/var/lib/bastion/project';
 const DEFAULT_MAX_FILE = 1024 * 1024; // 1MB
 const DEFAULT_MAX_TOTAL = 50 * 1024 * 1024; // 50MB
 const ALLOWED_EXTENSIONS = new Set(['.md', '.json', '.yaml', '.yml', '.txt']);

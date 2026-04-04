@@ -52,7 +52,7 @@ node packages/client-human-mobile/trace-test.mjs
 node packages/relay-admin-ui/trace-test.mjs
 ```
 
-Expected: 2,896+ tests, 0 failures.
+Expected: 2,973+ tests, 0 failures.
 
 3. **Update docs if needed** (see Doc Updates below)
 
@@ -147,9 +147,9 @@ wip(client-human): Checkpoint — challenge UI in progress
 Before committing, check if the work affects any of these and update accordingly:
 
 ### README.md Badges & Counts
-- [ ] **Test count badge** — if tests were added or removed (currently 2,896)
-- [ ] **Message type count** — if protocol types were added (currently 57)
-- [ ] **Error code count** — if error codes were added (currently 45)
+- [ ] **Test count badge** — if tests were added or removed (currently 2,973)
+- [ ] **Message type count** — if protocol types were added (currently 89)
+- [ ] **Error code count** — if error codes were added (currently 48)
 - [ ] **Package count** — if a new package was added
 - [ ] **Feature list** — if a user-visible feature was added
 
@@ -174,7 +174,7 @@ Before committing, check if the work affects any of these and update accordingly
 □ Feature works as expected
 □ pnpm lint --write applied (Biome auto-fix)
 □ pnpm lint clean (0 issues)
-□ Full test suite passes (all 14 files, 2,896+ tests)
+□ Full test suite passes (all 14 files, 2,973+ tests)
 □ Docs updated (badges, counts, guides as needed)
 □ Code committed with Co-authored-by trailer
 □ Pushed to origin

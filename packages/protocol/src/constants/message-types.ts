@@ -3,7 +3,7 @@
 // See LICENSE file for full terms
 
 /**
- * All 91 message types in the Bastion protocol.
+ * All 89 message types in the Bastion protocol.
  *
  * Core spec (13): task, conversation, challenge, confirmation, denial,
  *   status, result, error, audit, file_manifest, file_offer, file_request, heartbeat
@@ -15,9 +15,6 @@
  * Audit query/response (2): audit_query, audit_response
  * Provider/context (2): provider_register, context_update
  * Budget Guard (2): budget_status, budget_config
- * Self-Update (10): update_check, update_available, update_prepare,
- *   update_prepare_ack, update_execute, update_build_status,
- *   update_restart, update_reconnected, update_complete, update_failed
  */
 export const MESSAGE_TYPES = {
   // --- Core message types (Section 5.2) ---

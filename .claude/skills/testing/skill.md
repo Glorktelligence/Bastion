@@ -21,11 +21,11 @@ pnpm build && pnpm test
 
 ---
 
-## Test Suite — 14 Files, 2,896 Tests
+## Test Suite — 14 Files, 2,973 Tests
 
 | # | File | Tests | Package | Scope |
 |---|------|-------|---------|-------|
-| 1 | packages/tests/trace-test.mjs | 286 | @bastion/protocol | Schema validation for all 81 message types |
+| 1 | packages/tests/trace-test.mjs | 266 | @bastion/protocol | Schema validation for all 89 message types |
 | 2 | packages/tests/integration-test.mjs | 82 | Cross-package | Full message round-trip (human→relay→AI→relay→human) |
 | 3 | packages/tests/file-transfer-integration-test.mjs | 105 | Cross-package | File transfer pipeline with quarantine + hash verification |
 | 4 | packages/crypto/trace-test.mjs | 134 | @bastion/crypto | E2E encryption, key exchange, hashing, audit chain |
@@ -39,7 +39,7 @@ pnpm build && pnpm test
 | 12 | packages/client-human-mobile/trace-test.mjs | 123 | @bastion/client-human-mobile | Mobile stores, connection, components |
 | 13 | packages/relay-admin-ui/trace-test.mjs | 239 | @bastion/relay-admin-ui | Admin UI stores, data service, API client |
 
-**All 14 files must pass before committing.** Expected: 2,896+ tests, 0 failures.
+**All 14 files must pass before committing.** Expected: 2,973+ tests, 0 failures.
 
 ---
 
@@ -50,8 +50,8 @@ pnpm build && pnpm test
 - Every Zod schema rejects invalid input
 - Serialisation round-trips preserve data
 - Integrity hashes detect tampering
-- All 45 error codes have valid BASTION-CXXX format
-- All 81 message types have schemas
+- All 48 error codes have valid BASTION-CXXX format
+- All 89 message types have schemas
 
 ### Safety Engine (Critical)
 - Layer 1 denies every blocked category
@@ -163,7 +163,7 @@ check('accepts clean markdown', validateProjectSync({path: 'a.md', content: '# H
 ## Before Marking "Tested"
 
 ```
-□ All 14 test files pass (2,896+ tests, 0 failures)
+□ All 14 test files pass (2,973+ tests, 0 failures)
 □ Safety floor tests included
 □ MaliClaw tests included (all 13 identifiers + regex)
 □ Error codes tested (BASTION-CXXX format)

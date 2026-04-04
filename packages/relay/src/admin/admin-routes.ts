@@ -22,7 +22,6 @@
  * MaliClaw Clause: blocked identifiers cannot be approved as providers.
  */
 
-import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AuditLogger } from '../audit/audit-logger.js';
@@ -164,25 +163,6 @@ export interface DisclosureConfig {
   jurisdiction?: string;
 }
 
-/** Update status tracking. */
-export type UpdatePhase =
-  | 'idle'
-  | 'checking'
-  | 'preparing'
-  | 'building'
-  | 'restarting'
-  | 'verifying'
-  | 'complete'
-  | 'failed';
-
-export interface UpdateStatus {
-  phase: UpdatePhase;
-  targetVersion: string | null;
-  startedAt: string | null;
-  component: string | null;
-  error: string | null;
-}
-
 /** Configuration for admin routes. */
 export interface AdminRoutesConfig {
   readonly providerRegistry: ProviderRegistry;
@@ -193,14 +173,6 @@ export interface AdminRoutesConfig {
   readonly extensionRegistry?: import('../extensions/extension-registry.js').ExtensionRegistry;
   /** Callback invoked when admin updates disclosure config via API. */
   readonly onDisclosureUpdate?: (config: DisclosureConfig) => void;
-  /** Callback for sending update messages to the connected updater client. */
-  readonly onUpdateMessage?: (type: string, payload: Record<string, unknown>) => void;
-  /** Optional update orchestrator for enriched status responses. */
-  readonly updateOrchestrator?: import('./update-orchestrator.js').UpdateOrchestrator;
-  /** Local git repo path for relay-side version checks (default: process.cwd()). */
-  readonly localGitPath?: string;
-  /** Current relay version (read from VERSION file). Exposed via GET /api/update/status. */
-  readonly currentVersion?: string;
   /** Initial disclosure config loaded from file/env vars at startup. */
   readonly initialDisclosureConfig?: DisclosureConfig;
   /** Path to persist disclosure config. When set, PUT /api/disclosure writes to this file. */
@@ -235,20 +207,13 @@ export class AdminRoutes {
   private readonly statusProvider: RelayStatusProvider | null;
   private readonly extensionRegistry: import('../extensions/extension-registry.js').ExtensionRegistry | null;
   private readonly onDisclosureUpdate: ((config: DisclosureConfig) => void) | null;
-  private readonly onUpdateMessage: ((type: string, payload: Record<string, unknown>) => void) | null;
-  private readonly orchestrator: import('./update-orchestrator.js').UpdateOrchestrator | null;
-  private readonly localGitPath: string;
-  private readonly currentVersion: string;
   private readonly disclosureConfigPath: string | null;
   private readonly onChallengeConfigUpdate:
     | ((schedule: Record<string, unknown>, cooldowns: Record<string, unknown>) => boolean)
     | null;
   private disclosureConfig: DisclosureConfig;
-  private updateStatus: UpdateStatus;
   /** Cached challenge status from AI client (updated via setChallengeStatus). */
   private challengeStatus: Record<string, unknown> | null;
-  /** Last version check result (cached for admin UI display). */
-  private lastCheckResult: Record<string, unknown> | null;
 
   constructor(config: AdminRoutesConfig) {
     this.registry = config.providerRegistry;
@@ -258,15 +223,9 @@ export class AdminRoutes {
     this.statusProvider = config.statusProvider ?? null;
     this.extensionRegistry = config.extensionRegistry ?? null;
     this.onDisclosureUpdate = config.onDisclosureUpdate ?? null;
-    this.onUpdateMessage = config.onUpdateMessage ?? null;
     this.onChallengeConfigUpdate = config.onChallengeConfigUpdate ?? null;
-    this.orchestrator = config.updateOrchestrator ?? null;
-    this.localGitPath = config.localGitPath ?? process.cwd();
-    this.currentVersion = config.currentVersion ?? 'unknown';
     this.disclosureConfigPath = config.disclosureConfigPath ?? null;
-    this.updateStatus = { phase: 'idle', targetVersion: null, startedAt: null, component: null, error: null };
     this.challengeStatus = null;
-    this.lastCheckResult = null;
     this.disclosureConfig = config.initialDisclosureConfig ?? {
       enabled: false,
       text: 'You are interacting with an AI system powered by {provider} ({model}).',
@@ -745,206 +704,6 @@ export class AdminRoutes {
     };
   }
 
-  // -------------------------------------------------------------------------
-  // Self-Update System
-  // -------------------------------------------------------------------------
-
-  /**
-   * Trigger a version check.
-   *
-   * If update agents are connected, sends update_check to the first agent.
-   * If no agents are connected, runs a local git fetch + comparison on the
-   * relay's own repo (since the relay process has access to the git checkout).
-   */
-  triggerUpdateCheck(repo: string, currentVersion: string, adminUsername: string): ApiResponse {
-    if (
-      this.updateStatus.phase !== 'idle' &&
-      this.updateStatus.phase !== 'complete' &&
-      this.updateStatus.phase !== 'failed'
-    ) {
-      return { status: 409, body: { error: 'Update already in progress', phase: this.updateStatus.phase } };
-    }
-
-    this.updateStatus = {
-      phase: 'checking',
-      targetVersion: null,
-      startedAt: new Date().toISOString(),
-      component: null,
-      error: null,
-    };
-
-    this.audit.logEvent(AUDIT_EVENT_TYPES.UPDATE_CHECK_INITIATED, 'admin', {
-      repo,
-      currentVersion,
-      triggeredBy: adminUsername,
-    });
-
-    // Try via connected agent first
-    const hasAgents = this.orchestrator && this.orchestrator.connectedAgentCount > 0;
-    if (hasAgents && this.onUpdateMessage) {
-      this.onUpdateMessage('update_check', { source: 'github', repo, currentVersion });
-      return { status: 200, body: { status: 'checking', method: 'agent', repo, currentVersion } };
-    }
-
-    // No agents connected — run local git check on the relay's repo
-    return this.localVersionCheck(currentVersion);
-  }
-
-  /** Run git fetch + log locally to check for available updates. */
-  private localVersionCheck(currentVersion: string): ApiResponse {
-    try {
-      execSync(`git -C ${this.localGitPath} fetch --quiet 2>/dev/null`, {
-        timeout: 30_000,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-    } catch {
-      // fetch failed — maybe offline, check local state anyway
-    }
-
-    try {
-      const ahead = execSync(`git -C ${this.localGitPath} log HEAD..origin/main --oneline 2>/dev/null`, {
-        timeout: 10_000,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      }).trim();
-
-      if (!ahead) {
-        this.updateStatus = { phase: 'idle', targetVersion: null, startedAt: null, component: null, error: null };
-        return { status: 200, body: { status: 'up_to_date', currentVersion, method: 'local_git' } };
-      }
-
-      const commits = ahead.split('\n').filter((l) => l.length > 0);
-      const latestHash = commits[0]?.split(' ')[0] ?? 'unknown';
-
-      // Try to read the remote VERSION file
-      let remoteVersion = 'unknown';
-      try {
-        remoteVersion = execSync(`git -C ${this.localGitPath} show origin/main:VERSION 2>/dev/null`, {
-          timeout: 5_000,
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'pipe'],
-        }).trim();
-      } catch {
-        // VERSION file may not exist in remote — use commit count as indicator
-        remoteVersion = `${currentVersion}+${commits.length}`;
-      }
-
-      this.updateStatus.targetVersion = remoteVersion;
-
-      return {
-        status: 200,
-        body: {
-          status: 'update_available',
-          method: 'local_git',
-          currentVersion,
-          availableVersion: remoteVersion,
-          commitHash: latestHash,
-          changelog: commits.map((c) => c.replace(/^[a-f0-9]+ /, '')),
-          commitCount: commits.length,
-        },
-      };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.updateStatus = { phase: 'failed', targetVersion: null, startedAt: null, component: null, error: msg };
-      return { status: 500, body: { status: 'error', error: `Local git check failed: ${msg}`, method: 'local_git' } };
-    }
-  }
-
-  /** Trigger an update execution sequence via the connected updater client. */
-  triggerUpdateExecute(
-    targetComponent: string,
-    version: string,
-    commitHash: string,
-    commands: readonly Record<string, unknown>[],
-    adminUsername: string,
-  ): ApiResponse {
-    if (
-      this.updateStatus.phase !== 'idle' &&
-      this.updateStatus.phase !== 'checking' &&
-      this.updateStatus.phase !== 'complete' &&
-      this.updateStatus.phase !== 'failed'
-    ) {
-      return { status: 409, body: { error: 'Update already in progress', phase: this.updateStatus.phase } };
-    }
-
-    this.updateStatus = {
-      phase: 'building',
-      targetVersion: version,
-      startedAt: new Date().toISOString(),
-      component: targetComponent,
-      error: null,
-    };
-
-    if (this.onUpdateMessage) {
-      this.onUpdateMessage('update_execute', { targetComponent, commands, version, commitHash });
-    }
-
-    this.audit.logEvent(AUDIT_EVENT_TYPES.UPDATE_BUILD_STARTED, 'admin', {
-      targetComponent,
-      version,
-      commitHash,
-      triggeredBy: adminUsername,
-    });
-
-    return { status: 200, body: { status: 'building', targetComponent, version } };
-  }
-
-  /** Cache the last version check result for admin UI display. */
-  setCheckResult(result: Record<string, unknown>): void {
-    this.lastCheckResult = { ...result, cachedAt: new Date().toISOString() };
-  }
-
-  /** Get the current update status, enriched with orchestrator data + last check result. */
-  getUpdateStatus(): ApiResponse {
-    const orchStatus = this.orchestrator?.getStatus();
-    return {
-      status: 200,
-      body: {
-        ...this.updateStatus,
-        currentVersion: this.currentVersion,
-        checkResult: this.lastCheckResult,
-        agents: orchStatus?.agents ?? [],
-        prepareAcks: orchStatus?.prepareAcks ?? [],
-        buildResults: orchStatus?.buildResults ?? {},
-        reconnections: orchStatus?.reconnections ?? [],
-        expectedComponents: orchStatus?.expectedComponents ?? [],
-        warnings: orchStatus?.warnings ?? [],
-      },
-    };
-  }
-
-  /** Cancel an in-progress update. */
-  cancelUpdate(adminUsername: string): ApiResponse {
-    if (this.updateStatus.phase === 'idle') {
-      return { status: 400, body: { error: 'No update in progress' } };
-    }
-
-    const previousPhase = this.updateStatus.phase;
-    this.updateStatus = { phase: 'idle', targetVersion: null, startedAt: null, component: null, error: null };
-
-    // Cancel the orchestrator too — otherwise it continues its lifecycle unaware
-    if (this.orchestrator) {
-      this.orchestrator.cancel();
-    }
-
-    this.audit.logEvent(AUDIT_EVENT_TYPES.UPDATE_FAILED, 'admin', {
-      reason: 'cancelled_by_admin',
-      previousPhase,
-      cancelledBy: adminUsername,
-    });
-
-    return { status: 200, body: { status: 'cancelled', previousPhase } };
-  }
-
-  /** Update the internal update status (called by relay when receiving update messages from updater). */
-  setUpdateStatus(phase: UpdatePhase, detail?: { targetVersion?: string; component?: string; error?: string }): void {
-    this.updateStatus.phase = phase;
-    if (detail?.targetVersion !== undefined) this.updateStatus.targetVersion = detail.targetVersion;
-    if (detail?.component !== undefined) this.updateStatus.component = detail.component;
-    if (detail?.error !== undefined) this.updateStatus.error = detail.error;
-  }
-
   /** Cache the latest challenge status from AI client (called by relay on challenge_status messages). */
   setChallengeStatus(status: Record<string, unknown>): void {
     this.challengeStatus = { ...status, cachedAt: new Date().toISOString() };
@@ -1048,33 +807,6 @@ export class AdminRoutes {
           : { status: 404, body: { error: 'Extension not found', namespace: ns } };
       } else if (method === 'GET' && path === '/api/disclosure') {
         result = { status: 200, body: { ...this.disclosureConfig } };
-      } else if (method === 'POST' && path === '/api/update/check') {
-        const body = await readJsonBody(req);
-        if (!body.repo || !body.currentVersion) {
-          result = { status: 400, body: { error: 'Missing required fields: repo, currentVersion' } };
-        } else {
-          result = this.triggerUpdateCheck(body.repo, body.currentVersion, adminUsername);
-        }
-      } else if (method === 'POST' && path === '/api/update/execute') {
-        const body = await readJsonBody(req);
-        if (!body.targetComponent || !body.version || !body.commitHash || !body.commands) {
-          result = {
-            status: 400,
-            body: { error: 'Missing required fields: targetComponent, version, commitHash, commands' },
-          };
-        } else {
-          result = this.triggerUpdateExecute(
-            body.targetComponent,
-            body.version,
-            body.commitHash,
-            body.commands,
-            adminUsername,
-          );
-        }
-      } else if (method === 'GET' && path === '/api/update/status') {
-        result = this.getUpdateStatus();
-      } else if (method === 'POST' && path === '/api/update/cancel') {
-        result = this.cancelUpdate(adminUsername);
       } else if (method === 'PUT' && path === '/api/disclosure') {
         const body = await readJsonBody(req);
         const updated: DisclosureConfig = {

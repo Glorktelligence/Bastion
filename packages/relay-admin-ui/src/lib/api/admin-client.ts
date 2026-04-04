@@ -305,35 +305,6 @@ export class AdminApiClient {
     return this.request('GET', '/api/disclosure');
   }
 
-  // -------------------------------------------------------------------------
-  // Self-Update System
-  // -------------------------------------------------------------------------
-
-  /** Trigger a version check via the connected updater agent. */
-  async checkForUpdate(repo: string, currentVersion: string): Promise<ApiResult> {
-    return this.request('POST', '/api/update/check', { repo, currentVersion });
-  }
-
-  /** Trigger update execution. */
-  async executeUpdate(
-    targetComponent: string,
-    version: string,
-    commitHash: string,
-    commands: readonly Record<string, unknown>[],
-  ): Promise<ApiResult> {
-    return this.request('POST', '/api/update/execute', { targetComponent, version, commitHash, commands });
-  }
-
-  /** Get current update status. */
-  async getUpdateStatus(): Promise<ApiResult> {
-    return this.request('GET', '/api/update/status');
-  }
-
-  /** Cancel an in-progress update. */
-  async cancelUpdate(): Promise<ApiResult> {
-    return this.request('POST', '/api/update/cancel');
-  }
-
   /** Update disclosure config (requires auth). */
   async updateDisclosure(config: Record<string, unknown>): Promise<ApiResult> {
     return this.request('PUT', '/api/disclosure', config);

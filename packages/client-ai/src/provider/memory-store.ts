@@ -32,7 +32,7 @@ export interface Memory {
 }
 
 export interface MemoryStoreConfig {
-  /** Path to SQLite database. Default: '/var/lib/bastion-ai/memories.db'. */
+  /** Path to SQLite database. Default: '/var/lib/bastion/memories.db'. */
   readonly path?: string;
   /** Maximum memories per scope in system prompt. Default: 10 (10 global + 10 conversation = 20). */
   readonly maxPromptMemoriesPerScope?: number;
@@ -72,7 +72,7 @@ export class MemoryStore {
   private readonly maxPerScope: number;
 
   constructor(config?: MemoryStoreConfig) {
-    const dbPath = config?.path ?? '/var/lib/bastion-ai/memories.db';
+    const dbPath = config?.path ?? '/var/lib/bastion/memories.db';
     this.maxPerScope = config?.maxPromptMemoriesPerScope ?? 10;
     this.db = new DatabaseSync(dbPath);
     this.db.exec(CREATE_TABLE);

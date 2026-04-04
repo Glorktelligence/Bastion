@@ -26,7 +26,7 @@ services:
     environment:
       BASTION_RELAY_PORT: "9443"
       BASTION_RELAY_HOST: "0.0.0.0"
-      BASTION_JWT_SECRET: "bastion-dev-secret-do-not-use-in-production"
+      BASTION_JWT_SECRET: "${BASTION_JWT_SECRET:?Set BASTION_JWT_SECRET in .env}"
       BASTION_JWT_ISSUER: "bastion-relay"
       BASTION_JWT_AUDIENCE: "bastion-client"
       BASTION_ADMIN_PORT: "9444"

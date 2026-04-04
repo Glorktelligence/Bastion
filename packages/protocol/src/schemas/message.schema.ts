@@ -3,7 +3,7 @@
 // See LICENSE file for full terms
 
 /**
- * Zod schemas for all 23 message type payloads.
+ * Zod schemas for all 89 message type payloads.
  * These provide runtime validation that mirrors the TypeScript interfaces
  * in types/messages.ts.
  */

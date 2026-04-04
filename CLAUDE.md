@@ -82,7 +82,7 @@ Startup scripts (root level):
 - Skills: `.claude/skills/` (9 skills covering all development patterns)
 
 ## Error Codes
-Format: `BASTION-CXXX` — 45 codes across 8 categories:
+Format: `BASTION-CXXX` — 48 codes across 8 categories:
 1XXX=Connection (7) | 2XXX=Auth (6) | 3XXX=Protocol (6) | 4XXX=Safety (6) | 5XXX=File (7) | 6XXX=Provider (6) | 7XXX=Config (5) | 8XXX=Budget (5)
 Total: 48 codes.
 
@@ -105,4 +105,4 @@ The AI client's system prompt is a three-layer "soul document" (`packages/client
 Compaction uses Layer 0 only (via `ConversationManager.getCoreContext()`).
 
 ## Tech Stack
-PNPM workspaces | TypeScript (ES2022/Node16) | Zod (validation) | node:test (testing, 2,974+ tests) | Biome (linting) | WebSocket over TLS | tweetnacl + libsodium (E2E encryption) | node:sqlite DatabaseSync (audit, usage) | SQLite (memories, budget, conversations) | jose (JWT) | Tauri + SvelteKit (desktop) | React Native (mobile)
+PNPM workspaces | TypeScript (ES2022/Node16) | Zod (validation) | node:test (testing, 2,973+ tests) | Biome (linting) | WebSocket over TLS | tweetnacl + libsodium (E2E encryption) | node:sqlite DatabaseSync (audit, usage) | SQLite (memories, budget, conversations) | jose (JWT) | Tauri + SvelteKit (desktop) | React Native (mobile)

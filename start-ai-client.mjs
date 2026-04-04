@@ -64,8 +64,8 @@ const API_ENDPOINT = process.env.BASTION_API_ENDPOINT || 'https://api.anthropic.
 const API_VERSION = process.env.BASTION_API_VERSION || '2023-06-01';
 const API_TIMEOUT = parseInt(process.env.BASTION_TIMEOUT || '120000', 10);
 const STREAMING_ENABLED = process.env.BASTION_STREAMING !== 'false';
-const REJECT_UNAUTHORIZED = process.env.BASTION_TLS_REJECT_UNAUTHORIZED !== 'false' ? false : true;
-// Note: defaults to false (accept self-signed) — set BASTION_TLS_REJECT_UNAUTHORIZED=true for strict
+const REJECT_UNAUTHORIZED = process.env.BASTION_TLS_REJECT_UNAUTHORIZED !== 'false';
+// Note: defaults to true (strict TLS) — set BASTION_TLS_REJECT_UNAUTHORIZED=false for self-signed certs
 
 // Three Bastion Official Adapters — Sonnet, Haiku, Opus
 // All share ANTHROPIC_API_KEY. Each targets a different model with role-specific config.
@@ -1050,6 +1050,23 @@ client.on('message', async (data) => {
       console.log('[~] Task cancelled by human');
     } else if (decision === 'approve' || decision === 'modify') {
       console.log(`[✓] Task ${decision}d by human — would proceed with execution`);
+    }
+    return;
+  }
+
+  // AI-initiated challenge response (human responds to AI's proactive safety challenge)
+  if (msg.type === 'ai_challenge_response') {
+    const decision = msg.payload?.decision;
+    const challengeId = msg.payload?.challengeId;
+    console.log(`[←] AI challenge response: decision=${decision}, challengeId=${challengeId}`);
+
+    if (decision === 'accept') {
+      console.log('[✓] Human accepted AI safety recommendation');
+    } else if (decision === 'override') {
+      // Significant: user overrode AI safety recommendation — conversation continues
+      console.log('[!] Human OVERRODE AI safety recommendation — proceeding with user choice');
+    } else if (decision === 'cancel') {
+      console.log('[~] Human cancelled action after AI challenge');
     }
     return;
   }
@@ -2166,28 +2183,8 @@ client.on('message', async (data) => {
 
     const result = dataEraser.softDelete();
 
-    // Redact audit trail entries (preserve chain, redact content)
-    try {
-      const auditDb = auditLogger.getDb?.() ?? null;
-      if (auditDb) {
-        auditDb.prepare(
-          "UPDATE audit_log SET detail = json_object('REDACTED', ?) WHERE detail IS NOT NULL AND detail != '{}'"
-        ).run(`erasure_request_${result.erasureId}`);
-      }
-    } catch (err) {
-      console.log(`[!] Audit redaction warning: ${err.message}`);
-    }
-
-    // Log the erasure event itself
-    auditLogger.logEvent('DATA_ERASURE_SOFT', null, {
-      erasureId: result.erasureId,
-      conversations: result.softDeleted.conversations,
-      messages: result.softDeleted.messages,
-      memories: result.softDeleted.memories,
-      projectFiles: result.softDeleted.projectFiles,
-      usageRecords: result.softDeleted.usageRecords,
-      hardDeleteScheduledAt: result.hardDeleteScheduledAt,
-    });
+    // Audit: the relay's tamper-evident hash chain captures the data_erasure_complete
+    // message as it transits — that IS the audit entry. No local duplicate needed.
 
     const receipt = `BASTION-ERASURE-${result.erasureId}-${new Date().toISOString()}`;
     client.send(JSON.stringify({
@@ -2224,9 +2221,7 @@ client.on('message', async (data) => {
 
     dataEraser.cancelErasure();
 
-    auditLogger.logEvent('DATA_ERASURE_CANCELLED', null, {
-      erasureId: active.erasureId,
-    });
+    // Audit: relay chain captures the result message transit — no local duplicate needed.
 
     client.send(JSON.stringify({
       type: 'result',

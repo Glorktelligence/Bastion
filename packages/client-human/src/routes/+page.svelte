@@ -161,7 +161,7 @@ function handleSendTask(task: {
 	const timestamp = new Date().toISOString();
 
 	const envelope = {
-		type: 'task_submission',
+		type: 'task',
 		id,
 		timestamp,
 		sender: session.IDENTITY,
@@ -314,7 +314,7 @@ function handleChallengeApprove(): void {
 	const resolved = session.challenges.resolve('approve');
 	if (resolved) {
 		client.send(JSON.stringify({
-			type: 'challenge_response',
+			type: 'confirmation',
 			id: crypto.randomUUID(),
 			timestamp: new Date().toISOString(),
 			sender: session.IDENTITY,
@@ -337,7 +337,7 @@ function handleChallengeCancel(): void {
 	const resolved = session.challenges.resolve('cancel');
 	if (resolved) {
 		client.send(JSON.stringify({
-			type: 'challenge_response',
+			type: 'confirmation',
 			id: crypto.randomUUID(),
 			timestamp: new Date().toISOString(),
 			sender: session.IDENTITY,

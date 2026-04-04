@@ -88,7 +88,7 @@ export class ChallengeManager {
   private readonly configPath: string;
 
   constructor(configPath?: string) {
-    this.configPath = configPath ?? '/var/lib/bastion-ai/challenge-config.json';
+    this.configPath = configPath ?? '/var/lib/bastion/challenge-config.json';
     this.config = { ...DEFAULT_CONFIG };
     this.config.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     this.loadConfig();

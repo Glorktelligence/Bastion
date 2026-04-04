@@ -98,16 +98,6 @@ export const AUDIT_EVENT_TYPES = [
   'conversation_deleted',
   'compaction_triggered',
   'compaction_completed',
-  'update_check',
-  'update_available',
-  'update_prepare',
-  'update_prepare_ack',
-  'update_execute',
-  'update_build_status',
-  'update_restart',
-  'update_reconnected',
-  'update_complete',
-  'update_failed',
   'ai_disclosure_sent',
 ] as const;
 

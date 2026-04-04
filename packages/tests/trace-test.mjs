@@ -417,7 +417,7 @@ async function run() {
         break;
       }
     }
-    check('all 81 message types accepted in envelope', allTypesValid);
+    check('all 89 message types accepted in envelope', allTypesValid);
     check('ALL_MESSAGE_TYPES has 89 entries', ALL_MESSAGE_TYPES.length === 89);
   }
   console.log();
@@ -867,7 +867,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 91 message types survive serialisation round-trip', allPassed);
+    check('all 89 message types survive serialisation round-trip', allPassed);
   }
   console.log();
 

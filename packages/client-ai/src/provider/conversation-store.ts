@@ -64,7 +64,7 @@ export interface ChainVerification {
 }
 
 export interface ConversationStoreConfig {
-  /** Path to SQLite database. Default: '/var/lib/bastion-ai/conversations.db'. */
+  /** Path to SQLite database. Default: '/var/lib/bastion/conversations.db'. */
   readonly path?: string;
 }
 
@@ -137,7 +137,7 @@ export class ConversationStore {
   private readonly db: InstanceType<typeof DatabaseSync>;
 
   constructor(config?: ConversationStoreConfig) {
-    const dbPath = config?.path ?? '/var/lib/bastion-ai/conversations.db';
+    const dbPath = config?.path ?? '/var/lib/bastion/conversations.db';
     this.db = new DatabaseSync(dbPath);
     this.db.exec('PRAGMA journal_mode=WAL');
     this.db.exec('PRAGMA foreign_keys=ON');

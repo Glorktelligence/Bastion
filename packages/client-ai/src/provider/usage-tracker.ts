@@ -67,7 +67,7 @@ export class UsageTracker {
   private readonly db: DatabaseSync;
 
   constructor(config: UsageTrackerConfig = {}) {
-    const dbPath = config.path ?? '/var/lib/bastion-ai/usage.db';
+    const dbPath = config.path ?? '/var/lib/bastion/usage.db';
     this.db = new DatabaseSync(dbPath);
     this.db.exec('PRAGMA journal_mode = WAL');
     this.db.exec('PRAGMA foreign_keys = ON');

@@ -49,9 +49,9 @@ export interface PromptBudgetReport {
 export interface ConversationManagerConfig {
   /** Maximum token budget for the messages array. Default: 100,000. */
   readonly tokenBudget?: number;
-  /** Path to user-context.md file. Default: '/var/lib/bastion-ai/user-context.md'. */
+  /** Path to user-context.md file. Default: '/var/lib/bastion/user-context.md'. */
   readonly userContextPath?: string;
-  /** Path to operator-context.md file. Default: '/var/lib/bastion-ai/operator-context.md'. */
+  /** Path to operator-context.md file. Default: '/var/lib/bastion/operator-context.md'. */
   readonly operatorContextPath?: string;
   /** Token budget for the system zone (immutable). Default: 5,000. */
   readonly systemBudget?: number;
@@ -78,8 +78,8 @@ export interface ConversationManagerConfig {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_TOKEN_BUDGET = 100_000;
-const DEFAULT_USER_CONTEXT_PATH = '/var/lib/bastion-ai/user-context.md';
-const DEFAULT_OPERATOR_CONTEXT_PATH = '/var/lib/bastion-ai/operator-context.md';
+const DEFAULT_USER_CONTEXT_PATH = '/var/lib/bastion/user-context.md';
+const DEFAULT_OPERATOR_CONTEXT_PATH = '/var/lib/bastion/operator-context.md';
 const CHARS_PER_TOKEN = 4;
 
 const DEFAULT_SYSTEM_BUDGET = 5_000;

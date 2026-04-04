@@ -873,7 +873,7 @@ function handleRelayMessage(data: string): void {
   }
 
   // Task results → tasks store + messages
-  if (type === 'task_result') {
+  if (type === 'result') {
     const p = payload as Record<string, unknown>;
     const taskId = String(p.taskId ?? '');
     if (taskId) {
@@ -889,7 +889,7 @@ function handleRelayMessage(data: string): void {
   }
 
   // Task status updates → tasks store
-  if (type === 'task_status') {
+  if (type === 'status') {
     const p = payload as Record<string, unknown>;
     const taskId = String(p.taskId ?? '');
     if (taskId) {
@@ -1569,7 +1569,7 @@ function handleRelayMessage(data: string): void {
     return;
   }
 
-  // Default: conversation, task_submission, and other user-facing messages → messages store + conversations store
+  // Default: conversation, task, and other user-facing messages → messages store + conversations store
   messages.addIncoming(type, payload, sender, id, timestamp);
 
   // Also add to active conversation (multi-conversation persistence)

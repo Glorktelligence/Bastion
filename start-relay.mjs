@@ -401,7 +401,6 @@ const adminRoutes = new AdminRoutes({
   auditLogger,
   statusProvider,
   extensionRegistry,
-  currentVersion: CURRENT_VERSION,
   initialDisclosureConfig: disclosureConfig,
   disclosureConfigPath: DISCLOSURE_CONFIG_PATH,
   onDisclosureUpdate: (cfg) => updateDisclosureConfig(cfg),
@@ -572,16 +571,24 @@ const SENDER_TYPE_RESTRICTIONS = {
   skill_list: 'human', skill_config: 'human',
   data_erasure_request: 'human', data_erasure_confirm: 'human', data_erasure_cancel: 'human',
   ai_challenge_response: 'human',
+  conversation_list: 'human', conversation_create: 'human', conversation_switch: 'human',
+  conversation_history: 'human', conversation_archive: 'human', conversation_delete: 'human',
+  conversation_compact: 'human',
+  data_export_request: 'human', data_import_confirm: 'human',
   // AI-only messages (AI → human)
   data_erasure_preview: 'ai', data_erasure_complete: 'ai',
   ai_challenge: 'ai', ai_memory_proposal: 'ai',
   denial: 'ai', challenge: 'ai', result: 'ai', status: 'ai',
-  provider_status: 'ai', budget_alert: 'ai', budget_status: 'ai',
+  provider_status: 'ai', budget_alert: 'ai', budget_status: 'ai', usage_status: 'ai',
   challenge_status: 'ai', challenge_config_ack: 'ai',
   memory_decision: 'ai', memory_list_response: 'ai',
   project_sync_ack: 'ai', project_list_response: 'ai', project_config_ack: 'ai',
   skill_list_response: 'ai',
   tool_registry_sync: 'ai', tool_request: 'ai', tool_result: 'ai', tool_alert: 'ai',
+  conversation_list_response: 'ai', conversation_create_ack: 'ai', conversation_switch_ack: 'ai',
+  conversation_history_response: 'ai', conversation_compact_ack: 'ai', conversation_stream: 'ai',
+  data_export_progress: 'ai', data_export_ready: 'ai',
+  data_import_validate: 'ai', data_import_complete: 'ai',
 };
 
 /** Check if a message's sender type matches the expected type for that message. */
@@ -1306,22 +1313,6 @@ relay.on('message', async (data, info) => {
   }
 
   // ----- Regular message: forward to paired peer -----
-  // Guard: update_* messages must NEVER reach the generic peer routing.
-  // They are handled above and return early. If we reach here with an update_ type,
-  // it means an unrecognised update variant slipped through — reject it.
-  if (msg.type && typeof msg.type === 'string' && msg.type.startsWith('update_')) {
-    console.log(`[!] Unrecognised update message type "${msg.type}" — blocked from peer routing`);
-    return;
-  }
-
-  // Guard: updater clients must NOT receive conversation/task messages via peer routing.
-  // Updaters only handle update_* messages routed in the block above.
-  const senderClient = router.getClient(connId);
-  if (senderClient?.identity.type === 'updater') {
-    console.log(`[!] Updater client sent non-update message "${msg.type}" — dropped`);
-    return;
-  }
-
   const peerId = router.getPeer(connId);
   if (!peerId) {
     console.log(`[!] No peer for ${connId.slice(0, 8)} — message dropped (type: ${msg.type})`);
