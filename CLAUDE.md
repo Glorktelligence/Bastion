@@ -23,7 +23,7 @@ These are HARDCODED and NON-NEGOTIABLE. Never make them configurable. Never weak
 - Content scanning (13 dangerous patterns) on project_sync at relay + AI client.
 
 ### Protocol First
-- ALL message type changes start in `@bastion/protocol` package (89 message types, 48 error codes).
+- ALL message type changes start in `@bastion/protocol` package (85 message types, 48 error codes).
 - Other packages consume protocol types — they never define their own message structures.
 - Protocol extensions use namespaced message types (`namespace:type` format).
 - Protocol version bumps require an Architecture Decision Record in `docs/architecture/decisions/`.
@@ -56,7 +56,7 @@ Single `bastion` user on all VMs. VM-level isolation (relay VLAN 30, AI VLAN 50)
 
 ```
 packages/
-├── protocol/           → @bastion/protocol (89 message types, schemas, constants — FOUNDATION)
+├── protocol/           → @bastion/protocol (85 message types, schemas, constants — FOUNDATION)
 ├── crypto/             → @bastion/crypto (E2E encryption, hashing, key management)
 ├── relay/              → @bastion/relay (WebSocket server, routing, audit, quarantine, admin API)
 ├── client-human/       → @bastion/client-human (Tauri + SvelteKit desktop app)
@@ -105,4 +105,4 @@ The AI client's system prompt is a three-layer "soul document" (`packages/client
 Compaction uses Layer 0 only (via `ConversationManager.getCoreContext()`).
 
 ## Tech Stack
-PNPM workspaces | TypeScript (ES2022/Node16) | Zod (validation) | node:test (testing, 2,973+ tests) | Biome (linting) | WebSocket over TLS | tweetnacl + libsodium (E2E encryption) | node:sqlite DatabaseSync (audit, usage) | SQLite (memories, budget, conversations) | jose (JWT) | Tauri + SvelteKit (desktop) | React Native (mobile)
+PNPM workspaces | TypeScript (ES2022/Node16) | Zod (validation) | node:test (testing, 2,964+ tests) | Biome (linting) | WebSocket over TLS | tweetnacl + libsodium (E2E encryption) | node:sqlite DatabaseSync (audit, usage) | SQLite (memories, budget, conversations) | jose (JWT) | Tauri + SvelteKit (desktop) | React Native (mobile)

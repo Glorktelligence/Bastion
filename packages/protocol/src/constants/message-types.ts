@@ -3,13 +3,13 @@
 // See LICENSE file for full terms
 
 /**
- * All 89 message types in the Bastion protocol.
+ * All 85 message types in the Bastion protocol.
  *
- * Core spec (13): task, conversation, challenge, confirmation, denial,
- *   status, result, error, audit, file_manifest, file_offer, file_request, heartbeat
+ * Core spec (11): task, conversation, challenge, confirmation, denial,
+ *   status, result, error, file_manifest, file_offer, file_request, heartbeat
  *
- * Supplementary spec (10): session_end, session_conflict, session_superseded,
- *   reconnect, config_update, config_ack, config_nack, token_refresh,
+ * Supplementary spec (9): session_end, session_conflict, session_superseded,
+ *   reconnect, config_ack, config_nack, token_refresh,
  *   provider_status, budget_alert
  *
  * Audit query/response (2): audit_query, audit_response
@@ -26,7 +26,6 @@ export const MESSAGE_TYPES = {
   STATUS: 'status',
   RESULT: 'result',
   ERROR: 'error',
-  AUDIT: 'audit',
   FILE_MANIFEST: 'file_manifest',
   FILE_OFFER: 'file_offer',
   FILE_REQUEST: 'file_request',
@@ -37,7 +36,6 @@ export const MESSAGE_TYPES = {
   SESSION_CONFLICT: 'session_conflict',
   SESSION_SUPERSEDED: 'session_superseded',
   RECONNECT: 'reconnect',
-  CONFIG_UPDATE: 'config_update',
   CONFIG_ACK: 'config_ack',
   CONFIG_NACK: 'config_nack',
   TOKEN_REFRESH: 'token_refresh',
@@ -115,9 +113,7 @@ export const MESSAGE_TYPES = {
   CONVERSATION_STREAM: 'conversation_stream',
 
   // --- Skills System (Layer 5) ---
-  SKILL_LIST: 'skill_list',
   SKILL_LIST_RESPONSE: 'skill_list_response',
-  SKILL_CONFIG: 'skill_config',
 
   // --- AI Disclosure (regulatory transparency) ---
   AI_DISCLOSURE: 'ai_disclosure',

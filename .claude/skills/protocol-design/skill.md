@@ -105,7 +105,7 @@ export const TaskPayloadSchema = z.object({
 ## Message Categories
 
 ### Human → AI (via Relay)
-`task`, `conversation`, `confirmation`, `config_update`, `context_update`, `memory_proposal`, `memory_list`, `memory_update`, `memory_delete`, `project_sync`, `project_list`, `project_delete`, `project_config`, `tool_approved`, `tool_denied`, `tool_revoke`, `challenge_config`, `budget_config`
+`task`, `conversation`, `confirmation`, `context_update`, `memory_proposal`, `memory_list`, `memory_update`, `memory_delete`, `project_sync`, `project_list`, `project_delete`, `project_config`, `tool_approved`, `tool_denied`, `tool_revoke`, `challenge_config`, `budget_config`
 
 ### AI → Human (via Relay)
 `conversation`, `challenge`, `denial`, `status`, `result`, `provider_status`, `budget_alert`, `budget_status`, `challenge_status`, `challenge_config_ack`, `memory_decision`, `memory_list_response`, `project_sync_ack`, `project_list_response`, `project_config_ack`, `tool_registry_sync`, `tool_request`, `tool_result`, `tool_alert`

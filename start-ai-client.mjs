@@ -34,6 +34,36 @@ import {
 } from './packages/client-ai/dist/index.js';
 
 // ---------------------------------------------------------------------------
+// Env var parsing helpers — validates range, warns on invalid values
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse an integer env var with validation.
+ * Returns defaultValue if unset or invalid.
+ */
+function parseIntEnv(name, defaultValue, min = 0, max = Number.MAX_SAFE_INTEGER) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return defaultValue;
+  const parsed = parseInt(raw, 10);
+  if (isNaN(parsed) || parsed < min || parsed > max) {
+    console.warn(`[!] ${name}=${raw} invalid (range: ${min}–${max}), using default: ${defaultValue}`);
+    return defaultValue;
+  }
+  return parsed;
+}
+
+function parseFloatEnv(name, defaultValue, min = 0, max = Infinity) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return defaultValue;
+  const parsed = parseFloat(raw);
+  if (isNaN(parsed) || parsed < min || parsed > max) {
+    console.warn(`[!] ${name}=${raw} invalid (range: ${min}–${max}), using default: ${defaultValue}`);
+    return defaultValue;
+  }
+  return parsed;
+}
+
+// ---------------------------------------------------------------------------
 // Configuration
 //
 // PERSISTENCE AUDIT — what survives an AI client restart:
@@ -58,11 +88,11 @@ const AI_CLIENT_ID = process.env.BASTION_AI_CLIENT_ID || 'ai-client-001';
 const AI_DISPLAY_NAME = process.env.BASTION_AI_DISPLAY_NAME || 'Claude (Bastion)';
 const PROVIDER_ID = process.env.BASTION_PROVIDER_ID || 'anthropic-bastion';
 const PROVIDER_NAME = process.env.BASTION_PROVIDER_NAME || 'Anthropic (Bastion Official)';
-const MAX_TOKENS = parseInt(process.env.BASTION_MAX_TOKENS || '4096', 10);
-const TEMPERATURE = parseFloat(process.env.BASTION_TEMPERATURE || '1.0');
+const MAX_TOKENS = parseIntEnv('BASTION_MAX_TOKENS', 4096, 256, 32768);
+const TEMPERATURE = parseFloatEnv('BASTION_TEMPERATURE', 1.0, 0, 2.0);
 const API_ENDPOINT = process.env.BASTION_API_ENDPOINT || 'https://api.anthropic.com';
 const API_VERSION = process.env.BASTION_API_VERSION || '2023-06-01';
-const API_TIMEOUT = parseInt(process.env.BASTION_TIMEOUT || '120000', 10);
+const API_TIMEOUT = parseIntEnv('BASTION_TIMEOUT', 120000, 5000, 600000);
 const STREAMING_ENABLED = process.env.BASTION_STREAMING !== 'false';
 const REJECT_UNAUTHORIZED = process.env.BASTION_TLS_REJECT_UNAUTHORIZED !== 'false';
 // Note: defaults to true (strict TLS) — set BASTION_TLS_REJECT_UNAUTHORIZED=false for self-signed certs
@@ -71,22 +101,22 @@ const REJECT_UNAUTHORIZED = process.env.BASTION_TLS_REJECT_UNAUTHORIZED !== 'fal
 // All share ANTHROPIC_API_KEY. Each targets a different model with role-specific config.
 // Sonnet 4.6 — 1M context, default conversation adapter
 const SONNET_MODEL = process.env.BASTION_SONNET_MODEL || 'claude-sonnet-4-6';
-const SONNET_PRICING_INPUT = parseFloat(process.env.BASTION_SONNET_PRICING_INPUT || '3');
-const SONNET_PRICING_OUTPUT = parseFloat(process.env.BASTION_SONNET_PRICING_OUTPUT || '15');
-const SONNET_MAX_CONTEXT = parseInt(process.env.BASTION_SONNET_MAX_CONTEXT || '1000000', 10);
+const SONNET_PRICING_INPUT = parseFloatEnv('BASTION_SONNET_PRICING_INPUT', 3, 0, 1000);
+const SONNET_PRICING_OUTPUT = parseFloatEnv('BASTION_SONNET_PRICING_OUTPUT', 15, 0, 1000);
+const SONNET_MAX_CONTEXT = parseIntEnv('BASTION_SONNET_MAX_CONTEXT', 1000000, 1000, 10000000);
 
 // Haiku 4.5 — 200k context, cost-efficient compaction
 const HAIKU_MODEL = process.env.BASTION_HAIKU_MODEL || 'claude-haiku-4-5-20251001';
-const HAIKU_PRICING_INPUT = parseFloat(process.env.BASTION_HAIKU_PRICING_INPUT || '1');
-const HAIKU_PRICING_OUTPUT = parseFloat(process.env.BASTION_HAIKU_PRICING_OUTPUT || '5');
-const HAIKU_MAX_CONTEXT = parseInt(process.env.BASTION_HAIKU_MAX_CONTEXT || '200000', 10);
+const HAIKU_PRICING_INPUT = parseFloatEnv('BASTION_HAIKU_PRICING_INPUT', 1, 0, 1000);
+const HAIKU_PRICING_OUTPUT = parseFloatEnv('BASTION_HAIKU_PRICING_OUTPUT', 5, 0, 1000);
+const HAIKU_MAX_CONTEXT = parseIntEnv('BASTION_HAIKU_MAX_CONTEXT', 200000, 1000, 10000000);
 
 // Opus 4.6 — 1M context, maximum capability; pricing: $5/$25 per MTok
 const OPUS_MODEL = process.env.BASTION_OPUS_MODEL || 'claude-opus-4-6';
-const OPUS_PRICING_INPUT = parseFloat(process.env.BASTION_OPUS_PRICING_INPUT || '5');
-const OPUS_PRICING_OUTPUT = parseFloat(process.env.BASTION_OPUS_PRICING_OUTPUT || '25');
-const OPUS_MAX_TOKENS = parseInt(process.env.BASTION_OPUS_MAX_TOKENS || '8192', 10);
-const OPUS_MAX_CONTEXT = parseInt(process.env.BASTION_OPUS_MAX_CONTEXT || '1000000', 10);
+const OPUS_PRICING_INPUT = parseFloatEnv('BASTION_OPUS_PRICING_INPUT', 5, 0, 1000);
+const OPUS_PRICING_OUTPUT = parseFloatEnv('BASTION_OPUS_PRICING_OUTPUT', 25, 0, 1000);
+const OPUS_MAX_TOKENS = parseIntEnv('BASTION_OPUS_MAX_TOKENS', 8192, 256, 32768);
+const OPUS_MAX_CONTEXT = parseIntEnv('BASTION_OPUS_MAX_CONTEXT', 1000000, 1000, 10000000);
 
 if (!API_KEY) {
   console.error('[!] ANTHROPIC_API_KEY not set. Run with: node --env-file=.env start-ai-client.mjs');
@@ -183,8 +213,9 @@ console.log('[✓] Adapter registry locked');
 // ---------------------------------------------------------------------------
 
 const MEMORIES_DB = process.env.BASTION_MEMORIES_DB || '/var/lib/bastion/memories.db';
-const memoryStore = new MemoryStore({ path: MEMORIES_DB, maxPromptMemories: 20 });
-console.log(`[✓] Memory store initialised (${memoryStore.count} memories, db: ${MEMORIES_DB})`);
+const MAX_PROMPT_MEMORIES = parseIntEnv('BASTION_MAX_PROMPT_MEMORIES', 20, 1, 100);
+const memoryStore = new MemoryStore({ path: MEMORIES_DB, maxPromptMemories: MAX_PROMPT_MEMORIES });
+console.log(`[✓] Memory store initialised (${memoryStore.count} memories, max prompt: ${MAX_PROMPT_MEMORIES}, db: ${MEMORIES_DB})`);
 
 // Pending memory proposals (proposalId → {content, category, source})
 const pendingProposals = new Map();
@@ -227,11 +258,12 @@ console.log(`[✓] Challenge manager: ${challengeManager.enabled ? 'ENABLED' : '
 
 // Compartmentalized prompt budgets — deployer env vars set ceilings
 const SYSTEM_BUDGET = 5000; // hardcoded, not configurable
-const OPERATOR_BUDGET = parseInt(process.env.BASTION_OPERATOR_CONTEXT_BUDGET || '2000', 10);
-const USER_BUDGET = parseInt(process.env.BASTION_USER_CONTEXT_BUDGET || '20000', 10);
+const OPERATOR_BUDGET = parseIntEnv('BASTION_OPERATOR_CONTEXT_BUDGET', 2000, 500, 50000);
+const USER_BUDGET = parseIntEnv('BASTION_USER_CONTEXT_BUDGET', 20000, 1000, 100000);
+const TOKEN_BUDGET = parseIntEnv('BASTION_TOKEN_BUDGET', SONNET_MAX_CONTEXT, 10000, 10000000);
 
 const conversationManager = new ConversationManager({
-  tokenBudget: parseInt(process.env.BASTION_TOKEN_BUDGET || String(SONNET_MAX_CONTEXT), 10),
+  tokenBudget: TOKEN_BUDGET,
   userContextPath: process.env.BASTION_USER_CONTEXT_PATH || '/var/lib/bastion/user-context.md',
   operatorContextPath: process.env.BASTION_OPERATOR_CONTEXT_PATH || '/var/lib/bastion/operator-context.md',
   systemBudget: SYSTEM_BUDGET,
@@ -298,12 +330,15 @@ if (activeConversationId) {
 // Compaction manager — context optimisation via conversation summarisation
 // ---------------------------------------------------------------------------
 
+const CONVERSATION_BUDGET = parseIntEnv('BASTION_CONVERSATION_BUDGET', 80000, 10000, 500000);
+const COMPACTION_TRIGGER_PERCENT = parseIntEnv('BASTION_COMPACTION_TRIGGER_PERCENT', 80, 50, 99);
+const COMPACTION_KEEP_RECENT = parseIntEnv('BASTION_COMPACTION_KEEP_RECENT', 50, 5, 200);
 const compactionManager = new CompactionManager(conversationStore, {
-  conversationBudget: parseInt(process.env.BASTION_CONVERSATION_BUDGET || '80000', 10),
-  triggerPercent: 80,
-  keepRecent: 50,
+  conversationBudget: CONVERSATION_BUDGET,
+  triggerPercent: COMPACTION_TRIGGER_PERCENT,
+  keepRecent: COMPACTION_KEEP_RECENT,
 });
-console.log('[✓] Compaction manager initialised (budget: 80k tokens, trigger: 80%)');
+console.log(`[✓] Compaction manager initialised (budget: ${CONVERSATION_BUDGET}, trigger: ${COMPACTION_TRIGGER_PERCENT}%, keep: ${COMPACTION_KEEP_RECENT})`);
 
 /** Summarise function — calls Anthropic API for compaction. */
 async function summariseForCompaction(prompt) {
@@ -376,21 +411,26 @@ function persistMessage(role, type, content) {
 // File handling — intake directory, outbound staging, purge manager
 // ---------------------------------------------------------------------------
 
-const intakeDirectory = new IntakeDirectory({ maxFiles: 50 });
-console.log('[✓] Intake directory initialised (read-only, max: 50 files)');
+const INTAKE_DIR = process.env.BASTION_INTAKE_DIR || '/var/lib/bastion/intake';
+const INTAKE_MAX_FILES = parseIntEnv('BASTION_INTAKE_MAX_FILES', 50, 10, 500);
+const intakeDirectory = new IntakeDirectory({ rootDir: INTAKE_DIR, maxFiles: INTAKE_MAX_FILES });
+console.log(`[✓] Intake directory initialised (read-only, max: ${INTAKE_MAX_FILES} files, dir: ${INTAKE_DIR})`);
 
-const outboundStaging = new OutboundStaging({ maxFiles: 50 });
-console.log('[✓] Outbound staging initialised (write-only, max: 50 files)');
+const OUTBOUND_DIR = process.env.BASTION_OUTBOUND_DIR || '/var/lib/bastion/outbound';
+const OUTBOUND_MAX_FILES = parseIntEnv('BASTION_OUTBOUND_MAX_FILES', 50, 10, 500);
+const outboundStaging = new OutboundStaging({ rootDir: OUTBOUND_DIR, maxFiles: OUTBOUND_MAX_FILES });
+console.log(`[✓] Outbound staging initialised (write-only, max: ${OUTBOUND_MAX_FILES} files, dir: ${OUTBOUND_DIR})`);
 
+const FILE_PURGE_TIMEOUT_MS = parseIntEnv('BASTION_FILE_PURGE_TIMEOUT_MS', 3600000, 60000, 86400000);
 const filePurgeManager = new FilePurgeManager(intakeDirectory, outboundStaging, {
-  defaultTimeoutMs: 3_600_000, // 1 hour
+  defaultTimeoutMs: FILE_PURGE_TIMEOUT_MS,
   checkIntervalMs: 30_000,     // 30 seconds
   onPurge: (result) => {
     console.log(`[~] File purge: task ${result.taskId.slice(0, 8)} — ${result.totalPurged} files (${result.reason})`);
   },
 });
 filePurgeManager.start();
-console.log('[✓] File purge manager started (timeout: 1h, check: 30s)');
+console.log(`[✓] File purge manager started (timeout: ${FILE_PURGE_TIMEOUT_MS}ms, check: 30s)`);
 
 /** Pending file acceptances — transferId → metadata from file_manifest. */
 const pendingFileAcceptances = new Map();
@@ -1316,20 +1356,21 @@ client.on('message', async (data) => {
     return;
   }
 
-  // Handle skill_list — return all loaded skills
-  if (msg.type === 'skill_list') {
-    const manifests = skillStore.listManifests();
-    client.send(JSON.stringify({
-      type: 'skill_list_response', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
-      payload: { skills: manifests, totalCount: manifests.length, totalEstimatedTokens: skillStore.totalEstimatedTokens },
-    }));
-    console.log(`[→] Skill list: ${manifests.length} skills`);
-    return;
-  }
-
-  // Handle context_update — update user context file
+  // Handle context_update — update user context or preferred adapter
   if (msg.type === 'context_update') {
-    const content = msg.payload?.content ?? msg.content ?? '';
+    const payload = msg.payload || {};
+
+    // Mid-conversation adapter switch
+    if (payload.preferredAdapter && payload.conversationId) {
+      const convId = payload.conversationId;
+      conversationStore.updatePreferredAdapter(convId, payload.preferredAdapter);
+      const adapterName = adapterRegistry.get(payload.preferredAdapter)?.activeModel ?? payload.preferredAdapter;
+      console.log(`[✓] Conversation ${convId.slice(0, 8)} adapter switched to ${adapterName}`);
+      return;
+    }
+
+    // User context content update
+    const content = payload.content ?? msg.content ?? '';
     conversationManager.updateUserContext(content);
     console.log(`[✓] User context updated (${content.length} chars)`);
     return;

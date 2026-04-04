@@ -3,7 +3,7 @@
 // See LICENSE file for full terms
 
 /**
- * Zod schemas for all 89 message type payloads.
+ * Zod schemas for all 85 message type payloads.
  * These provide runtime validation that mirrors the TypeScript interfaces
  * in types/messages.ts.
  */
@@ -326,10 +326,6 @@ export const ExtensionListResponsePayloadSchema = z.object({
 
 // --- Skills System (Layer 5) ---
 
-export const SkillListPayloadSchema = z.object({
-  includeContent: z.boolean().optional(),
-});
-
 export const SkillListResponsePayloadSchema = z.object({
   skills: z.array(
     z.object({
@@ -346,12 +342,6 @@ export const SkillListResponsePayloadSchema = z.object({
   ),
   totalCount: z.number().int().nonnegative(),
   totalEstimatedTokens: z.number().int().nonnegative(),
-});
-
-export const SkillConfigPayloadSchema = z.object({
-  skillId: z.string().min(1),
-  alwaysLoad: z.boolean().optional(),
-  enabled: z.boolean().optional(),
 });
 
 export const ProjectSyncPayloadSchema = z.object({
@@ -467,11 +457,6 @@ export const ReconnectPayloadSchema = z.object({
 });
 
 export const ConfigUpdateTypeSchema = z.enum(['api_key_rotation', 'tool_registry', 'safety_config']);
-
-export const ConfigUpdatePayloadSchema = z.object({
-  configType: ConfigUpdateTypeSchema,
-  encryptedPayload: z.string().min(1),
-});
 
 export const ConfigAckPayloadSchema = z.object({
   configType: ConfigUpdateTypeSchema,
@@ -842,7 +827,6 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.STATUS]: StatusPayloadSchema,
   [MESSAGE_TYPES.RESULT]: ResultPayloadSchema,
   [MESSAGE_TYPES.ERROR]: ErrorPayloadSchema,
-  [MESSAGE_TYPES.AUDIT]: AuditPayloadSchema,
   [MESSAGE_TYPES.FILE_MANIFEST]: FileManifestPayloadSchema,
   [MESSAGE_TYPES.FILE_OFFER]: FileOfferPayloadSchema,
   [MESSAGE_TYPES.FILE_REQUEST]: FileRequestPayloadSchema,
@@ -851,7 +835,6 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.SESSION_CONFLICT]: SessionConflictPayloadSchema,
   [MESSAGE_TYPES.SESSION_SUPERSEDED]: SessionSupersededPayloadSchema,
   [MESSAGE_TYPES.RECONNECT]: ReconnectPayloadSchema,
-  [MESSAGE_TYPES.CONFIG_UPDATE]: ConfigUpdatePayloadSchema,
   [MESSAGE_TYPES.CONFIG_ACK]: ConfigAckPayloadSchema,
   [MESSAGE_TYPES.CONFIG_NACK]: ConfigNackPayloadSchema,
   [MESSAGE_TYPES.TOKEN_REFRESH]: TokenRefreshPayloadSchema,
@@ -869,9 +852,7 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.MEMORY_DELETE]: MemoryDeletePayloadSchema,
   [MESSAGE_TYPES.EXTENSION_QUERY]: ExtensionQueryPayloadSchema,
   [MESSAGE_TYPES.EXTENSION_LIST_RESPONSE]: ExtensionListResponsePayloadSchema,
-  [MESSAGE_TYPES.SKILL_LIST]: SkillListPayloadSchema,
   [MESSAGE_TYPES.SKILL_LIST_RESPONSE]: SkillListResponsePayloadSchema,
-  [MESSAGE_TYPES.SKILL_CONFIG]: SkillConfigPayloadSchema,
   [MESSAGE_TYPES.PROJECT_SYNC]: ProjectSyncPayloadSchema,
   [MESSAGE_TYPES.PROJECT_SYNC_ACK]: ProjectSyncAckPayloadSchema,
   [MESSAGE_TYPES.PROJECT_LIST]: ProjectListPayloadSchema,

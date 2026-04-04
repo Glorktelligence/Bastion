@@ -36,6 +36,7 @@ let cfgUserId = $state(cfgStore.get('userId'));
 let cfgAutoConnect = $state(cfgStore.get('autoConnect'));
 let cfgAutoReconnect = $state(cfgStore.get('autoReconnect'));
 let showResetConfirm = $state(false);
+let settingsConnStatus: 'disconnected' | 'connecting' | 'connected' | 'authenticated' | 'error' = $state('disconnected');
 
 // Tool state
 let approvedTools: readonly ApprovedTool[] = $state([]);
@@ -117,6 +118,7 @@ onMount(() => {
 		}),
 		session.dataPortability.subscribe((v) => { dpState = v; }),
 		session.usageStatus.subscribe((v) => { usage = v; }),
+		session.connection.subscribe((v) => { settingsConnStatus = v.status; }),
 	];
 
 	// Request data when connected (not on mount — WebSocket may not be ready)
@@ -1337,7 +1339,7 @@ function handleContextSave(): void {
 			<span class="label">Version</span>
 			<span class="value mono">{__BASTION_VERSION__}</span>
 			<span class="label">Protocol</span>
-			<span class="value">89 message types, 48 error codes</span>
+			<span class="value">85 message types, 48 error codes</span>
 			<span class="label">Extensions</span>
 			<span class="value">{extensionCount} loaded, {extensionMessageTypes} message types</span>
 			{#if providerInfo}
@@ -1351,15 +1353,31 @@ function handleContextSave(): void {
 	{#if activeTab === 'Profile'}
 	<section class="section danger-zone">
 		<h3>Danger Zone</h3>
-		{#if showResetConfirm}
-			<p class="hint">This will clear all settings and show the setup wizard again. Are you sure?</p>
-			<div class="danger-actions">
-				<button class="btn-danger" onclick={handleResetSetup}>Yes, Reset Everything</button>
-				<button class="btn-sm btn-cancel" onclick={() => { showResetConfirm = false; }}>Cancel</button>
+		<div class="danger-item">
+			<div class="danger-item-desc">
+				<span class="danger-item-label">Disconnect from Relay</span>
+				<span class="hint">Close the active WebSocket connection to the Bastion relay.</span>
 			</div>
-		{:else}
-			<button class="btn-danger-outline" onclick={() => { showResetConfirm = true; }}>Reset Setup</button>
-		{/if}
+			<button
+				class="btn-danger-outline"
+				disabled={settingsConnStatus === 'disconnected'}
+				onclick={() => { session.disconnect(); }}
+			>Disconnect</button>
+		</div>
+		<div class="danger-item">
+			<div class="danger-item-desc">
+				<span class="danger-item-label">Reset Setup</span>
+				<span class="hint">Clear all settings and show the setup wizard again.</span>
+			</div>
+			{#if showResetConfirm}
+				<div class="danger-actions">
+					<button class="btn-danger" onclick={handleResetSetup}>Yes, Reset Everything</button>
+					<button class="btn-sm btn-cancel" onclick={() => { showResetConfirm = false; }}>Cancel</button>
+				</div>
+			{:else}
+				<button class="btn-danger-outline" onclick={() => { showResetConfirm = true; }}>Reset Setup</button>
+			{/if}
+		</div>
 	</section>
 	{/if}
 </div>
@@ -1607,10 +1625,15 @@ function handleContextSave(): void {
 	.toggle-label input[type="checkbox"] { accent-color: var(--color-accent, #4a9eff); width: 16px; height: 16px; }
 
 	.danger-zone { border-color: #ef4444 !important; }
-	.danger-zone h3 { color: #ef4444; }
-	.danger-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+	.danger-zone h3 { color: #ef4444; margin-bottom: 0.75rem; }
+	.danger-item { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.5rem 0; border-top: 1px solid rgba(239, 68, 68, 0.15); }
+	.danger-item:first-of-type { border-top: none; }
+	.danger-item-desc { display: flex; flex-direction: column; gap: 0.125rem; }
+	.danger-item-label { font-size: 0.85rem; color: var(--color-text); font-weight: 500; }
+	.danger-actions { display: flex; gap: 0.5rem; }
 	.btn-danger { padding: 0.375rem 0.75rem; background: #ef4444; color: white; border: none; border-radius: 0.25rem; font-size: 0.8rem; cursor: pointer; }
-	.btn-danger-outline { padding: 0.375rem 0.75rem; background: transparent; color: #ef4444; border: 1px solid #ef4444; border-radius: 0.25rem; font-size: 0.8rem; cursor: pointer; }
+	.btn-danger-outline { padding: 0.375rem 0.75rem; background: transparent; color: #ef4444; border: 1px solid #ef4444; border-radius: 0.25rem; font-size: 0.8rem; cursor: pointer; white-space: nowrap; }
+	.btn-danger-outline:disabled { opacity: 0.4; cursor: not-allowed; }
 
 	/* Project files */
 	.proj-upload { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.75rem; }

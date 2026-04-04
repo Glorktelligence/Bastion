@@ -15,6 +15,7 @@ import BudgetIndicator from '$lib/components/BudgetIndicator.svelte';
 import FileUploadStatus from '$lib/components/FileUploadStatus.svelte';
 import type { BudgetStatusData, BudgetAlert } from '$lib/stores/budget.js';
 import type { FileUploadProgress } from '$lib/stores/file-transfers.js';
+import type { ProviderAdapterInfo } from '$lib/stores/provider.js';
 
 // ---------------------------------------------------------------------------
 // Reactive UI state — subscribed from shared session stores
@@ -51,6 +52,13 @@ let isStreaming = $state(false);
 let showConvActions = $state(false);
 let deleteConfirm = $state(false);
 let activeUploads: readonly FileUploadProgress[] = $state([]);
+let availableAdapters: readonly ProviderAdapterInfo[] = $state([]);
+let showAdapterPicker = $state(false);
+let challengeActive = $state(false);
+let challengePeriodEnd: string | null = $state(null);
+let challengeHighRiskStart = $state(0);
+let challengeHighRiskEnd = $state(6);
+let challengeRemainingLabel = $state('');
 
 const isConnected = $derived(
 	conn.status === 'connected' || conn.status === 'authenticated',
@@ -74,12 +82,34 @@ onMount(() => {
 		}),
 		session.e2eStatus.subscribe((v) => { e2eActive = v.active; e2eAvailable = v.available; }),
 		session.notifications.subscribe((v) => { toasts = [...v]; }),
-		session.provider.store.subscribe((v) => { providerName = v.provider?.providerName ?? ''; providerActive = v.provider?.status === 'active'; providerModel = v.provider?.model ?? ''; }),
+		session.provider.store.subscribe((v) => {
+			providerName = v.provider?.providerName ?? '';
+			providerActive = v.provider?.status === 'active';
+			providerModel = v.provider?.model ?? '';
+			const adpts = v.provider?.adapters ?? [];
+			availableAdapters = adpts.filter((a) => a.roles.includes('default') || a.roles.includes('conversation'));
+		}),
 		session.conversations.activeConversation.subscribe((v) => { activeConv = v; }),
 		session.conversations.store.subscribe((v) => { convMessages = [...v.activeMessages]; hasMoreHistory = v.hasMoreHistory; loadingHistory = v.loadingHistory; isStreaming = v.streaming !== null; streamingContent = v.streaming?.content ?? ''; }),
 		session.fileTransfers.store.subscribe((v) => { activeUploads = v.uploads; }),
+		session.challengeStatus.subscribe((v) => {
+			challengeActive = v.active;
+			challengePeriodEnd = v.periodEnd;
+			updateChallengeRemaining();
+		}),
+		session.settings.store.subscribe((v) => {
+			challengeHighRiskStart = v.settings.highRiskHoursStart;
+			challengeHighRiskEnd = v.settings.highRiskHoursEnd;
+		}),
 	];
-	return () => { for (const u of subs) u(); };
+
+	// Countdown interval — ticks every 30s to keep remaining-time label fresh
+	const challengeTimer = setInterval(updateChallengeRemaining, 30_000);
+
+	return () => {
+		clearInterval(challengeTimer);
+		for (const u of subs) u();
+	};
 });
 
 // ---------------------------------------------------------------------------
@@ -98,8 +128,35 @@ async function handleConnect(): Promise<void> {
 	}
 }
 
-async function handleDisconnect(): Promise<void> {
-	await session.disconnect();
+// ---------------------------------------------------------------------------
+// Challenge hours countdown
+// ---------------------------------------------------------------------------
+
+function formatHour(h: number): string {
+	const hh = String(h).padStart(2, '0');
+	return `${hh}:00`;
+}
+
+function updateChallengeRemaining(): void {
+	if (!challengeActive || !challengePeriodEnd) {
+		challengeRemainingLabel = '';
+		return;
+	}
+	const now = Date.now();
+	const end = new Date(challengePeriodEnd).getTime();
+	const diffMs = end - now;
+	if (diffMs <= 0) {
+		challengeRemainingLabel = 'ending soon';
+		return;
+	}
+	const totalMin = Math.ceil(diffMs / 60_000);
+	const h = Math.floor(totalMin / 60);
+	const m = totalMin % 60;
+	if (h > 0) {
+		challengeRemainingLabel = `${h}h ${m}m remaining`;
+	} else {
+		challengeRemainingLabel = `${m}m remaining`;
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -308,6 +365,57 @@ function handleDeleteConversation(): void {
 	showConvActions = false;
 }
 
+// ---------------------------------------------------------------------------
+// Mid-conversation adapter switching
+// ---------------------------------------------------------------------------
+
+function adapterLabel(ad: ProviderAdapterInfo): string {
+	if (ad.maxContextTokens) {
+		const ctx = ad.maxContextTokens >= 1_000_000
+			? `${Math.round(ad.maxContextTokens / 1_000_000)}M`
+			: `${Math.round(ad.maxContextTokens / 1000)}k`;
+		return `${ad.name} (${ctx} context)`;
+	}
+	return ad.name;
+}
+
+function adapterBadgeLabel(adapterId: string): string {
+	const ad = availableAdapters.find((a) => a.id === adapterId);
+	if (!ad) return adapterId;
+	return adapterLabel(ad);
+}
+
+function handleSwitchAdapter(adapterId: string): void {
+	const client = session.getClient();
+	const convId = session.conversations.store.get().activeConversationId;
+	if (!client || !convId) return;
+	if (activeConv?.preferredAdapter === adapterId) {
+		showAdapterPicker = false;
+		return;
+	}
+
+	// Send context_update with preferredAdapter to the AI client
+	client.send(JSON.stringify({
+		type: 'context_update',
+		id: crypto.randomUUID(),
+		timestamp: new Date().toISOString(),
+		sender: session.IDENTITY,
+		payload: {
+			preferredAdapter: adapterId,
+			conversationId: convId,
+		},
+	}));
+
+	// Update local conversation metadata immediately
+	session.conversations.updateConversation(convId, { preferredAdapter: adapterId });
+	showAdapterPicker = false;
+	session.addNotification(`Adapter switched to ${adapterBadgeLabel(adapterId)}`, 'info');
+}
+
+// ---------------------------------------------------------------------------
+// Challenge responses
+// ---------------------------------------------------------------------------
+
 function handleChallengeApprove(): void {
 	const client = session.getClient();
 	if (!client) return;
@@ -413,8 +521,31 @@ function handleChallengeCancel(): void {
 			<div class="conv-header-bar">
 				<span class="conv-header-icon">{activeConv.type === 'game' ? '🎮' : '💬'}</span>
 				<span class="conv-header-name">{activeConv.name}</span>
-				{#if activeConv.preferredAdapter}
-					<span class="conv-model-badge">{activeConv.preferredAdapter}</span>
+				{#if availableAdapters.length > 1}
+					<div class="adapter-picker-wrap">
+						<button
+							class="conv-model-badge adapter-badge-btn"
+							onclick={() => { showAdapterPicker = !showAdapterPicker; }}
+							title="Switch adapter"
+						>
+							{activeConv.preferredAdapter ? adapterBadgeLabel(activeConv.preferredAdapter) : 'Default'} ▾
+						</button>
+						{#if showAdapterPicker}
+							<div class="adapter-picker-menu">
+								{#each availableAdapters as ad (ad.id)}
+									<button
+										class="adapter-picker-item"
+										class:adapter-picker-active={ad.id === activeConv.preferredAdapter}
+										onclick={() => handleSwitchAdapter(ad.id)}
+									>
+										{adapterLabel(ad)}
+									</button>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{:else if activeConv.preferredAdapter}
+					<span class="conv-model-badge">{adapterBadgeLabel(activeConv.preferredAdapter)}</span>
 				{/if}
 				<span class="conv-header-count">{activeConv.messageCount} messages</span>
 				<div class="conv-header-actions">
@@ -463,18 +594,23 @@ function handleChallengeCancel(): void {
 			</div>
 		{/if}
 
+		{#if challengeActive && challengePeriodEnd}
+			<div class="challenge-bar challenge-bar--active">
+				<span class="challenge-bar-icon">⚠</span>
+				<span>Challenge hours active — ends {formatHour(challengeHighRiskEnd)} ({challengeRemainingLabel})</span>
+			</div>
+		{:else if isConnected}
+			<div class="challenge-bar challenge-bar--inactive">
+				<span>Challenge hours: {formatHour(challengeHighRiskStart)}–{formatHour(challengeHighRiskEnd)}</span>
+			</div>
+		{/if}
+
 		<InputBar
 			disabled={!isConnected}
 			onSendConversation={handleSendConversation}
 			onSendTask={handleSendTask}
 			onFileUpload={handleFileUpload}
 		/>
-
-		{#if isConnected}
-			<div class="disconnect-row">
-				<button class="disconnect-btn" onclick={handleDisconnect}>Disconnect</button>
-			</div>
-		{/if}
 	{/if}
 </div>
 
@@ -531,26 +667,29 @@ function handleChallengeCancel(): void {
 		font-size: 0.75rem;
 	}
 
-	/* ---------- disconnect ---------- */
-	.disconnect-row {
-		display: flex;
-		justify-content: center;
-		padding: 0.25rem 0 0.5rem;
+	/* ---------- challenge hours bar ---------- */
+	.challenge-bar {
+		text-align: center;
+		flex-shrink: 0;
 	}
 
-	.disconnect-btn {
-		padding: 0.25rem 0.75rem;
-		border-radius: 6px;
-		border: 1px solid var(--color-border);
-		background: transparent;
-		color: var(--color-text-muted);
+	.challenge-bar--inactive {
 		font-size: 0.75rem;
-		cursor: pointer;
+		color: var(--color-text-muted);
+		padding: 0.25rem 1rem;
 	}
 
-	.disconnect-btn:hover {
-		border-color: var(--color-error);
-		color: var(--color-error);
+	.challenge-bar--active {
+		background: rgba(255, 165, 0, 0.1);
+		border-top: 1px solid rgba(255, 165, 0, 0.3);
+		color: #e67e00;
+		padding: 0.4rem 1rem;
+		font-size: 0.8rem;
+		font-weight: 500;
+	}
+
+	.challenge-bar-icon {
+		margin-right: 0.25rem;
 	}
 
 	/* ---------- conversation header ---------- */
@@ -562,6 +701,25 @@ function handleChallengeCancel(): void {
 	.conv-header-icon { font-size: 0.9rem; }
 	.conv-header-name { font-weight: 500; color: var(--color-text); }
 	.conv-model-badge { font-size: 0.65rem; padding: 0.0625rem 0.375rem; border-radius: 999px; background: color-mix(in srgb, var(--color-accent) 15%, transparent); color: var(--color-accent); white-space: nowrap; }
+	.adapter-picker-wrap { position: relative; }
+	.adapter-badge-btn {
+		border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
+		cursor: pointer; transition: background 0.15s;
+	}
+	.adapter-badge-btn:hover { background: color-mix(in srgb, var(--color-accent) 25%, transparent); }
+	.adapter-picker-menu {
+		position: absolute; left: 0; top: 100%; margin-top: 0.25rem;
+		background: var(--color-surface); border: 1px solid var(--color-border);
+		border-radius: 6px; padding: 0.25rem; display: flex; flex-direction: column; gap: 0.125rem;
+		z-index: 20; min-width: 160px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+	}
+	.adapter-picker-item {
+		display: block; width: 100%; padding: 0.375rem 0.5rem; border: none;
+		background: transparent; color: var(--color-text); font-size: 0.75rem;
+		text-align: left; cursor: pointer; border-radius: 4px; white-space: nowrap;
+	}
+	.adapter-picker-item:hover { background: var(--color-border); }
+	.adapter-picker-active { color: var(--color-accent); font-weight: 600; }
 	.conv-header-count { color: var(--color-text-muted); font-size: 0.75rem; margin-left: auto; }
 	.conv-header-actions { position: relative; }
 	.conv-action-btn {

@@ -3,13 +3,13 @@
 // See LICENSE file for full terms
 
 /**
- * Payload interfaces for all 23 Bastion message types.
+ * Payload interfaces for Bastion message types.
  *
- * Core spec (13): task, conversation, challenge, confirmation, denial,
- *   status, result, error, audit, file_manifest, file_offer, file_request, heartbeat
+ * Core spec (11): task, conversation, challenge, confirmation, denial,
+ *   status, result, error, file_manifest, file_offer, file_request, heartbeat
  *
- * Supplementary spec (10): session_end, session_conflict, session_superseded,
- *   reconnect, config_update, config_ack, config_nack, token_refresh,
+ * Supplementary spec (9): session_end, session_conflict, session_superseded,
+ *   reconnect, config_ack, config_nack, token_refresh,
  *   provider_status, budget_alert
  */
 
@@ -507,13 +507,6 @@ export interface ReconnectPayload {
   readonly jwt?: string;
 }
 
-/** Admin → AI (via Relay): Configuration change. */
-export interface ConfigUpdatePayload {
-  readonly configType: ConfigUpdateType;
-  /** Encrypted configuration payload. */
-  readonly encryptedPayload: string;
-}
-
 export type ConfigUpdateType = 'api_key_rotation' | 'tool_registry' | 'safety_config';
 
 /** AI → Admin (via Relay): Configuration change applied. */
@@ -908,7 +901,6 @@ export type MessagePayload =
   | { type: 'status'; payload: StatusPayload }
   | { type: 'result'; payload: ResultPayload }
   | { type: 'error'; payload: ErrorPayload }
-  | { type: 'audit'; payload: AuditPayload }
   | { type: 'file_manifest'; payload: FileManifestPayload }
   | { type: 'file_offer'; payload: FileOfferPayload }
   | { type: 'file_request'; payload: FileRequestPayload }
@@ -917,7 +909,6 @@ export type MessagePayload =
   | { type: 'session_conflict'; payload: SessionConflictPayload }
   | { type: 'session_superseded'; payload: SessionSupersededPayload }
   | { type: 'reconnect'; payload: ReconnectPayload }
-  | { type: 'config_update'; payload: ConfigUpdatePayload }
   | { type: 'config_ack'; payload: ConfigAckPayload }
   | { type: 'config_nack'; payload: ConfigNackPayload }
   | { type: 'token_refresh'; payload: TokenRefreshPayload }

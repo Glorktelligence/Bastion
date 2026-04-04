@@ -260,7 +260,7 @@ function relativeTime(iso) {
 					{#if availableAdapters.length > 1}
 					<select class="conv-input" bind:value={newConvAdapter} style="font-size:0.75rem;">
 						{#each availableAdapters as ad}
-							<option value={ad.id}>{ad.name} ({ad.model})</option>
+							<option value={ad.id}>{ad.name}{ad.maxContextTokens ? ` (${ad.maxContextTokens >= 1000000 ? `${Math.round(ad.maxContextTokens / 1000000)}M` : `${Math.round(ad.maxContextTokens / 1000)}k`} context)` : ''}</option>
 						{/each}
 					</select>
 					{/if}

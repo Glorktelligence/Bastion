@@ -18,6 +18,36 @@ import {
 } from './packages/relay/dist/index.js';
 
 // ---------------------------------------------------------------------------
+// Env var parsing helpers — validates range, warns on invalid values
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse an integer env var with validation.
+ * Returns defaultValue if unset or invalid.
+ */
+function parseIntEnv(name, defaultValue, min = 0, max = Number.MAX_SAFE_INTEGER) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return defaultValue;
+  const parsed = parseInt(raw, 10);
+  if (isNaN(parsed) || parsed < min || parsed > max) {
+    console.warn(`[!] ${name}=${raw} invalid (range: ${min}–${max}), using default: ${defaultValue}`);
+    return defaultValue;
+  }
+  return parsed;
+}
+
+function parseFloatEnv(name, defaultValue, min = 0, max = Infinity) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return defaultValue;
+  const parsed = parseFloat(raw);
+  if (isNaN(parsed) || parsed < min || parsed > max) {
+    console.warn(`[!] ${name}=${raw} invalid (range: ${min}–${max}), using default: ${defaultValue}`);
+    return defaultValue;
+  }
+  return parsed;
+}
+
+// ---------------------------------------------------------------------------
 // Configuration
 //
 // PERSISTENCE AUDIT — what survives a relay restart:
@@ -35,8 +65,8 @@ import {
 
 const TLS_CERT = process.env.BASTION_TLS_CERT || './certs/relay-cert.pem';
 const TLS_KEY = process.env.BASTION_TLS_KEY || './certs/relay-key.pem';
-const PORT = parseInt(process.env.BASTION_RELAY_PORT || '9443');
-const ADMIN_PORT = parseInt(process.env.BASTION_ADMIN_PORT || '9444');
+const PORT = parseIntEnv('BASTION_RELAY_PORT', 9443, 1, 65535);
+const ADMIN_PORT = parseIntEnv('BASTION_ADMIN_PORT', 9444, 1, 65535);
 const AUDIT_DB = process.env.BASTION_AUDIT_DB || '/var/lib/bastion/audit.db';
 
 // Read current version from VERSION file (single source of truth)
@@ -57,7 +87,7 @@ const jwtSecret = jwtSecretEnv
 // Project sync validation — relay-side content inspection
 // ---------------------------------------------------------------------------
 
-const PROJECT_SYNC_MAX_CONTENT = 1024 * 1024; // 1MB — matches AI client limit
+const PROJECT_SYNC_MAX_CONTENT = parseIntEnv('BASTION_PROJECT_SYNC_MAX_CONTENT', 1048576, 1024, 10485760); // 1MB default — matches AI client limit
 const ALLOWED_EXTENSIONS = new Set(['.md', '.json', '.yaml', '.yml', '.txt']);
 const DANGEROUS_CONTENT_PATTERNS = [
   { pattern: /<script[\s>]/i, reason: 'Embedded <script> tag' },
@@ -108,7 +138,7 @@ function validateProjectSync(payload) {
 console.log('=== Project Bastion — Relay Server ===');
 console.log(`Version: ${CURRENT_VERSION}`);
 console.log(`Port: ${PORT}`);
-console.log(`Admin: https://127.0.0.1:${ADMIN_PORT} (localhost only)`);
+console.log(`Admin: https://${process.env.BASTION_ADMIN_HOST || '127.0.0.1'}:${ADMIN_PORT}`);
 console.log(`TLS:  ${TLS_CERT}`);
 console.log(`Audit: ${AUDIT_DB}`);
 if (!jwtSecretEnv) console.log('JWT:  using randomly generated secret (set BASTION_JWT_SECRET for persistence)');
@@ -121,9 +151,10 @@ console.log('');
 const auditLogger = new AuditLogger({ store: { path: AUDIT_DB } });
 console.log('[✓] Audit logger initialised with hash chain');
 
+const JWT_ISSUER = process.env.BASTION_JWT_ISSUER || 'bastion-relay';
 const jwtService = new JwtService({
   secret: jwtSecret,
-  issuer: 'bastion-relay',
+  issuer: JWT_ISSUER,
 });
 console.log('[✓] JWT service ready');
 
@@ -155,19 +186,22 @@ console.log(`[✓] Extension registry locked (${extensionRegistry.extensionCount
 // File quarantine system
 // ---------------------------------------------------------------------------
 
+const QUARANTINE_MAX_ENTRIES = parseIntEnv('BASTION_QUARANTINE_MAX_ENTRIES', 100, 1, 10000);
+const QUARANTINE_TIMEOUT_MS = parseIntEnv('BASTION_QUARANTINE_TIMEOUT_MS', 3600000, 60000, 86400000);
 const fileQuarantine = new FileQuarantine({
-  maxEntries: parseInt(process.env.BASTION_QUARANTINE_MAX_ENTRIES || '100'),
-  defaultTimeoutMs: parseInt(process.env.BASTION_QUARANTINE_TIMEOUT_MS || '3600000'), // 1 hour
+  maxEntries: QUARANTINE_MAX_ENTRIES,
+  defaultTimeoutMs: QUARANTINE_TIMEOUT_MS,
   auditLogger,
 });
-console.log('[✓] File quarantine initialised (capacity: ' + (process.env.BASTION_QUARANTINE_MAX_ENTRIES || '100') + ')');
+console.log(`[✓] File quarantine initialised (capacity: ${QUARANTINE_MAX_ENTRIES})`);
 
 const hashVerifier = new HashVerifier({ quarantine: fileQuarantine, auditLogger });
 console.log('[✓] Hash verifier initialised (3-stage: submission → quarantine → delivery)');
 
+const PURGE_INTERVAL_MS = parseIntEnv('BASTION_PURGE_INTERVAL_MS', 60000, 10000, 3600000);
 const purgeScheduler = new PurgeScheduler({
   quarantine: fileQuarantine,
-  intervalMs: parseInt(process.env.BASTION_PURGE_INTERVAL_MS || '60000'), // 60s
+  intervalMs: PURGE_INTERVAL_MS,
   onPurge: (result) => {
     if (result.purged.length > 0) {
       console.log(`[~] Quarantine purge: ${result.purged.length} expired, ${result.remaining} remaining`);
@@ -175,7 +209,7 @@ const purgeScheduler = new PurgeScheduler({
   },
 });
 purgeScheduler.start();
-console.log('[✓] Purge scheduler started (interval: ' + (process.env.BASTION_PURGE_INTERVAL_MS || '60000') + 'ms)');
+console.log(`[✓] Purge scheduler started (interval: ${PURGE_INTERVAL_MS}ms)`);
 
 // File transfer router — orchestrates manifest/offer/request workflow with 3-stage custody chain
 const fileTransferRouter = new FileTransferRouter({
@@ -346,7 +380,7 @@ const statusProvider = {
     return getMessagesPerMinute();
   },
   getQuarantineStatus() {
-    return { active: fileQuarantine.getAll().length, capacity: parseInt(process.env.BASTION_QUARANTINE_MAX_ENTRIES || '100') };
+    return { active: fileQuarantine.getAll().length, capacity: QUARANTINE_MAX_ENTRIES };
   },
   getCumulativeStats() {
     const uptimeMs = Date.now() - new Date(sessionStartedAt).getTime();
@@ -423,18 +457,27 @@ const adminRoutes = new AdminRoutes({
 });
 console.log('[✓] Admin routes initialised (live status provider wired)');
 
+const ADMIN_SESSION_TIMEOUT = parseIntEnv('BASTION_ADMIN_SESSION_TIMEOUT', 1800, 300, 86400);
+const ADMIN_HOST = (() => {
+  const host = process.env.BASTION_ADMIN_HOST || '127.0.0.1';
+  const privatePatterns = ['127.', '10.', '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.', '192.168.', 'localhost', '::1'];
+  if (privatePatterns.some(p => host.startsWith(p)) || host === '0.0.0.0') return host;
+  console.error(`[!] SECURITY: BASTION_ADMIN_HOST=${host} is not a private address — refusing. Using 127.0.0.1`);
+  auditLogger.logEvent('security_violation', null, { event: 'admin_public_bind_rejected', requested: host });
+  return '127.0.0.1';
+})();
 const adminServer = new AdminServer({
   port: ADMIN_PORT,
-  host: '127.0.0.1',
+  host: ADMIN_HOST,
   tls: { cert, key },
   auth: adminAuth,
   routes: adminRoutes,
   auditLogger,
   credentialsPath: ADMIN_CREDENTIALS_PATH,
   sessionSecret: jwtSecret,
-  sessionTimeoutSec: parseInt(process.env.BASTION_ADMIN_SESSION_TIMEOUT || '1800', 10),
+  sessionTimeoutSec: ADMIN_SESSION_TIMEOUT,
 });
-console.log('[✓] Admin server configured (127.0.0.1 only — use SSH tunnel for remote access)');
+console.log(`[✓] Admin server configured (${ADMIN_HOST} — use SSH tunnel for remote access)`);
 
 // ---------------------------------------------------------------------------
 // Session tracking — human ↔ AI pairing
@@ -562,13 +605,12 @@ relay.on('connection', (_ws, info) => {
 /** Messages that can only originate from a specific client type. */
 const SENDER_TYPE_RESTRICTIONS = {
   // Human-only messages (human → AI)
-  task: 'human', confirmation: 'human', config_update: 'human',
+  task: 'human', confirmation: 'human',
   context_update: 'human', tool_approved: 'human', tool_denied: 'human',
   tool_revoke: 'human', challenge_config: 'human', budget_config: 'human',
   memory_proposal: 'human', memory_list: 'human', memory_update: 'human',
   memory_delete: 'human', project_sync: 'human', project_list: 'human',
   project_delete: 'human', project_config: 'human',
-  skill_list: 'human', skill_config: 'human',
   data_erasure_request: 'human', data_erasure_confirm: 'human', data_erasure_cancel: 'human',
   ai_challenge_response: 'human',
   conversation_list: 'human', conversation_create: 'human', conversation_switch: 'human',
@@ -981,8 +1023,8 @@ relay.on('message', async (data, info) => {
     return;
   }
 
-  // ----- skill_* messages: forward between paired clients -----
-  if (msg.type === 'skill_list' || msg.type === 'skill_list_response' || msg.type === 'skill_config') {
+  // ----- skill_list_response: forward from AI to paired human client -----
+  if (msg.type === 'skill_list_response') {
     const peerId = router.getPeer(connId);
     if (peerId) {
       relay.send(peerId, data);
@@ -1414,8 +1456,8 @@ relay.on('listening', () => {
 
 await relay.start();
 await adminServer.start();
-console.log(`[★] Admin API listening on https://127.0.0.1:${ADMIN_PORT}`);
-console.log('[★] Access via SSH tunnel: ssh -L 9444:127.0.0.1:9444 relay-host');
+console.log(`[★] Admin API listening on https://${ADMIN_HOST}:${ADMIN_PORT}`);
+console.log(`[★] Access via SSH tunnel: ssh -L ${ADMIN_PORT}:${ADMIN_HOST}:${ADMIN_PORT} relay-host`);
 
 // Graceful shutdown — persist stats before exiting
 function handleShutdown(signal) {

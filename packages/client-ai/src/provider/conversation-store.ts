@@ -209,6 +209,13 @@ export class ConversationStore {
     return row.cnt;
   }
 
+  updatePreferredAdapter(id: string, adapterId: string): boolean {
+    const result = this.db
+      .prepare('UPDATE conversations SET preferredAdapter = ?, updatedAt = ? WHERE id = ?')
+      .run(adapterId, new Date().toISOString(), id);
+    return result.changes > 0;
+  }
+
   archiveConversation(id: string): boolean {
     const result = this.db
       .prepare('UPDATE conversations SET archived = 1, updatedAt = ? WHERE id = ?')

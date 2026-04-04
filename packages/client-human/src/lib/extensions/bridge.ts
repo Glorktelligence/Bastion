@@ -52,7 +52,6 @@ const CORE_TYPES = new Set([
   'status',
   'result',
   'error',
-  'audit',
   'heartbeat',
   'session_init',
   'session_end',
@@ -70,7 +69,6 @@ const CORE_TYPES = new Set([
   'tool_approved',
   'tool_denied',
   'provider_register',
-  'config_update',
   'budget_config',
 ]);
 

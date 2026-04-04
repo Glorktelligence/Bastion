@@ -24,7 +24,7 @@ bastion/
 ├── start-ai-client.mjs          # AI client startup script (wires all library code)
 ├── docs/                        # Specs, protocol docs, guides, architecture decisions
 ├── packages/
-│   ├── protocol/                # @bastion/protocol — 89 message types, schemas, constants
+│   ├── protocol/                # @bastion/protocol — 85 message types, schemas, constants
 │   ├── crypto/                  # @bastion/crypto — E2E encryption, hashing, key management
 │   ├── relay/                   # @bastion/relay — WSS server, routing, audit, quarantine, admin
 │   ├── client-human/            # @bastion/client-human — Desktop (Tauri + SvelteKit)
@@ -57,23 +57,29 @@ bastion/
 
 ---
 
-## Protocol — 89 Message Types
+## Protocol — 85 Message Types
 
 | Category | Count | Types |
 |----------|-------|-------|
-| Core | 13 | task, conversation, challenge, confirmation, denial, status, result, error, audit, file_manifest, file_offer, file_request, heartbeat |
-| Supplementary | 10 | session_end, session_conflict, session_superseded, reconnect, config_update, config_ack, config_nack, token_refresh, provider_status, budget_alert |
+| Core | 9 | task, conversation, challenge, confirmation, denial, status, result, error, heartbeat |
+| File Transfer | 3 | file_manifest, file_offer, file_request |
+| Session | 5 | session_end, session_conflict, session_superseded, reconnect, token_refresh |
+| Admin/Config | 4 | config_ack, config_nack, provider_status, budget_alert |
 | Audit | 2 | audit_query, audit_response |
 | Provider/Context | 2 | provider_register, context_update |
 | Memory | 6 | memory_proposal, memory_decision, memory_list, memory_list_response, memory_update, memory_delete |
 | Extensions | 2 | extension_query, extension_list_response |
 | Project Context | 7 | project_sync, project_sync_ack, project_list, project_list_response, project_delete, project_config, project_config_ack |
+| Skills | 1 | skill_list_response |
 | Tool Integration | 9 | tool_registry_sync, tool_registry_ack, tool_request, tool_approved, tool_denied, tool_result, tool_revoke, tool_alert, tool_alert_response |
 | Challenge Me More | 3 | challenge_status, challenge_config, challenge_config_ack |
-| Budget Guard | 2 | budget_status, budget_config |
+| Budget Guard | 3 | budget_status, budget_config, usage_status |
 | E2E Key Exchange | 1 | key_exchange |
 | Multi-Conversation | 13 | conversation_list, conversation_list_response, conversation_create, conversation_create_ack, conversation_switch, conversation_switch_ack, conversation_history, conversation_history_response, conversation_archive, conversation_delete, conversation_compact, conversation_compact_ack, conversation_stream |
 | AI Disclosure | 1 | ai_disclosure |
+| Data Portability | 6 | data_export_request, data_export_progress, data_export_ready, data_import_validate, data_import_confirm, data_import_complete |
+| Data Erasure | 5 | data_erasure_request, data_erasure_preview, data_erasure_confirm, data_erasure_complete, data_erasure_cancel |
+| AI Native Actions | 3 | ai_challenge, ai_challenge_response, ai_memory_proposal |
 
 ---
 
@@ -138,7 +144,7 @@ These are **hardcoded** and **non-negotiable**. Never make them configurable.
 | Mobile client | React Native (Android) |
 | Database | node:sqlite DatabaseSync (audit), SQLite (memories, budget) |
 | Linting | Biome |
-| Testing | node:test (trace-test.mjs pattern), 2,973 tests across 14 files |
+| Testing | node:test (trace-test.mjs pattern), 2,964 tests across 14 files |
 
 ---
 
@@ -154,7 +160,7 @@ Safety floors can be tightened but NEVER loosened below factory defaults.
 
 ## Testing
 
-14 test files, 2,973 tests total. Run all with:
+14 test files, 2,964 tests total. Run all with:
 ```bash
 pnpm test    # or run individually with: node packages/<path>/trace-test.mjs
 ```

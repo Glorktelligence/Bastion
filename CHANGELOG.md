@@ -2,6 +2,50 @@
 
 All notable changes to Project Bastion are documented in this file.
 
+## [0.8.1] - 2026-04-03
+
+### Added
+- GDPR Article 17 — Right to Erasure (soft delete with 30-day window, hard delete, cancel)
+- AI Native Toolbox: ai_challenge (AI-issued challenges during challenge hours)
+- AI Native Toolbox: ai_memory_proposal (AI proposes memories for user approval)
+- AI Native Toolbox: ai_challenge_response handler
+- Context budget display in Settings Usage tab (per-zone progress bars)
+- Challenge Me More persistent UI status bar (active/inactive with countdown)
+- Mid-conversation adapter switching (model badge dropdown in chat header)
+- CLI commands: bastion doctor, bastion install, bastion install --fresh [--data]
+- CLI self-update on bastion update
+- .gitattributes for LF line ending normalisation
+- .env.example with all environment variables documented
+- docs/architecture/decisions/ directory
+- deploy/operator-context.example.md
+- Input validation (parseIntEnv/parseFloatEnv) for all numeric env vars
+- Sender type restrictions for 28 previously unprotected message types
+
+### Changed
+- Admin UI switched from adapter-static to adapter-node (produces Node.js server)
+- Single bastion user architecture across all VMs (no more bastion-ai, bastion-updater)
+- CLI migration tool handles mount points (fstab remount for separate data disks)
+- Default library paths updated from /var/lib/bastion-ai/ to /var/lib/bastion/
+- Docker Compose JWT secret now requires .env (no hardcoded dev secret)
+- Dead/phantom env vars wired: BASTION_JWT_ISSUER, BASTION_ADMIN_HOST, BASTION_INTAKE_DIR, BASTION_OUTBOUND_DIR
+- Hardcoded values now configurable: MAX_PROMPT_MEMORIES, COMPACTION_TRIGGER_PERCENT, COMPACTION_KEEP_RECENT, INTAKE_MAX_FILES, OUTBOUND_MAX_FILES, FILE_PURGE_TIMEOUT_MS, PROJECT_SYNC_MAX_CONTENT
+- TLS reject-unauthorized default changed to secure (strict TLS by default)
+
+### Fixed
+- Desktop client sent wrong message type names (task_submission->task, challenge_response->confirmation)
+- auditLogger undefined in erasure handlers (removed — relay audit chain is single source of truth)
+- DataEraser temporal dead zone (moved after UsageTracker initialisation)
+- TLS reject-unauthorized logic inverted (default-secure now)
+- Messaging bug: adapterReason variable name mismatch (was 'reason')
+- Admin UI HOST binding: 0.0.0.0 hardcoded to 127.0.0.1 (now configurable with private-address validation)
+
+### Removed
+- Self-update agent system (packages/update-agent — 2,545 lines)
+- UpdateOrchestrator from relay (657 lines) + admin UI update page/store
+- 10 dead self-update protocol message types
+- 4 dead protocol types (audit, config_update, skill_list, skill_config)
+- bastion-updater user from both VMs
+
 ## [0.8.0] - 2026-04-02
 
 ### Added

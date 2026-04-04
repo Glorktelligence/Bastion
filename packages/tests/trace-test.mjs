@@ -50,7 +50,6 @@ import {
   SessionConflictPayloadSchema,
   SessionSupersededPayloadSchema,
   ReconnectPayloadSchema,
-  ConfigUpdatePayloadSchema,
   ConfigAckPayloadSchema,
   ConfigNackPayloadSchema,
   TokenRefreshPayloadSchema,
@@ -155,10 +154,6 @@ function validPayloads() {
       recoverable: true, suggestedAction: 'Resend with valid taskId',
       timestamp: ts(),
     },
-    audit: {
-      eventType: 'message.routed', sessionId,
-      detail: { from: 'human', to: 'ai' }, chainHash: sha256('test'),
-    },
     heartbeat: {
       sessionId, peerStatus: 'active',
       metrics: { uptimeMs: 60000, memoryUsageMb: 128.5, cpuPercent: 12.3, latencyMs: 45 },
@@ -178,7 +173,6 @@ function validPayloads() {
     session_conflict: { existingSessionId: sessionId, newDeviceInfo: 'MacBook Pro M3' },
     session_superseded: { sessionId, supersededBy: uuid() },
     reconnect: { sessionId, lastReceivedMessageId: messageId, jwt: 'eyJhbGciOiJIUzI1NiJ9.test.sig' },
-    config_update: { configType: 'api_key_rotation', encryptedPayload: 'base64encrypted==' },
     config_ack: { configType: 'api_key_rotation', appliedAt: ts() },
     config_nack: { configType: 'tool_registry', reason: 'Invalid schema', errorDetail: 'Missing tool name' },
     token_refresh: { currentJwt: 'eyJhbGciOiJIUzI1NiJ9.refresh.sig' },
@@ -308,9 +302,7 @@ function validPayloads() {
     conversation_compact: { conversationId: crypto.randomUUID() },
     conversation_compact_ack: { conversationId: crypto.randomUUID(), summaryPreview: 'Key decisions: chose SQLite...', messagesCovered: 25, tokensSaved: 3000 },
     conversation_stream: { conversationId: crypto.randomUUID(), chunk: 'Hello, ', index: 0, final: false },
-    skill_list: {},
     skill_list_response: { skills: [{ id: 'test', name: 'Test', description: 'A test skill', version: '1.0.0', author: 'test', triggers: ['test'], modes: ['conversation'], estimatedTokens: 100 }], totalCount: 1, totalEstimatedTokens: 100 },
-    skill_config: { skillId: 'test', alwaysLoad: true },
     ai_disclosure: { text: 'You are interacting with an AI system.', style: 'info', position: 'banner', dismissible: true, link: 'https://example.com/ai-policy', linkText: 'Learn more', jurisdiction: 'EU AI Act Article 50' },
     data_export_request: { format: 'bdp' },
     data_export_progress: { percentage: 50, phase: 'Exporting conversations' },
@@ -417,8 +409,8 @@ async function run() {
         break;
       }
     }
-    check('all 89 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 89 entries', ALL_MESSAGE_TYPES.length === 89);
+    check('all 85 message types accepted in envelope', allTypesValid);
+    check('ALL_MESSAGE_TYPES has 85 entries', ALL_MESSAGE_TYPES.length === 85);
   }
   console.log();
 
@@ -454,8 +446,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 89 entries', typeKeys.length === 89);
-    check('PAYLOAD_SCHEMAS has 89 entries', Object.keys(PAYLOAD_SCHEMAS).length === 89);
+    check('MESSAGE_TYPES has 85 entries', typeKeys.length === 85);
+    check('PAYLOAD_SCHEMAS has 85 entries', Object.keys(PAYLOAD_SCHEMAS).length === 85);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -525,7 +517,7 @@ async function run() {
 
     // All supplementary types validate
     for (const type of ['session_end', 'session_conflict', 'session_superseded', 'reconnect',
-      'config_update', 'config_ack', 'config_nack', 'token_refresh', 'provider_status', 'budget_alert']) {
+      'config_ack', 'config_nack', 'token_refresh', 'provider_status', 'budget_alert']) {
       check(`${type} payload validates`, validatePayload(type, payloads[type]).valid);
     }
   }
@@ -722,12 +714,6 @@ async function run() {
   // =========================================================================
   console.log('--- Test 14: Supplementary message edge cases ---');
   {
-    // ConfigUpdate type enum
-    check('config_update api_key_rotation valid', ConfigUpdatePayloadSchema.safeParse({ configType: 'api_key_rotation', encryptedPayload: 'x' }).success);
-    check('config_update tool_registry valid', ConfigUpdatePayloadSchema.safeParse({ configType: 'tool_registry', encryptedPayload: 'x' }).success);
-    check('config_update safety_config valid', ConfigUpdatePayloadSchema.safeParse({ configType: 'safety_config', encryptedPayload: 'x' }).success);
-    check('config_update invalid type fails', !ConfigUpdatePayloadSchema.safeParse({ configType: 'database', encryptedPayload: 'x' }).success);
-
     // ProviderStatus optional fields
     const minProvider = { providerName: 'anthropic', status: 'unavailable' };
     check('provider_status without optionals passes', ProviderStatusPayloadSchema.safeParse(minProvider).success);
@@ -867,7 +853,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 89 message types survive serialisation round-trip', allPassed);
+    check('all 85 message types survive serialisation round-trip', allPassed);
   }
   console.log();
 
