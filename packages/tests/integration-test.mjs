@@ -861,11 +861,11 @@ async function run() {
     check('memory_proposal: AI received', proposalReceived.type === 'memory_proposal');
     check('memory_proposal: correct category', proposalReceived.payload.category === 'preference');
 
-    // memory_decision: AI → Human
+    // memory_decision: Human → AI (human decides, AI proposed)
     const decisionPayload = { proposalId, decision: 'approve', memoryId: uuid() };
-    const decisionEnv = toEncryptedEnvelope(makeEnvelope('memory_decision', decisionPayload, AI_IDENTITY, memCorrelation));
-    const decisionReceived = await routeAndReceive(aiConnInfo.id, humanClient, decisionEnv);
-    check('memory_decision: human received', decisionReceived.type === 'memory_decision');
+    const decisionEnv = toEncryptedEnvelope(makeEnvelope('memory_decision', decisionPayload, HUMAN_IDENTITY, memCorrelation));
+    const decisionReceived = await routeAndReceive(humanConnInfo.id, aiClient, decisionEnv);
+    check('memory_decision: AI received', decisionReceived.type === 'memory_decision');
     check('memory_decision: approved', decisionReceived.payload.decision === 'approve');
 
     // memory_list: Human → AI

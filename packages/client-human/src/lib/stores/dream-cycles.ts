@@ -5,10 +5,15 @@
 /**
  * Dream cycle store for the human client.
  * Manages dream cycle state: proposals, batch approval, and history.
+ * Persists to localStorage for crash recovery and session continuity.
  */
 
 import type { Writable } from '../store.js';
 import { writable } from '../store.js';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 export interface DreamProposal {
   readonly proposalId: string;
@@ -37,6 +42,47 @@ export interface DreamCycleCompleteInfo {
   readonly completedAt: string;
 }
 
+// ---------------------------------------------------------------------------
+// localStorage persistence
+// ---------------------------------------------------------------------------
+
+const STORAGE_KEY = 'bastion-dream-state';
+
+function persistState(state: DreamCycleState): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // localStorage unavailable (file:// protocol, SSR, etc.)
+  }
+}
+
+function loadPersistedState(): DreamCycleState | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw) as DreamCycleState;
+    // Crash recovery: if status was 'running' when browser died, reset to idle
+    if (data.status === 'running') {
+      return { ...data, status: 'idle' };
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Store factory
+// ---------------------------------------------------------------------------
+
+const DEFAULT_STATE: DreamCycleState = {
+  status: 'idle',
+  conversationId: null,
+  proposals: [],
+  lastResult: null,
+  history: [],
+};
+
 export function createDreamCyclesStore(): {
   store: Writable<DreamCycleState>;
   startDreamCycle(conversationId: string): void;
@@ -52,15 +98,16 @@ export function createDreamCyclesStore(): {
   toggleProposal(proposalId: string): void;
   getSelectedProposals(): DreamProposal[];
   dismissAll(): void;
+  clearHistory(): void;
   reset(): void;
 } {
-  const store = writable<DreamCycleState>({
-    status: 'idle',
-    conversationId: null,
-    proposals: [],
-    lastResult: null,
-    history: [],
-  });
+  const initial = loadPersistedState() ?? DEFAULT_STATE;
+  const store = writable<DreamCycleState>(initial);
+
+  /** Persist current state after every mutation. */
+  function persist(): void {
+    persistState(store.get());
+  }
 
   function startDreamCycle(conversationId: string): void {
     store.update((s) => ({
@@ -69,6 +116,7 @@ export function createDreamCyclesStore(): {
       conversationId,
       proposals: [],
     }));
+    persist();
   }
 
   function addProposal(
@@ -93,6 +141,7 @@ export function createDreamCyclesStore(): {
       ...s,
       proposals: [...s.proposals, proposal],
     }));
+    persist();
   }
 
   function completeDreamCycle(info: DreamCycleCompleteInfo): void {
@@ -102,6 +151,7 @@ export function createDreamCyclesStore(): {
       lastResult: info,
       history: [...s.history, info],
     }));
+    persist();
   }
 
   function toggleProposal(proposalId: string): void {
@@ -109,6 +159,7 @@ export function createDreamCyclesStore(): {
       ...s,
       proposals: s.proposals.map((p) => (p.proposalId === proposalId ? { ...p, selected: !p.selected } : p)),
     }));
+    persist();
   }
 
   function getSelectedProposals(): DreamProposal[] {
@@ -122,16 +173,21 @@ export function createDreamCyclesStore(): {
       proposals: [],
       conversationId: null,
     }));
+    persist();
+  }
+
+  function clearHistory(): void {
+    store.update((s) => ({
+      ...s,
+      history: [],
+      lastResult: null,
+    }));
+    persist();
   }
 
   function reset(): void {
-    store.set({
-      status: 'idle',
-      conversationId: null,
-      proposals: [],
-      lastResult: null,
-      history: [],
-    });
+    store.set(DEFAULT_STATE);
+    persist();
   }
 
   return {
@@ -142,6 +198,7 @@ export function createDreamCyclesStore(): {
     toggleProposal,
     getSelectedProposals,
     dismissAll,
+    clearHistory,
     reset,
   };
 }

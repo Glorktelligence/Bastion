@@ -124,3 +124,10 @@ export type {
   TaskCostInfo,
   TasksStoreState,
 } from './stores/tasks.js';
+
+export { createDreamCyclesStore } from './stores/dream-cycles.js';
+export type {
+  DreamProposal,
+  DreamCycleState,
+  DreamCycleCompleteInfo,
+} from './stores/dream-cycles.js';

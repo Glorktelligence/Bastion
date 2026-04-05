@@ -25,6 +25,7 @@ import {
   InMemoryConfigStore,
   migrateConfig,
   CONFIG_VERSION,
+  createDreamCyclesStore,
 } from './dist/index.js';
 
 let pass = 0, fail = 0;
@@ -1609,6 +1610,109 @@ async function run() {
     await client.disconnect();
     client.removeAllListeners();
   }
+
+  // -------------------------------------------------------------------
+  // DreamCyclesStore — persistence + crash recovery
+  // -------------------------------------------------------------------
+  console.log('\n--- DreamCyclesStore ---');
+  {
+    // Mock localStorage for Node.js environment
+    const storage = new Map();
+    globalThis.localStorage = {
+      getItem: (key) => storage.get(key) ?? null,
+      setItem: (key, value) => storage.set(key, value),
+      removeItem: (key) => storage.delete(key),
+      clear: () => storage.clear(),
+      get length() { return storage.size; },
+      key: (i) => [...storage.keys()][i] ?? null,
+    };
+
+    // Clean slate
+    storage.clear();
+
+    // Basic creation
+    const ds = createDreamCyclesStore();
+    check('dream store starts idle', ds.store.get().status === 'idle');
+    check('dream store starts with no proposals', ds.store.get().proposals.length === 0);
+    check('dream store starts with no history', ds.store.get().history.length === 0);
+
+    // addProposal persists to localStorage
+    ds.addProposal('p-1', 'User prefers TypeScript', 'preference', 'stated', false, null);
+    check('addProposal adds proposal', ds.store.get().proposals.length === 1);
+    const persisted = storage.get('bastion-dream-state');
+    check('addProposal persists to localStorage', persisted !== null && persisted !== undefined);
+    const parsed = JSON.parse(persisted);
+    check('persisted state has proposal', parsed.proposals.length === 1);
+    check('persisted proposal content correct', parsed.proposals[0].content === 'User prefers TypeScript');
+
+    // startDreamCycle persists
+    ds.startDreamCycle('conv-123');
+    check('startDreamCycle sets running', ds.store.get().status === 'running');
+    check('startDreamCycle clears proposals', ds.store.get().proposals.length === 0);
+    const afterStart = JSON.parse(storage.get('bastion-dream-state'));
+    check('startDreamCycle persists', afterStart.status === 'running');
+
+    // completeDreamCycle with proposals → reviewing
+    ds.addProposal('p-2', 'Project uses PNPM', 'fact', 'observed', false, null);
+    ds.completeDreamCycle({
+      conversationId: 'conv-123', candidateCount: 1,
+      tokensUsed: { input: 5000, output: 200 },
+      estimatedCost: 0.05, durationMs: 1500, completedAt: '2026-04-05T12:00:00Z',
+    });
+    check('completeDreamCycle sets reviewing', ds.store.get().status === 'reviewing');
+    check('completeDreamCycle adds to history', ds.store.get().history.length === 1);
+
+    // dismissAll clears proposals but preserves history
+    ds.dismissAll();
+    check('dismissAll clears proposals', ds.store.get().proposals.length === 0);
+    check('dismissAll preserves history', ds.store.get().history.length === 1);
+    check('dismissAll resets to idle', ds.store.get().status === 'idle');
+
+    // toggleProposal persists
+    ds.addProposal('p-3', 'Toggle test', 'fact', 'test', false, null);
+    check('new proposal selected by default', ds.store.get().proposals[0].selected === true);
+    ds.toggleProposal('p-3');
+    check('toggleProposal deselects', ds.store.get().proposals[0].selected === false);
+    const afterToggle = JSON.parse(storage.get('bastion-dream-state'));
+    check('toggleProposal persists', afterToggle.proposals[0].selected === false);
+
+    // getSelectedProposals
+    ds.addProposal('p-4', 'Selected one', 'fact', 'test', false, null);
+    const selected = ds.getSelectedProposals();
+    check('getSelectedProposals returns only selected', selected.length === 1);
+    check('getSelectedProposals has correct content', selected[0].content === 'Selected one');
+
+    // clearHistory
+    ds.clearHistory();
+    check('clearHistory clears history', ds.store.get().history.length === 0);
+    check('clearHistory clears lastResult', ds.store.get().lastResult === null);
+
+    // Restore from localStorage on new store creation
+    storage.clear();
+    const ds2 = createDreamCyclesStore();
+    ds2.addProposal('p-5', 'Persisted memory', 'fact', 'test', false, null);
+    ds2.completeDreamCycle({
+      conversationId: 'conv-456', candidateCount: 1,
+      tokensUsed: { input: 3000, output: 100 },
+      estimatedCost: 0.03, durationMs: 800, completedAt: '2026-04-05T14:00:00Z',
+    });
+    // Create a fresh store — should restore from localStorage
+    const ds3 = createDreamCyclesStore();
+    check('new store restores from localStorage', ds3.store.get().history.length === 1);
+    check('restored history has correct conversationId', ds3.store.get().history[0].conversationId === 'conv-456');
+
+    // Crash recovery: 'running' status resets to 'idle' on init
+    storage.set('bastion-dream-state', JSON.stringify({
+      status: 'running', conversationId: 'conv-crash', proposals: [],
+      lastResult: null, history: [],
+    }));
+    const ds4 = createDreamCyclesStore();
+    check('crash recovery: running resets to idle', ds4.store.get().status === 'idle');
+
+    // Clean up mock
+    delete globalThis.localStorage;
+  }
+  console.log();
 
   // -------------------------------------------------------------------
   // Summary
