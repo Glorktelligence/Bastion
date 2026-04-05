@@ -234,6 +234,9 @@ const MAX_PROMPT_MEMORIES = parseIntEnv('BASTION_MAX_PROMPT_MEMORIES', 20, 1, 10
 const memoryStore = new MemoryStore({ path: MEMORIES_DB, maxPromptMemories: MAX_PROMPT_MEMORIES });
 console.log(`[✓] Memory store initialised (${memoryStore.count} memories, max prompt: ${MAX_PROMPT_MEMORIES}, db: ${MEMORIES_DB})`);
 
+// Pending AI memory proposals — keyed by proposalId, awaiting human decision
+const pendingMemoryProposals = new Map();
+
 // Pending memory proposals (proposalId → {content, category, source})
 const pendingProposals = new Map();
 
@@ -1300,6 +1303,28 @@ client.on('message', async (data) => {
     return;
   }
 
+  // Handle memory_decision — human approves/rejects an AI-proposed memory
+  if (msg.type === 'memory_decision') {
+    const p = msg.payload || msg;
+    const { proposalId, decision } = p;
+    const pending = pendingMemoryProposals.get(proposalId);
+
+    if (!pending) {
+      console.log(`[←] Memory decision for unknown proposal: ${proposalId} (expired or already handled)`);
+      return;
+    }
+
+    pendingMemoryProposals.delete(proposalId);
+
+    if (decision === 'approve') {
+      const memoryId = memoryStore.addMemory(pending.content, pending.category, pending.sourceMessageId, pending.conversationId);
+      console.log(`[✓] Memory approved: "${pending.content.substring(0, 60)}..." → ${memoryId} (${memoryStore.count} total)`);
+    } else {
+      console.log(`[✗] Memory rejected: "${pending.content.substring(0, 60)}..."`);
+    }
+    return;
+  }
+
   // Handle memory_list — return memories with optional conversationId/category filter
   if (msg.type === 'memory_list') {
     const p = msg.payload || {};
@@ -1931,6 +1956,12 @@ client.on('message', async (data) => {
                 conversationId: activeConversationId || '',
               },
             });
+            pendingMemoryProposals.set(proposalId, {
+              content: String(payload.content || ''),
+              category: ['fact', 'preference', 'workflow', 'project'].includes(payload.category) ? payload.category : 'fact',
+              conversationId: activeConversationId || null,
+              sourceMessageId: msg.id || '',
+            });
             console.log(`[→] AI memory proposal: "${String(payload.content || '').substring(0, 60)}"`);
           }
         }
@@ -2394,6 +2425,12 @@ client.on('message', async (data) => {
             existingMemoryContent: candidate.existingMemoryContent || null,
           },
         }));
+        pendingMemoryProposals.set(candidate.proposalId, {
+          content: candidate.content,
+          category: candidate.category,
+          conversationId: convId,
+          sourceMessageId: `dream:${convId}`,
+        });
       }
 
       // Send dream_cycle_complete summary
