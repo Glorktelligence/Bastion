@@ -83,11 +83,15 @@ function formatDelay(ms: number): string {
 			<button class="retry-btn" onclick={onRetry}>Connect</button>
 		{/if}
 	</div>
-	{#if status === 'authenticated' || status === 'connected'}
+	{#if status === 'reconnecting'}
+		<span class="e2e-badge e2e-reconnecting">🔄 Reconnecting</span>
+	{:else if status === 'authenticated' || status === 'connected'}
 		{#if e2eActive}
 			<span class="e2e-badge e2e-active">🔒 Encrypted</span>
 		{:else if e2eAvailable}
 			<span class="e2e-badge e2e-warn">⚠️ Unencrypted</span>
+		{:else}
+			<span class="e2e-badge e2e-unavailable">🔓 No E2E</span>
 		{/if}
 	{/if}
 	<div class="peer-status">
@@ -174,5 +178,21 @@ function formatDelay(ms: number): string {
 	.e2e-warn {
 		background: color-mix(in srgb, #f59e0b 15%, transparent);
 		color: #f59e0b;
+	}
+
+	.e2e-reconnecting {
+		background: color-mix(in srgb, #f59e0b 15%, transparent);
+		color: #f59e0b;
+		animation: pulse 1.5s infinite;
+	}
+
+	.e2e-unavailable {
+		background: color-mix(in srgb, #ef4444 15%, transparent);
+		color: #ef4444;
+	}
+
+	@keyframes pulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.5; }
 	}
 </style>

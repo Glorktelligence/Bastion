@@ -9,8 +9,8 @@
  * compliance with AI transparency regulations (EU AI Act Article 50, etc.).
  * Default is OFF — nothing renders unless the deployer configures it.
  *
- * Dismissal state uses localStorage so it persists within a browser session
- * but resets on next visit (per-session, not permanent).
+ * Dismissal state uses localStorage for reliability but is reset on each
+ * app launch via resetDismissal() — per-launch, not permanent.
  */
 
 import type { Writable } from '../store.js';
@@ -39,14 +39,13 @@ export interface AiDisclosureStore {
   readonly store: Writable<AiDisclosureState>;
   setDisclosure(data: AiDisclosureData): void;
   dismiss(): void;
+  /** Reset dismissal state — call on app launch for per-launch behaviour. */
+  resetDismissal(): void;
   clear(): void;
 }
 
 export function createAiDisclosureStore(): AiDisclosureStore {
-  const dismissed =
-    typeof globalThis.localStorage !== 'undefined' ? globalThis.localStorage.getItem(DISMISS_KEY) === 'true' : false;
-
-  const store = writable<AiDisclosureState>({ disclosure: null, dismissed });
+  const store = writable<AiDisclosureState>({ disclosure: null, dismissed: false });
 
   return {
     store,
@@ -60,6 +59,14 @@ export function createAiDisclosureStore(): AiDisclosureStore {
         // localStorage unavailable
       }
       store.update((s) => ({ ...s, dismissed: true }));
+    },
+    resetDismissal(): void {
+      try {
+        globalThis.localStorage?.removeItem(DISMISS_KEY);
+      } catch {
+        // localStorage unavailable
+      }
+      store.update((s) => ({ ...s, dismissed: false }));
     },
     clear(): void {
       try {

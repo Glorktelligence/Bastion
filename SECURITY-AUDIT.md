@@ -634,3 +634,45 @@ All fixes verified:
 | A-1 | Self-update git commands without sudo | **HIGH** | 266bbe1 |
 | A-2 | Disclosure config not persisted | **MEDIUM** | fc3f3a5 |
 | A-3 | Layer 2 / ChallengeManager time disagreement | **MEDIUM** | 1a6b965 |
+
+---
+
+## ADDENDUM: v0.8.1 Findings (2026-04-05)
+
+### Finding S-1: File Content Visible to Relay (MEDIUM — documented)
+
+**Issue**: `+page.svelte:handleFileUpload()` sends file_manifest with plaintext fileData via `client.send()`, bypassing E2E encryption (`sendSecure()`). SECURITY.md incorrectly claimed file content was E2E encrypted.
+
+**Fix (this sprint)**: Updated SECURITY.md to accurately document that file content is visible to relay during quarantine. Added to Known Limitations.
+
+**Deferred**: Full E2E file encryption (encrypt before submission, relay verifies encrypted blob hashes) requires quarantine pipeline rework. Scheduled for dedicated crypto session alongside per-message DH ratchet.
+
+### Finding S-2: AI Disclosure Dismissal Persisted Permanently (LOW)
+
+**Issue**: localStorage dismiss key survived Tauri app restarts. Comment claimed "per-session" behaviour.
+
+**Fix**: Added `resetDismissal()` to AiDisclosureStore, called on app launch. Dismiss persists within session, resets on restart.
+
+### Finding S-3: AI Challenge Override No Timer (LOW)
+
+**Issue**: Override button in AI challenge dialog had no wait timer, allowing impulsive bypass during challenge hours.
+
+**Fix**: Override button now disabled with countdown timer matching Accept button. Cancel remains always-enabled.
+
+### Finding S-4 + P-4: Memory Proposal Edit UI Missing (INFO)
+
+**Issue**: `memoryEditText` state scaffolded but no editable input rendered. Save always sent original content.
+
+**Fix**: Added textarea to memory proposal toast. Users can now edit content before saving.
+
+### Finding P-1 + P-2: E2E Badge Missing States (MEDIUM — UX)
+
+**Issue**: No E2E badge when encryption unavailable. reconnectDelay dead code.
+
+**Fix**: Added "🔓 No E2E" red badge when connected without encryption. Added "🔄 Reconnecting" state with pulse animation.
+
+### Finding P-3: FileOfferBanner Light Theme (LOW)
+
+**Issue**: Hardcoded light-theme hex colours. Jarring on dark theme.
+
+**Fix**: Replaced all hardcoded colours with CSS variables matching dark theme.

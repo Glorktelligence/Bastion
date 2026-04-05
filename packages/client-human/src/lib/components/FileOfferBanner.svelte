@@ -81,12 +81,12 @@ function reject() {
   .file-offer-banner {
     border: 1px solid #d4a843;
     border-left: 4px solid #d4a843;
-    background: #fffbe6;
+    background: color-mix(in srgb, #d4a843 10%, var(--color-surface, #111128));
     border-radius: 6px;
     padding: 12px 16px;
     margin: 8px 0;
-    font-family: system-ui, sans-serif;
     font-size: 14px;
+    color: var(--color-text);
   }
   .banner-header {
     display: flex;
@@ -95,35 +95,37 @@ function reject() {
   }
   .banner-icon { font-size: 20px; }
   .banner-title { flex: 1; }
-  .banner-title strong { display: block; }
-  .sender { font-size: 12px; color: #666; }
+  .banner-title strong { display: block; color: var(--color-text); }
+  .sender { font-size: 12px; color: var(--color-text-muted); }
   .toggle-btn {
     background: none;
-    border: 1px solid #ccc;
+    border: 1px solid var(--color-border);
     border-radius: 4px;
     padding: 2px 8px;
     cursor: pointer;
     font-size: 12px;
+    color: var(--color-text-muted);
   }
+  .toggle-btn:hover { background: var(--color-border); color: var(--color-text); }
   .file-summary {
     margin: 8px 0 4px;
     display: flex;
     align-items: baseline;
     gap: 8px;
   }
-  .filename { font-weight: 600; }
-  .meta { font-size: 12px; color: #666; }
-  .purpose { font-size: 13px; color: #444; margin-bottom: 8px; }
+  .filename { font-weight: 600; color: var(--color-text); }
+  .meta { font-size: 12px; color: var(--color-text-muted); }
+  .purpose { font-size: 13px; color: var(--color-text-muted); margin-bottom: 8px; }
   .details {
-    background: #fff;
-    border: 1px solid #eee;
+    background: var(--color-bg, #0a0a1a);
+    border: 1px solid var(--color-border);
     border-radius: 4px;
     padding: 8px;
     margin: 8px 0;
   }
   .details table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .details td { padding: 3px 8px; vertical-align: top; }
-  .details td:first-child { font-weight: 500; width: 100px; color: #555; }
+  .details td { padding: 3px 8px; vertical-align: top; color: var(--color-text); }
+  .details td:first-child { font-weight: 500; width: 100px; color: var(--color-text-muted); }
   .mono { font-family: monospace; font-size: 12px; }
   .hash { word-break: break-all; }
   .actions {
@@ -132,7 +134,7 @@ function reject() {
     margin-top: 8px;
   }
   .btn-accept {
-    background: #2d7d46;
+    background: var(--color-success, #22c55e);
     color: white;
     border: none;
     border-radius: 4px;
@@ -140,14 +142,14 @@ function reject() {
     cursor: pointer;
     font-weight: 500;
   }
-  .btn-accept:hover { background: #236b38; }
+  .btn-accept:hover { opacity: 0.9; }
   .btn-reject {
     background: none;
-    border: 1px solid #999;
+    border: 1px solid var(--color-border);
     border-radius: 4px;
     padding: 6px 16px;
     cursor: pointer;
-    color: #666;
+    color: var(--color-text-muted);
   }
-  .btn-reject:hover { background: #f5f5f5; }
+  .btn-reject:hover { background: var(--color-border); color: var(--color-text); }
 </style>

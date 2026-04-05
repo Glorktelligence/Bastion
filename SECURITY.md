@@ -65,13 +65,13 @@ We will not pursue legal action against security researchers who:
 - Session lifecycle events: connect, disconnect, reconnect times
 - File transfer metadata: filenames, sizes, MIME types, transfer states
 - JWT tokens (short-lived, 15-minute expiry)
+- File content during quarantine (plaintext for hash verification — E2E file encryption planned)
 
 ### What the Relay Cannot See (Enforced)
 
 Zero-knowledge relay is now **enforced**, not just designed. The relay forwards encrypted payloads without the ability to read them:
 
 - Message content (E2E encrypted with XSalsa20-Poly1305 via KDF ratchet chain)
-- File content (E2E encrypted, separately from message encryption)
 - AI provider API keys (stored on AI VM only)
 - Safety engine evaluation details (runs on AI client)
 - Session keys (derived independently by each client from X25519 key exchange)
@@ -159,6 +159,7 @@ Both are byte-identical NaCl implementations: `nacl.box.before()` = `crypto_box_
 - **No per-message DH ratchet**: The KDF chain provides forward secrecy (old keys are zeroized), but does not perform a new Diffie-Hellman exchange per message. A compromised current chain key exposes subsequent messages in that session until reconnection.
 - **Trust-on-first-use for relay**: The client trusts the relay's TLS certificate. Certificate pinning is not yet implemented.
 - **Read-only admin is unauthenticated**: Anyone with SSH tunnel access can view monitoring data. This is by design (the tunnel is the access control) but means a compromised SSH session exposes relay metadata.
+- **File content visible to relay**: File transfers currently pass through the relay in plaintext for quarantine hash verification. The relay can see file content during the quarantine window. E2E file encryption (encrypting before submission, with the relay verifying encrypted blob hashes) is planned but requires changes to the quarantine verification pipeline.
 
 ## Security Design Principles
 

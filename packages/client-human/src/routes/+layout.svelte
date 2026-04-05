@@ -114,6 +114,8 @@ onMount(() => {
 		}),
 	];
 
+	session.aiDisclosure.resetDismissal();
+
 	return () => {
 		for (const u of subs) u();
 	};
@@ -347,10 +349,14 @@ function relativeTime(iso) {
 		{#if aiMemoryProposal}
 		<div class="ai-memory-toast">
 			<div class="ai-memory-header">Claude suggests remembering:</div>
-			<div class="ai-memory-content">"{aiMemoryProposal.content}"</div>
+			<textarea
+				class="ai-memory-edit"
+				bind:value={memoryEditText}
+				rows="3"
+			></textarea>
 			<div class="ai-memory-meta">Category: {aiMemoryProposal.category} &middot; {aiMemoryProposal.reason}</div>
 			<div class="ai-memory-actions">
-				<button class="ai-mem-btn ai-mem-save" onclick={() => handleMemoryProposalSave(null)}>Save</button>
+				<button class="ai-mem-btn ai-mem-save" onclick={() => handleMemoryProposalSave(memoryEditText)}>Save</button>
 				<button class="ai-mem-btn ai-mem-dismiss" onclick={handleMemoryProposalDismiss}>Dismiss</button>
 			</div>
 		</div>
@@ -377,7 +383,9 @@ function relativeTime(iso) {
 			<button class="ai-mem-btn ai-mem-save" onclick={() => handleChallengeResponse('accept')} disabled={challengeTimerRemaining > 0}>
 				Accept{#if challengeTimerRemaining > 0} ({challengeTimerRemaining}s){/if}
 			</button>
-			<button class="ai-mem-btn ai-mem-dismiss" onclick={() => handleChallengeResponse('override')}>Override</button>
+			<button class="ai-mem-btn ai-mem-dismiss" onclick={() => handleChallengeResponse('override')} disabled={challengeTimerRemaining > 0}>
+				Override{#if challengeTimerRemaining > 0} ({challengeTimerRemaining}s){/if}
+			</button>
 			<button class="ai-mem-btn" onclick={() => handleChallengeResponse('cancel')}>Cancel</button>
 		</div>
 	</div>
@@ -486,7 +494,18 @@ function relativeTime(iso) {
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 	}
 	.ai-memory-header { font-size: 0.75rem; color: var(--color-accent, #4a9eff); font-weight: 600; margin-bottom: 0.25rem; }
-	.ai-memory-content { font-size: 0.85rem; color: var(--color-text); font-style: italic; margin-bottom: 0.25rem; }
+	.ai-memory-edit {
+		width: 100%;
+		padding: 0.5rem;
+		border: 1px solid var(--color-border, #2a2a4a);
+		border-radius: 0.375rem;
+		background: var(--color-bg, #0a0a1a);
+		color: var(--color-text, #eee);
+		font-size: 0.85rem;
+		font-family: inherit;
+		resize: vertical;
+		margin-bottom: 0.25rem;
+	}
 	.ai-memory-meta { font-size: 0.7rem; color: var(--color-text-muted); margin-bottom: 0.5rem; }
 	.ai-memory-actions { display: flex; gap: 0.375rem; }
 	.ai-mem-btn {
