@@ -23,8 +23,8 @@ onMount(() => {
 			history = v.history;
 		}),
 		session.conversations.store.subscribe((v) => {
-			const active = v.list.find((c) => c.id === v.activeId);
-			conversationName = active?.title ?? 'Current conversation';
+			const active = (v.conversations ?? []).find((c: any) => c.id === v.activeConversationId);
+			conversationName = active?.name ?? 'Current conversation';
 		}),
 	];
 	return () => unsubs.forEach((u) => u());
