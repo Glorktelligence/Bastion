@@ -623,7 +623,7 @@ const SENDER_TYPE_RESTRICTIONS = {
   denial: 'ai', challenge: 'ai', result: 'ai', status: 'ai',
   provider_status: 'ai', budget_alert: 'ai', budget_status: 'ai', usage_status: 'ai',
   challenge_status: 'ai', challenge_config_ack: 'ai',
-  memory_decision: 'human', memory_list_response: 'ai',
+  memory_decision: 'any', memory_list_response: 'ai',
   project_sync_ack: 'ai', project_list_response: 'ai', project_config_ack: 'ai',
   skill_list_response: 'ai',
   tool_registry_sync: 'ai', tool_request: 'ai', tool_result: 'ai', tool_alert: 'ai',
