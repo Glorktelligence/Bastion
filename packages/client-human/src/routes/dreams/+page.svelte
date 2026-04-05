@@ -171,7 +171,6 @@ function formatDuration(ms: number): string {
 </div>
 
 <style>
-	.dreams-page { padding: 1.5rem; max-width: 800px; }
 	.subtitle { color: var(--color-text-muted); margin-bottom: 1.5rem; }
 
 	.dream-controls {
@@ -219,7 +218,8 @@ function formatDuration(ms: number): string {
 	.proposals-header h3 { margin: 0; }
 	.cost-badge { font-size: 0.75rem; color: var(--color-text-muted); }
 
-	.proposals-list { display: flex; flex-direction: column; gap: 0.5rem; }
+	.dreams-page { padding: 1.5rem; max-width: 800px; overflow-y: auto; max-height: 100vh; }
+	.proposals-list { display: flex; flex-direction: column; gap: 0.5rem; max-height: 50vh; overflow-y: auto; padding-right: 0.25rem; }
 
 	.proposal-item {
 		display: flex;
