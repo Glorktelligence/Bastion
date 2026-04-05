@@ -888,6 +888,21 @@ export interface AiMemoryProposalPayload {
   readonly conversationId: string;
 }
 
+/** Human → AI: Request a dream cycle for memory extraction. */
+export interface DreamCycleRequestPayload {
+  readonly conversationId: string;
+  readonly scope: 'conversation' | 'all';
+}
+
+/** AI → Human: Dream cycle completed summary. */
+export interface DreamCycleCompletePayload {
+  readonly conversationId: string;
+  readonly candidateCount: number;
+  readonly tokensUsed: { readonly input: number; readonly output: number };
+  readonly estimatedCost: number;
+  readonly durationMs: number;
+}
+
 // ---------------------------------------------------------------------------
 // Discriminated union of all payload types
 // ---------------------------------------------------------------------------
@@ -976,4 +991,6 @@ export type MessagePayload =
   | { type: 'data_erasure_cancel'; payload: DataErasureCancelPayload }
   | { type: 'ai_challenge'; payload: AiChallengePayload }
   | { type: 'ai_challenge_response'; payload: AiChallengeResponsePayload }
-  | { type: 'ai_memory_proposal'; payload: AiMemoryProposalPayload };
+  | { type: 'ai_memory_proposal'; payload: AiMemoryProposalPayload }
+  | { type: 'dream_cycle_request'; payload: DreamCycleRequestPayload }
+  | { type: 'dream_cycle_complete'; payload: DreamCycleCompletePayload };

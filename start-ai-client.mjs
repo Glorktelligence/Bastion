@@ -33,6 +33,7 @@ import {
   ImportExecutor,
   UsageTracker,
   ExtensionDispatcher,
+  DreamCycleManager,
 } from './packages/client-ai/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -355,6 +356,19 @@ const compactionManager = new CompactionManager(conversationStore, {
   keepRecent: COMPACTION_KEEP_RECENT,
 });
 console.log(`[✓] Compaction manager initialised (budget: ${CONVERSATION_BUDGET}, trigger: ${COMPACTION_TRIGGER_PERCENT}%, keep: ${COMPACTION_KEEP_RECENT})`);
+
+// ---------------------------------------------------------------------------
+// Dream Cycle Manager — Layer 6 memory extraction via Opus
+// ---------------------------------------------------------------------------
+
+const DREAM_CONFIG_PATH = process.env.BASTION_DREAM_CONFIG || '/var/lib/bastion/dream-config.json';
+const DREAM_MAX_TRANSCRIPT_TOKENS = parseIntEnv('BASTION_DREAM_MAX_TOKENS', 50000, 5000, 200000);
+const dreamCycleManager = new DreamCycleManager({
+  enabled: true,
+  maxTranscriptTokens: DREAM_MAX_TRANSCRIPT_TOKENS,
+  configPath: DREAM_CONFIG_PATH,
+});
+console.log(`[✓] Dream cycle manager initialised (max tokens: ${DREAM_MAX_TRANSCRIPT_TOKENS})`);
 
 /** Summarise function — calls Anthropic API for compaction. */
 async function summariseForCompaction(prompt) {
@@ -2289,6 +2303,120 @@ client.on('message', async (data) => {
     }));
 
     console.log(`[✓] Erasure cancelled: ${active.erasureId} — data restored`);
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Dream Cycle — Layer 6 memory extraction
+  // ---------------------------------------------------------------------------
+  if (msg.type === 'dream_cycle_request') {
+    const p = msg.payload || msg;
+    const convId = p.conversationId || activeConversationId;
+    console.log(`[←] Dream cycle requested for ${(convId || '').slice(0, 8)} (scope: ${p.scope || 'conversation'})`);
+
+    if (!convId) {
+      client.send(JSON.stringify({
+        type: 'error', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+        payload: { code: 'BASTION-3001', message: 'No active conversation for dream cycle' },
+      }));
+      return;
+    }
+
+    // Select dream adapter (Opus)
+    let dreamAdapter;
+    try {
+      const selection = adapterRegistry.selectAdapter('dream');
+      dreamAdapter = selection.adapter;
+      console.log(`[~] Dream cycle using ${dreamAdapter.activeModel} (${selection.reason})`);
+    } catch (err) {
+      client.send(JSON.stringify({
+        type: 'error', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+        payload: { code: 'BASTION-6001', message: `No dream adapter available: ${err.message}` },
+      }));
+      return;
+    }
+
+    // Get transcript from ConversationStore
+    const recentMessages = conversationStore.getRecentMessages(convId, 200);
+    const transcript = recentMessages
+      .map(m => `[${m.role}]: ${m.content}`)
+      .join('\n');
+
+    if (transcript.length === 0) {
+      client.send(JSON.stringify({
+        type: 'error', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+        payload: { code: 'BASTION-3001', message: 'No messages in conversation for dream cycle' },
+      }));
+      return;
+    }
+
+    // Get existing memories for dedup
+    const existingMemories = memoryStore.getMemories(100, convId).map(m => m.content);
+    const globalMemories = memoryStore.getMemories(100, null).map(m => m.content);
+    const allExisting = [...new Set([...existingMemories, ...globalMemories])];
+
+    // Run dream cycle (async)
+    dreamCycleManager.runDreamCycle(convId, transcript, allExisting, dreamAdapter).then(result => {
+      console.log(`[✓] Dream cycle complete: ${result.candidateCount} candidates, $${result.cost.toFixed(4)}, ${result.durationMs}ms`);
+
+      // Track usage
+      usageTracker.record({
+        timestamp: new Date().toISOString(),
+        adapterId: dreamAdapter.activeModel || 'unknown',
+        adapterRole: 'dream',
+        purpose: 'dream',
+        conversationId: convId,
+        inputTokens: result.tokensUsed.input,
+        outputTokens: result.tokensUsed.output,
+        costUsd: result.cost,
+      });
+
+      // Track cost in BudgetGuard
+      budgetGuard.recordUsage(0, result.cost);
+      sendUsageStatusDebounced();
+
+      // Send each candidate as ai_memory_proposal
+      for (const candidate of result.candidates) {
+        client.send(JSON.stringify({
+          type: 'ai_memory_proposal',
+          id: randomUUID(),
+          timestamp: new Date().toISOString(),
+          sender: IDENTITY,
+          payload: {
+            proposalId: candidate.proposalId,
+            content: candidate.content,
+            category: candidate.category,
+            reason: candidate.reason,
+            sourceMessageId: `dream:${convId}`,
+            conversationId: convId,
+            isDreamCandidate: true,
+            isUpdate: candidate.isUpdate,
+            existingMemoryContent: candidate.existingMemoryContent || null,
+          },
+        }));
+      }
+
+      // Send dream_cycle_complete summary
+      client.send(JSON.stringify({
+        type: 'dream_cycle_complete',
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        sender: IDENTITY,
+        payload: {
+          conversationId: convId,
+          candidateCount: result.candidateCount,
+          tokensUsed: result.tokensUsed,
+          estimatedCost: result.cost,
+          durationMs: result.durationMs,
+        },
+      }));
+    }).catch(err => {
+      console.error(`[!] Dream cycle failed: ${err.message}`);
+      client.send(JSON.stringify({
+        type: 'error', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+        payload: { code: 'BASTION-6001', message: `Dream cycle failed: ${err.message}` },
+      }));
+    });
     return;
   }
 

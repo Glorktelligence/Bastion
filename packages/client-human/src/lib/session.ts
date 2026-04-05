@@ -26,6 +26,7 @@ import { type ChallengeStats, createChallengeStatsStore } from './stores/challen
 import { type ActiveChallenge, createChallengesStore } from './stores/challenges.js';
 import { type ConnectionStoreState, createConnectionStore } from './stores/connection.js';
 import { type ConversationEntry, type ConversationMessage, createConversationsStore } from './stores/conversations.js';
+import { createDreamCyclesStore } from './stores/dream-cycles.js';
 import { type ExtensionInfo, createExtensionsStore } from './stores/extensions.js';
 import { type FileTransferStore, createFileTransferStore } from './stores/file-transfers.js';
 import { type MemoryEntry, createMemoriesStore } from './stores/memories.js';
@@ -136,6 +137,7 @@ export const extensions = hmrStore('__bastionExtensions', createExtensionsStore)
 export const conversations = hmrStore('__bastionConversations', createConversationsStore);
 export const aiDisclosure = hmrStore('__bastionAiDisclosure', createAiDisclosureStore);
 export const fileTransfers: FileTransferStore = hmrStore('__bastionFileTransfers', createFileTransferStore);
+export const dreamCycles = hmrStore('__bastionDreamCycles', createDreamCyclesStore);
 
 /** Data portability state (GDPR Article 20). */
 export interface ErasurePreviewState {
@@ -538,6 +540,31 @@ export function sendSecure(envelope: Record<string, unknown>): boolean {
     console.error('[Bastion] Encryption failed:', err instanceof Error ? err.message : String(err));
     return client.send(JSON.stringify(envelope));
   }
+}
+
+/** Send a dream cycle request for the active conversation. */
+export function sendDreamCycleRequest(): void {
+  const convId = conversations.store.get().activeConversationId;
+  if (!convId) return;
+  dreamCycles.startDreamCycle(convId);
+  sendSecure({
+    type: 'dream_cycle_request',
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: getIdentity(),
+    payload: { conversationId: convId, scope: 'conversation' },
+  });
+}
+
+/** Send a memory decision (approve/reject) for a proposal. */
+export function sendMemoryDecision(proposalId: string, decision: 'approve' | 'reject'): void {
+  sendSecure({
+    type: 'memory_decision',
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: getIdentity(),
+    payload: { proposalId, decision },
+  });
 }
 
 /**
@@ -1254,14 +1281,42 @@ function handleRelayMessage(data: string): void {
     return;
   }
 
-  // AI memory proposal → show approval UI
+  // AI memory proposal → show approval UI or route to dream store
   if (type === 'ai_memory_proposal') {
     const p = payload as Record<string, unknown>;
-    activeAiMemoryProposal.set({
-      proposalId: String(p.proposalId ?? ''),
-      content: String(p.content ?? ''),
-      category: String(p.category ?? 'fact'),
-      reason: String(p.reason ?? ''),
+    if (p.isDreamCandidate) {
+      // Dream cycle candidate → batch into dream store
+      dreamCycles.addProposal(
+        String(p.proposalId ?? ''),
+        String(p.content ?? ''),
+        String(p.category ?? 'fact'),
+        String(p.reason ?? ''),
+        Boolean(p.isUpdate),
+        p.existingMemoryContent ? String(p.existingMemoryContent) : null,
+      );
+    } else {
+      // Normal AI-initiated proposal → single toast
+      activeAiMemoryProposal.set({
+        proposalId: String(p.proposalId ?? ''),
+        content: String(p.content ?? ''),
+        category: String(p.category ?? 'fact'),
+        reason: String(p.reason ?? ''),
+      });
+    }
+    return;
+  }
+
+  // Dream cycle complete → update dream store with summary
+  if (type === 'dream_cycle_complete') {
+    const p = payload as Record<string, unknown>;
+    const tokensUsed = (p.tokensUsed as { input?: number; output?: number }) ?? {};
+    dreamCycles.completeDreamCycle({
+      conversationId: String(p.conversationId ?? ''),
+      candidateCount: Number(p.candidateCount ?? 0),
+      tokensUsed: { input: Number(tokensUsed.input ?? 0), output: Number(tokensUsed.output ?? 0) },
+      estimatedCost: Number(p.estimatedCost ?? 0),
+      durationMs: Number(p.durationMs ?? 0),
+      completedAt: new Date().toISOString(),
     });
     return;
   }

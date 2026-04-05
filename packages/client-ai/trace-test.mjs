@@ -27,6 +27,7 @@ import {
   SkillStore,
   DataEraser,
   ExtensionDispatcher,
+  DreamCycleManager,
 } from './dist/index.js';
 import {
   BastionRelay,
@@ -36,7 +37,7 @@ import {
   AUDIT_EVENT_TYPES,
 } from '@bastion/relay';
 import { verifyChain } from '@bastion/crypto';
-import { PROTOCOL_VERSION, MESSAGE_TYPES, SAFETY_FLOORS, SAFETY_OUTCOMES } from '@bastion/protocol';
+import { PROTOCOL_VERSION, MESSAGE_TYPES, SAFETY_FLOORS, SAFETY_OUTCOMES, DreamCycleRequestPayloadSchema, DreamCycleCompletePayloadSchema } from '@bastion/protocol';
 import { randomUUID, randomBytes } from 'node:crypto';
 
 let pass = 0, fail = 0;
@@ -2748,6 +2749,158 @@ async function run() {
     // Unknown hint falls back
     const unknown = reg.resolveHint('nonexistent', 'game');
     check('unknown hint falls back', unknown !== undefined);
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // DreamCycleManager
+  // -------------------------------------------------------------------
+  console.log('--- DreamCycleManager ---');
+  {
+    const tmpPath = (await import('node:path')).join((await import('node:os')).tmpdir(), `bastion-dream-${Date.now()}.json`);
+    const dcm = new DreamCycleManager({
+      enabled: true,
+      maxTranscriptTokens: 50000,
+      configPath: tmpPath,
+    });
+
+    check('dream cycle manager enabled', dcm.enabled);
+
+    // --- buildDreamPrompt ---
+    const transcript = '[user]: I prefer TypeScript over JavaScript\n[assistant]: Noted, TypeScript it is.';
+    const existingMemories = ['User likes dark mode', 'Project uses PNPM workspaces'];
+    const prompt = dcm.buildDreamPrompt(transcript, existingMemories);
+
+    check('dream prompt includes transcript', prompt.includes('[user]: I prefer TypeScript'));
+    check('dream prompt includes existing memories', prompt.includes('User likes dark mode'));
+    check('dream prompt includes memory numbering', prompt.includes('1. User likes dark mode'));
+    check('dream prompt includes instructions', prompt.includes('INSTRUCTIONS'));
+    check('dream prompt includes BASTION:MEMORY tag', prompt.includes('[BASTION:MEMORY]'));
+
+    // --- buildDreamPrompt with no existing memories ---
+    const promptNoMem = dcm.buildDreamPrompt(transcript, []);
+    check('dream prompt shows (none) for empty memories', promptNoMem.includes('(none)'));
+
+    // --- parseDreamResponse with MEMORY blocks ---
+    const dreamResponse = `[BASTION:MEMORY]{"content":"User prefers TypeScript over JavaScript","category":"preference","reason":"stated explicitly"}[/BASTION:MEMORY]
+
+[BASTION:MEMORY]{"content":"Project uses PNPM workspaces","category":"fact","reason":"mentioned in discussion"}[/BASTION:MEMORY]`;
+
+    const candidates = dcm.parseDreamResponse(dreamResponse, existingMemories);
+    check('parseDreamResponse extracts 2 candidates', candidates.length === 2);
+    check('candidate has proposalId', candidates[0].proposalId.length > 0);
+    check('candidate has content', candidates[0].content === 'User prefers TypeScript over JavaScript');
+    check('candidate has category', candidates[0].category === 'preference');
+    check('candidate has reason', candidates[0].reason === 'stated explicitly');
+
+    // --- parseDreamResponse empty response ---
+    const emptyCandidates = dcm.parseDreamResponse('No memories to extract.');
+    check('parseDreamResponse handles empty response', emptyCandidates.length === 0);
+
+    // --- parseDreamResponse with no MEMORY blocks ---
+    const noCandidates = dcm.parseDreamResponse('Just some normal text without any blocks.');
+    check('parseDreamResponse handles no blocks', noCandidates.length === 0);
+
+    // --- parseDreamResponse with invalid JSON ---
+    const invalidJson = '[BASTION:MEMORY]{invalid json here}[/BASTION:MEMORY]';
+    const invalidCandidates = dcm.parseDreamResponse(invalidJson);
+    check('parseDreamResponse handles invalid JSON', invalidCandidates.length === 0);
+
+    // --- detectUpdate finds similar memories ---
+    const updateResult = dcm.detectUpdate(
+      'Project uses PNPM workspaces and Biome for linting',
+      ['Project uses PNPM workspaces'],
+    );
+    check('detectUpdate finds similar memory (>50% overlap)', updateResult.isUpdate);
+    check('detectUpdate returns existing content', updateResult.existing === 'Project uses PNPM workspaces');
+
+    // --- detectUpdate returns false for unrelated ---
+    const noUpdateResult = dcm.detectUpdate(
+      'Harry enjoys hiking on weekends',
+      ['Project uses PNPM workspaces', 'User likes dark mode'],
+    );
+    check('detectUpdate returns false for unrelated', !noUpdateResult.isUpdate);
+
+    // --- detectUpdate handles empty memories ---
+    const emptyUpdate = dcm.detectUpdate('Something new', []);
+    check('detectUpdate handles empty memories', !emptyUpdate.isUpdate);
+
+    // --- needsDream returns true when no previous dream ---
+    check('needsDream true when never dreamed', dcm.needsDream('conv-1', new Date().toISOString()));
+
+    // --- needsDream returns false after dreaming ---
+    // We need to simulate a dream having occurred by accessing the internal state
+    // We'll just check the getLastDreamAt path instead
+    check('getLastDreamAt null initially', dcm.getLastDreamAt('conv-1') === null);
+
+    // --- parseDreamResponse detects updates via existing memories ---
+    const updateCandidates = dcm.parseDreamResponse(
+      '[BASTION:MEMORY]{"content":"Project uses PNPM workspaces and Biome","category":"fact","reason":"updated info"}[/BASTION:MEMORY]',
+      ['Project uses PNPM workspaces'],
+    );
+    check('update detection in parseDreamResponse', updateCandidates.length === 1);
+    check('candidate marked as update', updateCandidates[0].isUpdate);
+    check('candidate has existing content', updateCandidates[0].existingMemoryContent === 'Project uses PNPM workspaces');
+
+    // --- parseDreamResponse new memory not marked as update ---
+    const newCandidates = dcm.parseDreamResponse(
+      '[BASTION:MEMORY]{"content":"Harry likes hiking","category":"preference","reason":"new discovery"}[/BASTION:MEMORY]',
+      ['Project uses PNPM workspaces'],
+    );
+    check('new memory not marked as update', !newCandidates[0].isUpdate);
+    check('new memory has no existing content', newCandidates[0].existingMemoryContent === undefined);
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Dream Cycle Protocol Schemas
+  // -------------------------------------------------------------------
+  console.log('--- Dream Cycle Protocol Schemas ---');
+  {
+    // dream_cycle_request validation
+    check('dream_cycle_request valid', DreamCycleRequestPayloadSchema.safeParse({
+      conversationId: 'conv-123',
+      scope: 'conversation',
+    }).success);
+    check('dream_cycle_request valid scope all', DreamCycleRequestPayloadSchema.safeParse({
+      conversationId: 'conv-123',
+      scope: 'all',
+    }).success);
+    check('dream_cycle_request rejects empty conversationId', !DreamCycleRequestPayloadSchema.safeParse({
+      conversationId: '',
+      scope: 'conversation',
+    }).success);
+    check('dream_cycle_request rejects invalid scope', !DreamCycleRequestPayloadSchema.safeParse({
+      conversationId: 'conv-123',
+      scope: 'single',
+    }).success);
+
+    // dream_cycle_complete validation
+    check('dream_cycle_complete valid', DreamCycleCompletePayloadSchema.safeParse({
+      conversationId: 'conv-123',
+      candidateCount: 5,
+      tokensUsed: { input: 10000, output: 500 },
+      estimatedCost: 0.12,
+      durationMs: 3200,
+    }).success);
+    check('dream_cycle_complete rejects negative candidateCount', !DreamCycleCompletePayloadSchema.safeParse({
+      conversationId: 'conv-123',
+      candidateCount: -1,
+      tokensUsed: { input: 100, output: 50 },
+      estimatedCost: 0.01,
+      durationMs: 100,
+    }).success);
+    check('dream_cycle_complete rejects empty conversationId', !DreamCycleCompletePayloadSchema.safeParse({
+      conversationId: '',
+      candidateCount: 0,
+      tokensUsed: { input: 0, output: 0 },
+      estimatedCost: 0,
+      durationMs: 0,
+    }).success);
+
+    // Message types registered
+    check('DREAM_CYCLE_REQUEST in MESSAGE_TYPES', MESSAGE_TYPES.DREAM_CYCLE_REQUEST === 'dream_cycle_request');
+    check('DREAM_CYCLE_COMPLETE in MESSAGE_TYPES', MESSAGE_TYPES.DREAM_CYCLE_COMPLETE === 'dream_cycle_complete');
   }
   console.log();
 

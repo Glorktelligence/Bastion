@@ -24,7 +24,7 @@ bastion/
 ├── start-ai-client.mjs          # AI client startup script (wires all library code)
 ├── docs/                        # Specs, protocol docs, guides, architecture decisions
 ├── packages/
-│   ├── protocol/                # @bastion/protocol — 85 message types, schemas, constants
+│   ├── protocol/                # @bastion/protocol — 87 message types, schemas, constants
 │   ├── crypto/                  # @bastion/crypto — E2E encryption, hashing, key management
 │   ├── relay/                   # @bastion/relay — WSS server, routing, audit, quarantine, admin
 │   ├── client-human/            # @bastion/client-human — Desktop (Tauri + SvelteKit)

@@ -317,6 +317,7 @@ function relativeTime(iso) {
 			<a href="/tasks" class="nav-item" class:active={page.url.pathname === '/tasks'}>Tasks</a>
 			<a href="/challenges" class="nav-item" class:active={page.url.pathname === '/challenges'}>Challenges</a>
 			<a href="/audit" class="nav-item" class:active={page.url.pathname === '/audit'}>Audit Log</a>
+			<a href="/dreams" class="nav-item" class:active={page.url.pathname === '/dreams'}>Dreams</a>
 			<a href="/settings" class="nav-item" class:active={page.url.pathname === '/settings'}>Settings</a>
 
 			{#if extensionPages.length > 0}

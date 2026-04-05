@@ -131,3 +131,7 @@ export type {
 // Extension Dispatcher
 export { ExtensionDispatcher } from './extension-dispatcher.js';
 export type { ExtensionContext, ExtensionHandler } from './extension-dispatcher.js';
+
+// Dream Cycle Manager (Layer 6)
+export { DreamCycleManager } from './dream-cycle-manager.js';
+export type { DreamCycleConfig, DreamCycleResult, MemoryCandidate } from './dream-cycle-manager.js';

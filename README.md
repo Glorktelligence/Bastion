@@ -186,7 +186,7 @@ pnpm lint    # Biome linting
 
 ## Protocol
 
-Bastion defines 85 message types across structured categories:
+Bastion defines 87 message types across structured categories:
 
 - **Core** (9): `task`, `conversation`, `challenge`, `confirmation`, `denial`, `status`, `result`, `error`, `heartbeat`
 - **File Transfer** (3): `file_manifest`, `file_offer`, `file_request`
@@ -232,7 +232,7 @@ Bastion includes deployment templates for self-hosted environments:
 
 - [Getting Started Guide](docs/guides/getting-started.md) — Clone to running local instance walkthrough
 - [Deployment Guide](docs/guides/deployment.md) — Self-hosting with TLS, VLANs, and AI VM isolation
-- [Protocol Specification](docs/protocol/bastion-protocol-v0.5.0.md) — All 85 message types, envelope structure, E2E encryption, safety evaluation
+- [Protocol Specification](docs/protocol/bastion-protocol-v0.5.0.md) — All 87 message types, envelope structure, E2E encryption, safety evaluation
 - [Core Specification](docs/spec/Project-Bastion-Spec-v0.1.0.docx) — The full product specification
 - [Supplementary Specification](docs/spec/bastion-supplementary-spec.md) — Architectural decisions, session lifecycle, error codes, GDPR considerations
 - [Project Structure](docs/spec/bastion-project-structure.md) — Package layout and task breakdown
@@ -300,7 +300,7 @@ These cannot be disabled, bypassed, or configured away:
 
 **Pre-Release (v0.8.1).** The protocol, crypto layer, relay, AI client, desktop client, admin UI, adapter template, and infrastructure templates are all implemented and tested across 2,974+ passing tests in 14 test files. All components run as a single `bastion` user with VM-level isolation providing security separation.
 
-The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. E2E encryption is active with interoperable tweetnacl (browser) and libsodium (Node.js) implementations. The protocol is stable at 85 message types with 48 error codes across 8 categories. Three official Anthropic adapters — Sonnet 4.6 (1M context), Haiku 4.5 (200k context), Opus 4.6 (1M context) — provide role-based model selection. The AI native toolbox allows Claude to issue challenges during vulnerable hours and propose memories. GDPR Articles 17 (Right to Erasure) and 20 (Data Portability) are fully implemented. The CLI tool (`bastion doctor|install|update|restart|status|audit|migrate`) provides one-stop deployment and management. The reference implementation works.
+The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. E2E encryption is active with interoperable tweetnacl (browser) and libsodium (Node.js) implementations. The protocol is stable at 87 message types with 48 error codes across 8 categories. Three official Anthropic adapters — Sonnet 4.6 (1M context), Haiku 4.5 (200k context), Opus 4.6 (1M context) — provide role-based model selection. The AI native toolbox allows Claude to issue challenges during vulnerable hours and propose memories. GDPR Articles 17 (Right to Erasure) and 20 (Data Portability) are fully implemented. The CLI tool (`bastion doctor|install|update|restart|status|audit|migrate`) provides one-stop deployment and management. The reference implementation works.
 
 > **Mobile client note:** The React Native mobile client (`packages/client-human-mobile`) was built during the initial development phases and builds successfully, but has not been updated with Layer 2-4 features, the setup wizard, or Challenge Me More. Mobile client modernisation is on the roadmap.
 

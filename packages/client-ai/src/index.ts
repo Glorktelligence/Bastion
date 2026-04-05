@@ -68,6 +68,7 @@ export {
   BastionImportAdapter,
   ImportExecutor,
   ExtensionDispatcher,
+  DreamCycleManager,
 } from './provider/index.js';
 export type {
   ToolRegistry,
@@ -144,6 +145,9 @@ export type {
   UsageTrackerConfig,
   ExtensionContext,
   ExtensionHandler,
+  DreamCycleConfig,
+  DreamCycleResult,
+  MemoryCandidate,
 } from './provider/index.js';
 
 // ---------------------------------------------------------------------------

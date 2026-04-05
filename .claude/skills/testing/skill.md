@@ -25,7 +25,7 @@ pnpm build && pnpm test
 
 | # | File | Tests | Package | Scope |
 |---|------|-------|---------|-------|
-| 1 | packages/tests/trace-test.mjs | 266 | @bastion/protocol | Schema validation for all 85 message types |
+| 1 | packages/tests/trace-test.mjs | 266 | @bastion/protocol | Schema validation for all 87 message types |
 | 2 | packages/tests/integration-test.mjs | 82 | Cross-package | Full message round-trip (human→relay→AI→relay→human) |
 | 3 | packages/tests/file-transfer-integration-test.mjs | 105 | Cross-package | File transfer pipeline with quarantine + hash verification |
 | 4 | packages/crypto/trace-test.mjs | 134 | @bastion/crypto | E2E encryption, key exchange, hashing, audit chain |
@@ -51,7 +51,7 @@ pnpm build && pnpm test
 - Serialisation round-trips preserve data
 - Integrity hashes detect tampering
 - All 48 error codes have valid BASTION-CXXX format
-- All 85 message types have schemas
+- All 87 message types have schemas
 
 ### Safety Engine (Critical)
 - Layer 1 denies every blocked category

@@ -124,6 +124,8 @@ export type {
   AiChallengePayload,
   AiChallengeResponsePayload,
   AiMemoryProposalPayload,
+  DreamCycleRequestPayload,
+  DreamCycleCompletePayload,
   MessagePayload,
 } from './types/messages.js';
 
@@ -305,6 +307,8 @@ export {
   AiChallengePayloadSchema,
   AiChallengeResponsePayloadSchema,
   AiMemoryProposalPayloadSchema,
+  DreamCycleRequestPayloadSchema,
+  DreamCycleCompletePayloadSchema,
   PAYLOAD_SCHEMAS,
 } from './schemas/message.schema.js';
 

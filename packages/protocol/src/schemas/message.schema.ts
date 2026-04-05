@@ -808,6 +808,24 @@ export const AiMemoryProposalPayloadSchema = z.object({
   conversationId: z.string().min(1),
 });
 
+// --- Dream Cycle (Layer 6) ---
+
+export const DreamCycleRequestPayloadSchema = z.object({
+  conversationId: z.string().min(1),
+  scope: z.enum(['conversation', 'all']),
+});
+
+export const DreamCycleCompletePayloadSchema = z.object({
+  conversationId: z.string().min(1),
+  candidateCount: z.number().int().min(0),
+  tokensUsed: z.object({
+    input: z.number().int().min(0),
+    output: z.number().int().min(0),
+  }),
+  estimatedCost: z.number().min(0),
+  durationMs: z.number().int().min(0),
+});
+
 // ---------------------------------------------------------------------------
 // Payload schema lookup map (message type → Zod schema)
 // ---------------------------------------------------------------------------
@@ -904,4 +922,6 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.AI_CHALLENGE]: AiChallengePayloadSchema,
   [MESSAGE_TYPES.AI_CHALLENGE_RESPONSE]: AiChallengeResponsePayloadSchema,
   [MESSAGE_TYPES.AI_MEMORY_PROPOSAL]: AiMemoryProposalPayloadSchema,
+  [MESSAGE_TYPES.DREAM_CYCLE_REQUEST]: DreamCycleRequestPayloadSchema,
+  [MESSAGE_TYPES.DREAM_CYCLE_COMPLETE]: DreamCycleCompletePayloadSchema,
 } as const;

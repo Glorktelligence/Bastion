@@ -319,6 +319,8 @@ function validPayloads() {
     ai_challenge: { challengeId: 'c-1', reason: 'late night deletion', severity: 'critical', suggestedAction: 'sleep on it', waitSeconds: 30, context: { challengeHoursActive: true, requestedAction: 'delete data' } },
     ai_challenge_response: { challengeId: 'c-1', decision: 'accept' },
     ai_memory_proposal: { proposalId: 'p-1', content: 'User prefers TypeScript', category: 'preference', reason: 'stated', sourceMessageId: 'm-1', conversationId: 'conv-1' },
+    dream_cycle_request: { conversationId: 'conv-1', scope: 'conversation' },
+    dream_cycle_complete: { conversationId: 'conv-1', candidateCount: 3, tokensUsed: { input: 10000, output: 500 }, estimatedCost: 0.12, durationMs: 3200 },
   };
 }
 
@@ -410,7 +412,7 @@ async function run() {
       }
     }
     check('all 85 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 85 entries', ALL_MESSAGE_TYPES.length === 85);
+    check('ALL_MESSAGE_TYPES has 87 entries', ALL_MESSAGE_TYPES.length === 87);
   }
   console.log();
 
@@ -446,8 +448,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 85 entries', typeKeys.length === 85);
-    check('PAYLOAD_SCHEMAS has 85 entries', Object.keys(PAYLOAD_SCHEMAS).length === 85);
+    check('MESSAGE_TYPES has 87 entries', typeKeys.length === 87);
+    check('PAYLOAD_SCHEMAS has 87 entries', Object.keys(PAYLOAD_SCHEMAS).length === 87);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
