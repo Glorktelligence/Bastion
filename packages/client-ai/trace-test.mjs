@@ -2433,6 +2433,88 @@ async function run() {
   }
 
   // -------------------------------------------------------------------
+  // Session Awareness (per-message temporal injection)
+  // -------------------------------------------------------------------
+
+  console.log('\n--- Session Awareness ---');
+  {
+    // Session awareness always present (no challenge manager needed)
+    const cmBasic = new ConversationManager({
+      tokenBudget: 100000,
+      maxContextTokens: 200000,
+      systemBudget: 5000,
+    });
+    const basicPrompt = cmBasic.getSystemPrompt();
+    check('session awareness present without challenge manager', basicPrompt.includes('Session Awareness'));
+    check('session awareness has session start', basicPrompt.includes('Session started:'));
+    check('session awareness has message count', basicPrompt.includes('Messages this session: 0'));
+    check('session awareness has context count', basicPrompt.includes('Messages in context: 0'));
+
+    // No last human/AI message initially
+    check('no last human message initially', !basicPrompt.includes('Last human message:'));
+    check('no last AI response initially', !basicPrompt.includes('Last AI response:'));
+
+    // Session message count increments on addMessage
+    cmBasic.addUserMessage('Hello');
+    const afterUser = cmBasic.getSystemPrompt();
+    check('session count increments on user message', afterUser.includes('Messages this session: 1'));
+    check('last human message appears after user msg', afterUser.includes('Last human message:'));
+    check('no last AI response after only user msg', !afterUser.includes('Last AI response:'));
+    check('messages in context is 1', afterUser.includes('Messages in context: 1'));
+
+    cmBasic.addAssistantMessage('Hi there');
+    const afterAssistant = cmBasic.getSystemPrompt();
+    check('session count increments on assistant message', afterAssistant.includes('Messages this session: 2'));
+    check('last AI response appears after assistant msg', afterAssistant.includes('Last AI response:'));
+    check('messages in context is 2', afterAssistant.includes('Messages in context: 2'));
+
+    // Multiple messages
+    cmBasic.addUserMessage('How are you?');
+    cmBasic.addAssistantMessage('I am fine.');
+    cmBasic.addUserMessage('Great.');
+    const afterMultiple = cmBasic.getSystemPrompt();
+    check('session count after 5 messages', afterMultiple.includes('Messages this session: 5'));
+    check('messages in context is 5', afterMultiple.includes('Messages in context: 5'));
+
+    // System zone component includes Session Awareness
+    const report = cmBasic.getPromptBudgetReport();
+    const systemZone = report.zones.find(z => z.name === 'system');
+    check('system zone has Session Awareness component', systemZone.components.includes('Session Awareness'));
+
+    // Session awareness coexists with temporal context
+    const tmpPath2 = (await import('node:path')).join((await import('node:os')).tmpdir(), `bastion-sa-${Date.now()}.json`);
+    const testCm2 = new ChallengeManager(tmpPath2);
+    const cmBoth = new ConversationManager({
+      tokenBudget: 100000,
+      maxContextTokens: 200000,
+      systemBudget: 5000,
+      challengeManager: testCm2,
+    });
+    const bothPrompt = cmBoth.getSystemPrompt();
+    check('temporal context and session awareness coexist', bothPrompt.includes('Temporal Context') && bothPrompt.includes('Session Awareness'));
+
+    // formatTimeDiff correctness — test via prompt output timing
+    // (the session just started so duration should be "0s ago" or a small number)
+    const cmFresh = new ConversationManager({
+      tokenBudget: 100000,
+      maxContextTokens: 200000,
+      systemBudget: 5000,
+    });
+    const freshPrompt = cmFresh.getSystemPrompt();
+    // Session just started, so we expect "0s ago" or "1s ago" etc.
+    const sessionMatch = freshPrompt.match(/Session started: .+ \((\d+)s ago\)/);
+    check('fresh session shows seconds duration', sessionMatch !== null, 'Expected session duration in seconds');
+
+    // Verify formatTimeDiff logic by checking time ranges
+    // We can't easily test hours/days without mocking time, but we can verify the format
+    // by checking that user message timing shows a small value
+    cmFresh.addUserMessage('test');
+    const timedPrompt = cmFresh.getSystemPrompt();
+    const humanMatch = timedPrompt.match(/Last human message: (\d+)s ago/);
+    check('last human message shows seconds for recent msg', humanMatch !== null, 'Expected human msg time in seconds');
+  }
+
+  // -------------------------------------------------------------------
   // Action Block Parser
   // -------------------------------------------------------------------
 

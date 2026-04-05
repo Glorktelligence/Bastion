@@ -216,6 +216,12 @@ export class ConversationManager {
   private userContext: string;
   private operatorContext: string;
 
+  // Session temporal awareness
+  private readonly sessionStartedAt: Date = new Date();
+  private lastHumanMessageAt: Date | null = null;
+  private lastAiMessageAt: Date | null = null;
+  private sessionMessageCount = 0;
+
   constructor(config?: ConversationManagerConfig) {
     this.tokenBudget = config?.tokenBudget ?? DEFAULT_TOKEN_BUDGET;
     this.userContextPath = config?.userContextPath ?? DEFAULT_USER_CONTEXT_PATH;
@@ -242,11 +248,15 @@ export class ConversationManager {
 
   addUserMessage(content: string): void {
     this.messages.push({ role: 'user', content });
+    this.sessionMessageCount++;
+    this.lastHumanMessageAt = new Date();
     this.enforceTokenBudget();
   }
 
   addAssistantMessage(content: string): void {
     this.messages.push({ role: 'assistant', content });
+    this.sessionMessageCount++;
+    this.lastAiMessageAt = new Date();
     this.enforceTokenBudget();
   }
 
@@ -434,6 +444,27 @@ export class ConversationManager {
       components.push('Temporal Context');
     }
 
+    // Session awareness (always present)
+    {
+      const now = new Date();
+      const sessionDuration = this.formatTimeDiff(this.sessionStartedAt, now);
+      let awareness = '--- Session Awareness ---';
+      awareness += `\nSession started: ${this.sessionStartedAt.toISOString()} (${sessionDuration})`;
+      awareness += `\nMessages this session: ${this.sessionMessageCount}`;
+
+      if (this.lastHumanMessageAt) {
+        awareness += `\nLast human message: ${this.formatTimeDiff(this.lastHumanMessageAt, now)}`;
+      }
+      if (this.lastAiMessageAt) {
+        awareness += `\nLast AI response: ${this.formatTimeDiff(this.lastAiMessageAt, now)}`;
+      }
+
+      awareness += `\nMessages in context: ${this.messages.length}`;
+
+      parts.push(awareness);
+      components.push('Session Awareness');
+    }
+
     let content = parts.join('\n\n');
     let truncated = false;
     const tokens = estimateTokens(content);
@@ -613,6 +644,18 @@ export class ConversationManager {
   // -----------------------------------------------------------------------
   // Internal
   // -----------------------------------------------------------------------
+
+  private formatTimeDiff(from: Date, to: Date): string {
+    const diffMs = to.getTime() - from.getTime();
+    const seconds = Math.floor(diffMs / 1000);
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ${seconds % 60}s ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ${minutes % 60}m ago`;
+    const days = Math.floor(hours / 24);
+    return `${days} day${days > 1 ? 's' : ''} ago`;
+  }
 
   private enforceTokenBudget(): void {
     while (this.estimateTokenCount() > this.tokenBudget && this.messages.length > MIN_PRESERVED_MESSAGES) {
