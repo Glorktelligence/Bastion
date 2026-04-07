@@ -8,6 +8,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-3178C6.svg)](https://www.typescriptlang.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Status](https://img.shields.io/badge/Status-Pre--Release-yellow.svg)](#status)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord)](https://discord.gg/Z6bApdTFDw)
 
 **A privacy-first secure messaging protocol for structured Human-AI communication.**
 
