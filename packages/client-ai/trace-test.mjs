@@ -3292,7 +3292,11 @@ async function run() {
         throw new Error('Module initialisation failed');
       `);
       const d = new ExtensionDispatcher();
+      // Suppress console.error — node --test treats stderr as failure
+      const origError = console.error;
+      console.error = () => {};
       const count = await loadExtensionHandlers(d, {}, dir);
+      console.error = origError;
       check('bad import → 0 loaded (no crash)', count === 0);
       check('bad import → 0 handlers', d.size === 0);
     }
@@ -3306,7 +3310,11 @@ async function run() {
         export function somethingElse() { return 42; }
       `);
       const d = new ExtensionDispatcher();
+      // Suppress console.log warning — node --test treats stderr as failure
+      const origLog = console.log;
+      console.log = () => {};
       const count = await loadExtensionHandlers(d, {}, dir);
+      console.log = origLog;
       check('missing registerHandlers → 0 loaded', count === 0);
       check('missing registerHandlers → 0 handlers', d.size === 0);
     }
@@ -3355,7 +3363,11 @@ async function run() {
     // Test 9: Non-existent directory → 0 loaded (graceful)
     {
       const d = new ExtensionDispatcher();
+      // Suppress console.log warning — node --test treats stderr as failure
+      const origLog = console.log;
+      console.log = () => {};
       const count = await loadExtensionHandlers(d, {}, join(testBase, 'does-not-exist-' + randomUUID()));
+      console.log = origLog;
       check('non-existent dir → 0 loaded', count === 0);
     }
 
