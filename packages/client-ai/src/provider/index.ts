@@ -94,6 +94,15 @@ export type { ProjectFile, ProjectConfig, ProjectStoreConfig, ProjectSaveResult 
 export { SkillStore } from './skill-store.js';
 export type { SkillManifest, LoadedSkill, SkillStoreConfig, SkillMode } from './skill-store.js';
 
+// Skills Manager
+export { SkillsManager } from './skills-manager.js';
+export type {
+  SkillScanResult,
+  SkillScanCheck,
+  PendingSkill,
+  SkillsManagerConfig,
+} from './skills-manager.js';
+
 // Budget Guard
 export { BudgetGuard } from './budget-guard.js';
 export type {

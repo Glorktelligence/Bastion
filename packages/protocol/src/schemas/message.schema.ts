@@ -363,6 +363,21 @@ export const SkillListResponsePayloadSchema = z.object({
   totalEstimatedTokens: z.number().int().nonnegative(),
 });
 
+export const SkillScanResultPayloadSchema = z.object({
+  skillId: z.string().min(1),
+  passed: z.boolean(),
+  checks: z.array(
+    z.object({
+      name: z.string().min(1),
+      passed: z.boolean(),
+      detail: z.string().optional(),
+    }),
+  ),
+  hash: z.string().min(1),
+  fileSize: z.number().int().nonnegative(),
+  action: z.literal('pending_review'),
+});
+
 export const ProjectSyncPayloadSchema = z.object({
   path: z.string().min(1),
   content: z.string(),
@@ -890,6 +905,7 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.EXTENSION_QUERY]: ExtensionQueryPayloadSchema,
   [MESSAGE_TYPES.EXTENSION_LIST_RESPONSE]: ExtensionListResponsePayloadSchema,
   [MESSAGE_TYPES.SKILL_LIST_RESPONSE]: SkillListResponsePayloadSchema,
+  [MESSAGE_TYPES.SKILL_SCAN_RESULT]: SkillScanResultPayloadSchema,
   [MESSAGE_TYPES.PROJECT_SYNC]: ProjectSyncPayloadSchema,
   [MESSAGE_TYPES.PROJECT_SYNC_ACK]: ProjectSyncAckPayloadSchema,
   [MESSAGE_TYPES.PROJECT_LIST]: ProjectListPayloadSchema,

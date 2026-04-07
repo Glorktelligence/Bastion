@@ -230,6 +230,72 @@ export class SkillStore {
   }
 
   /**
+   * Hot-reload a skill after manager approval. Only callable when locked
+   * (normal registration is blocked, but manager-approved reloads are allowed).
+   * Requires 'admin_approved' authority flag.
+   *
+   * The manifest defines the skill metadata; content is the raw markdown.
+   * Existing skills with the same ID are replaced (update path).
+   */
+  hotReload(
+    skillId: string,
+    content: string,
+    authority: string,
+    manifest?: Partial<SkillManifest>,
+  ): { ok: boolean; error?: string } {
+    if (authority !== 'admin_approved') {
+      return { ok: false, error: 'Hot reload requires admin_approved authority' };
+    }
+    if (!this.locked) {
+      return { ok: false, error: 'Hot reload only works when store is locked' };
+    }
+
+    // Content security scanning
+    const scanResult = scanContent(content);
+    if (scanResult) {
+      return { ok: false, error: `Content scanning failed: ${scanResult}` };
+    }
+
+    // Size limit
+    if (content.length > this.maxContentSize) {
+      return { ok: false, error: `Content too large: ${content.length} bytes (max ${this.maxContentSize})` };
+    }
+
+    // Build manifest from provided metadata or defaults
+    const existingEntry = this.skills.get(skillId);
+    const finalManifest: SkillManifest = {
+      id: skillId,
+      name: manifest?.name ?? existingEntry?.manifest.name ?? skillId,
+      description: manifest?.description ?? existingEntry?.manifest.description ?? '',
+      version: manifest?.version ?? existingEntry?.manifest.version ?? '1.0.0',
+      author: manifest?.author ?? existingEntry?.manifest.author ?? 'hot-reload',
+      triggers: manifest?.triggers ?? existingEntry?.manifest.triggers ?? [skillId],
+      triggerPatterns: manifest?.triggerPatterns ?? existingEntry?.manifest.triggerPatterns,
+      modes: manifest?.modes ?? existingEntry?.manifest.modes ?? ['conversation', 'task'],
+      alwaysLoad: manifest?.alwaysLoad ?? existingEntry?.manifest.alwaysLoad ?? false,
+      estimatedTokens: manifest?.estimatedTokens ?? Math.ceil(content.length / 4),
+      contentFile: manifest?.contentFile ?? existingEntry?.manifest.contentFile ?? `${skillId}.md`,
+    };
+
+    // Compile regex patterns
+    const patterns: RegExp[] = [];
+    if (finalManifest.triggerPatterns) {
+      for (const pat of finalManifest.triggerPatterns) {
+        try {
+          patterns.push(new RegExp(pat, 'i'));
+        } catch {
+          return { ok: false, error: `Invalid trigger pattern: ${pat}` };
+        }
+      }
+    }
+    this.compiledPatterns.set(skillId, patterns);
+
+    // Register/update
+    this.skills.set(skillId, { manifest: finalManifest, content, basePath: '' });
+    return { ok: true };
+  }
+
+  /**
    * Get a compact index of all available skills (~50 tokens).
    * Always included in the system prompt so the AI knows what skills exist.
    */

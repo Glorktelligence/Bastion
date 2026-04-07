@@ -27,6 +27,7 @@ import {
   CompactionManager,
   AdapterRegistry,
   SkillStore,
+  SkillsManager,
   DataExporter,
   DataEraser,
   ImportRegistry,
@@ -266,6 +267,22 @@ if (skillLoadResult.errors.length > 0) {
 }
 skillStore.lock();
 console.log(`[✓] Skill registry locked (${skillStore.skillCount} skills, ${skillStore.triggerCount} triggers)`);
+
+// Skills Manager — sole authority for skill registry edits post-startup
+const QUARANTINE_DIR = process.env.BASTION_SKILLS_QUARANTINE || './skills-quarantine';
+const skillsManager = new SkillsManager({
+  quarantineDir: QUARANTINE_DIR,
+  skillStore,
+  onViolation: (count, detail) => {
+    console.error(`[!] Skill violation #${count}: ${detail}`);
+  },
+  onShutdown: (reason) => {
+    console.error(`[!!!] Shutdown triggered by skill violation: ${reason}`);
+    process.exit(1);
+  },
+});
+skillsManager.initializeKnownHashes(SKILLS_DIR);
+console.log(`[✓] Skills manager initialised (quarantine: ${QUARANTINE_DIR})`);
 
 // ---------------------------------------------------------------------------
 // Challenge Me More — temporal governance (must be created before ConversationManager)
@@ -1037,6 +1054,36 @@ client.on('authenticated', async (jwt, expiresAt) => {
   budgetGuard.resetSession();
   sendBudgetStatus();
   sendUsageStatus();
+
+  // Start periodic skill directory watch
+  const SKILL_WATCH_INTERVAL = parseIntEnv('BASTION_SKILL_WATCH_INTERVAL', 60, 10, 3600) * 1000;
+  setInterval(() => {
+    try {
+      const newSkills = skillsManager.checkForNewSkills(SKILLS_DIR);
+      for (const skillId of newSkills) {
+        const pending = skillsManager.getPendingSkills().find(p => p.skillId === skillId);
+        if (pending) {
+          sendSecure({
+            type: 'skill_scan_result',
+            id: randomUUID(),
+            timestamp: new Date().toISOString(),
+            sender: IDENTITY,
+            payload: {
+              skillId,
+              passed: pending.scanResult.passed,
+              checks: pending.scanResult.checks,
+              hash: pending.scanResult.hash,
+              fileSize: pending.scanResult.fileSize,
+              action: 'pending_review',
+            },
+          });
+        }
+      }
+    } catch (err) {
+      console.error(`[!] Skill watch error: ${err.message}`);
+    }
+  }, SKILL_WATCH_INTERVAL);
+  console.log(`[✓] Skill directory watch active (interval: ${SKILL_WATCH_INTERVAL / 1000}s)`);
 
   console.log('[★] Safety engine active — 3-layer evaluation armed');
   console.log('[★] Budget Guard active — immutable enforcement armed');

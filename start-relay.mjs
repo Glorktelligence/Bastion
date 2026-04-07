@@ -625,7 +625,7 @@ const SENDER_TYPE_RESTRICTIONS = {
   challenge_status: 'ai', challenge_config_ack: 'ai',
   memory_decision: 'any', memory_list_response: 'ai',
   project_sync_ack: 'ai', project_list_response: 'ai', project_config_ack: 'ai',
-  skill_list_response: 'ai',
+  skill_list_response: 'ai', skill_scan_result: 'ai',
   tool_registry_sync: 'ai', tool_request: 'ai', tool_result: 'ai', tool_alert: 'ai',
   conversation_list_response: 'ai', conversation_create_ack: 'ai', conversation_switch_ack: 'ai',
   conversation_history_response: 'ai', conversation_compact_ack: 'ai', conversation_stream: 'ai',
@@ -1023,8 +1023,8 @@ relay.on('message', async (data, info) => {
     return;
   }
 
-  // ----- skill_list_response: forward from AI to paired human client -----
-  if (msg.type === 'skill_list_response') {
+  // ----- skill messages: forward from AI to paired human client -----
+  if (msg.type === 'skill_list_response' || msg.type === 'skill_scan_result') {
     const peerId = router.getPeer(connId);
     if (peerId) {
       relay.send(peerId, data);

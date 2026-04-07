@@ -403,6 +403,24 @@ export interface ToolRegisterPayload {
 }
 
 // ---------------------------------------------------------------------------
+// Skills System (Layer 5)
+// ---------------------------------------------------------------------------
+
+/** AI → Human: Skill scan result from quarantine pipeline. */
+export interface SkillScanResultPayload {
+  readonly skillId: string;
+  readonly passed: boolean;
+  readonly checks: readonly {
+    readonly name: string;
+    readonly passed: boolean;
+    readonly detail?: string;
+  }[];
+  readonly hash: string;
+  readonly fileSize: number;
+  readonly action: 'pending_review';
+}
+
+// ---------------------------------------------------------------------------
 // Challenge Me More (Temporal Governance)
 // ---------------------------------------------------------------------------
 
@@ -1014,4 +1032,5 @@ export type MessagePayload =
   | { type: 'ai_challenge_response'; payload: AiChallengeResponsePayload }
   | { type: 'ai_memory_proposal'; payload: AiMemoryProposalPayload }
   | { type: 'dream_cycle_request'; payload: DreamCycleRequestPayload }
-  | { type: 'dream_cycle_complete'; payload: DreamCycleCompletePayload };
+  | { type: 'dream_cycle_complete'; payload: DreamCycleCompletePayload }
+  | { type: 'skill_scan_result'; payload: SkillScanResultPayload };
