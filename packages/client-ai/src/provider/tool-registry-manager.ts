@@ -54,6 +54,15 @@ export interface SessionTrust {
 // ToolRegistryManager
 // ---------------------------------------------------------------------------
 
+export interface RegistryViolation {
+  readonly type: 'REGISTRY_VIOLATION';
+  readonly action: string;
+  readonly source: string;
+  readonly count: number;
+  readonly timestamp: string;
+  readonly escalation: 'warn' | 'alert' | 'shutdown';
+}
+
 export class ToolRegistryManager {
   private providers: Map<string, ToolProvider> = new Map();
   private allTools: Map<string, RegisteredTool> = new Map();
@@ -62,6 +71,9 @@ export class ToolRegistryManager {
   /** Active conversation ID for trust lookups. */
   private activeConversationId: string | null = null;
   private _registryHash = '';
+  private locked = false;
+  private lockedAt: string | null = null;
+  private violationCount = 0;
 
   /** Current registry hash (SHA-256 of serialised registry). */
   get registryHash(): string {
@@ -78,9 +90,92 @@ export class ToolRegistryManager {
     return this.providers.size;
   }
 
+  /** Whether the registry is locked (sole authority mode). */
+  get isLocked(): boolean {
+    return this.locked;
+  }
+
+  /** Timestamp when the registry was locked, or null if unlocked. */
+  get lockTimestamp(): string | null {
+    return this.lockedAt;
+  }
+
+  /**
+   * Lock the registry. After locking, only authorised methods can modify it.
+   * Called once after initial registry sync completes.
+   */
+  lock(): void {
+    this.locked = true;
+    this.lockedAt = new Date().toISOString();
+  }
+
+  /**
+   * Add a tool to the registry (human-approved hot reload).
+   * Only works after lock. Requires explicit authority flag.
+   * Returns false if tool already exists or registry is not locked.
+   */
+  addTool(providerId: string, tool: RegisteredTool, _authority: 'admin_approved'): boolean {
+    if (!this.locked) return false;
+    if (this.allTools.has(tool.fullId)) return false;
+    this.allTools.set(tool.fullId, tool);
+    // Update provider's tool list if provider exists
+    const existing = this.providers.get(providerId);
+    if (existing) {
+      this.providers.set(providerId, {
+        ...existing,
+        tools: [...existing.tools, tool],
+      });
+    }
+    this._registryHash = this.computeHash();
+    return true;
+  }
+
+  /**
+   * Remove a tool from the registry (admin action).
+   * Only works after lock. Requires explicit authority flag.
+   */
+  removeTool(fullId: string, _authority: 'admin_approved'): boolean {
+    if (!this.locked) return false;
+    const tool = this.allTools.get(fullId);
+    const result = this.allTools.delete(fullId);
+    if (result && tool) {
+      // Update provider's tool list
+      const provider = this.providers.get(tool.providerId);
+      if (provider) {
+        this.providers.set(tool.providerId, {
+          ...provider,
+          tools: provider.tools.filter((t) => t.fullId !== fullId),
+        });
+      }
+      this._registryHash = this.computeHash();
+    }
+    return result;
+  }
+
+  /**
+   * Report a registry modification attempt outside authorised methods.
+   * Returns a violation record for audit logging.
+   */
+  reportViolation(attemptedAction: string, source: string): RegistryViolation {
+    this.violationCount++;
+    return {
+      type: 'REGISTRY_VIOLATION',
+      action: attemptedAction,
+      source,
+      count: this.violationCount,
+      timestamp: new Date().toISOString(),
+      escalation: this.violationCount >= 3 ? 'shutdown' : this.violationCount >= 2 ? 'alert' : 'warn',
+    };
+  }
+
   /**
    * Load registry from a tool_registry_sync payload.
    * Replaces any existing registry.
+   */
+  /**
+   * Load registry from a tool_registry_sync payload.
+   * Replaces any existing registry.
+   * Rejected when registry is locked — use addTool/removeTool instead.
    */
   loadFromSync(payload: {
     providers: readonly {
@@ -99,6 +194,7 @@ export class ToolRegistryManager {
     }[];
     registryHash: string;
   }): void {
+    if (this.locked) return; // Reject when locked
     this.providers.clear();
     this.allTools.clear();
 

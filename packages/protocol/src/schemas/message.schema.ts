@@ -271,14 +271,33 @@ export const ToolRevokePayloadSchema = z.object({
 });
 
 export const ToolAlertPayloadSchema = z.object({
-  toolId: z.string().min(1),
-  alertType: z.enum(['new_tool', 'lost_tool', 'changed_tool']),
-  details: z.string(),
+  alertType: z.enum(['new_tool_detected', 'lost_tool', 'changed_tool']),
+  severity: z.enum(['info', 'warning', 'critical']),
+  toolName: z.string().min(1),
+  providerId: z.string().min(1),
+  fullId: z.string().min(1),
+  source: z.enum(['mcp', 'provider']),
+  detectedAt: z.string().min(1),
+  description: z.string(),
+  message: z.string().min(1),
 });
 
 export const ToolAlertResponsePayloadSchema = z.object({
   toolId: z.string().min(1),
   decision: z.enum(['accept', 'decline']),
+});
+
+export const ToolRegisterPayloadSchema = z.object({
+  providerId: z.string().min(1),
+  tool: z.object({
+    name: z.string().min(1),
+    description: z.string(),
+    category: z.enum(['read', 'write', 'destructive']),
+    readOnly: z.boolean(),
+    dangerous: z.boolean(),
+    modes: z.array(z.enum(['conversation', 'task'])),
+  }),
+  action: z.enum(['approve', 'reject']),
 });
 
 // Challenge Me More schemas
@@ -887,6 +906,7 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.TOOL_REVOKE]: ToolRevokePayloadSchema,
   [MESSAGE_TYPES.TOOL_ALERT]: ToolAlertPayloadSchema,
   [MESSAGE_TYPES.TOOL_ALERT_RESPONSE]: ToolAlertResponsePayloadSchema,
+  [MESSAGE_TYPES.TOOL_REGISTER]: ToolRegisterPayloadSchema,
   [MESSAGE_TYPES.CHALLENGE_STATUS]: ChallengeStatusPayloadSchema,
   [MESSAGE_TYPES.CHALLENGE_CONFIG]: ChallengeConfigPayloadSchema,
   [MESSAGE_TYPES.CHALLENGE_CONFIG_ACK]: ChallengeConfigAckPayloadSchema,

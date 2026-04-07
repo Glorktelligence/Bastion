@@ -21,6 +21,7 @@ import {
   validatePath,
   scanContent,
   ToolRegistryManager,
+  ToolUpstreamMonitor,
   ChallengeManager,
   BudgetGuard,
   AdapterRegistry,
@@ -1841,6 +1842,246 @@ async function run() {
     // Compute hash
     const hash = trm.computeHash();
     check('computeHash non-empty', hash.length > 0);
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: ToolRegistryManager — Lock & Sole Authority
+  // -------------------------------------------------------------------
+  console.log('--- Test: ToolRegistryManager — Lock & Sole Authority ---');
+  {
+    const trm = new ToolRegistryManager();
+
+    // Initial state: not locked
+    check('initially not locked', !trm.isLocked);
+    check('lockTimestamp null initially', trm.lockTimestamp === null);
+
+    // Load initial registry
+    trm.loadFromSync({
+      providers: [{
+        id: 'obsidian', name: 'Obsidian', endpoint: 'http://localhost:3000', authType: 'api_key',
+        tools: [
+          { name: 'read_note', description: 'Read a note', category: 'read', readOnly: true, dangerous: false, modes: ['conversation', 'task'] },
+          { name: 'create_note', description: 'Create a note', category: 'write', readOnly: false, dangerous: false, modes: ['task'] },
+        ],
+      }],
+      registryHash: 'testhash-lock',
+    });
+    check('loaded 2 tools before lock', trm.toolCount === 2);
+
+    // addTool before lock — should fail
+    const preLockAdd = trm.addTool('obsidian', {
+      providerId: 'obsidian', providerName: 'Obsidian', name: 'pre_lock_tool',
+      fullId: 'obsidian:pre_lock_tool', description: 'test', category: 'read',
+      readOnly: true, dangerous: false, modes: ['conversation'],
+    }, 'admin_approved');
+    check('addTool before lock returns false', preLockAdd === false);
+
+    // removeTool before lock — should fail
+    const preLockRemove = trm.removeTool('obsidian:read_note', 'admin_approved');
+    check('removeTool before lock returns false', preLockRemove === false);
+
+    // Lock the registry
+    trm.lock();
+    check('locked after lock()', trm.isLocked);
+    check('lockTimestamp set', trm.lockTimestamp !== null);
+
+    // loadFromSync after lock — should be rejected (no change)
+    const prevCount = trm.toolCount;
+    trm.loadFromSync({
+      providers: [{
+        id: 'new-provider', name: 'New', endpoint: 'http://localhost:4000', authType: 'no_auth',
+        tools: [
+          { name: 'new_tool', description: 'New', category: 'read', readOnly: true, dangerous: false, modes: ['conversation'] },
+        ],
+      }],
+      registryHash: 'newhash',
+    });
+    check('loadFromSync rejected when locked', trm.toolCount === prevCount);
+    check('registry hash unchanged after rejected sync', trm.registryHash === 'testhash-lock');
+
+    // addTool after lock — should succeed
+    const addResult = trm.addTool('obsidian', {
+      providerId: 'obsidian', providerName: 'Obsidian', name: 'hot_reload_tool',
+      fullId: 'obsidian:hot_reload_tool', description: 'Hot-reloaded tool', category: 'read',
+      readOnly: true, dangerous: false, modes: ['conversation', 'task'],
+    }, 'admin_approved');
+    check('addTool after lock returns true', addResult === true);
+    check('tool count incremented', trm.toolCount === 3);
+    check('new tool retrievable', trm.getTool('obsidian:hot_reload_tool') !== undefined);
+    check('registry hash updated after add', trm.registryHash !== 'testhash-lock');
+
+    // addTool duplicate — should fail
+    const dupResult = trm.addTool('obsidian', {
+      providerId: 'obsidian', providerName: 'Obsidian', name: 'hot_reload_tool',
+      fullId: 'obsidian:hot_reload_tool', description: 'Duplicate', category: 'read',
+      readOnly: true, dangerous: false, modes: ['conversation'],
+    }, 'admin_approved');
+    check('addTool duplicate returns false', dupResult === false);
+
+    // removeTool after lock — should succeed
+    const hashBefore = trm.registryHash;
+    const removeResult = trm.removeTool('obsidian:hot_reload_tool', 'admin_approved');
+    check('removeTool after lock returns true', removeResult === true);
+    check('tool count decremented', trm.toolCount === 2);
+    check('removed tool gone', trm.getTool('obsidian:hot_reload_tool') === undefined);
+    check('registry hash updated after remove', trm.registryHash !== hashBefore);
+
+    // removeTool nonexistent — should fail
+    const removeNonexistent = trm.removeTool('obsidian:nonexistent', 'admin_approved');
+    check('removeTool nonexistent returns false', removeNonexistent === false);
+
+    // reportViolation — escalation levels
+    const v1 = trm.reportViolation('unauthorized_add', 'mcp_provider');
+    check('violation 1 escalation=warn', v1.escalation === 'warn');
+    check('violation 1 count=1', v1.count === 1);
+    check('violation type', v1.type === 'REGISTRY_VIOLATION');
+    check('violation action', v1.action === 'unauthorized_add');
+    check('violation source', v1.source === 'mcp_provider');
+    check('violation timestamp', v1.timestamp.length > 0);
+
+    const v2 = trm.reportViolation('unauthorized_remove', 'unknown');
+    check('violation 2 escalation=alert', v2.escalation === 'alert');
+    check('violation 2 count=2', v2.count === 2);
+
+    const v3 = trm.reportViolation('unauthorized_modify', 'attacker');
+    check('violation 3 escalation=shutdown', v3.escalation === 'shutdown');
+    check('violation 3 count=3', v3.count === 3);
+
+    // Provider tool list updated after addTool
+    const trm2 = new ToolRegistryManager();
+    trm2.loadFromSync({
+      providers: [{
+        id: 'test', name: 'Test', endpoint: 'http://localhost:5000', authType: 'no_auth',
+        tools: [],
+      }],
+      registryHash: 'empty',
+    });
+    trm2.lock();
+    trm2.addTool('test', {
+      providerId: 'test', providerName: 'Test', name: 'new_tool',
+      fullId: 'test:new_tool', description: 'New', category: 'read',
+      readOnly: true, dangerous: false, modes: ['conversation'],
+    }, 'admin_approved');
+    const prov = trm2.getProvider('test');
+    check('provider tools updated after addTool', prov?.tools.length === 1);
+    check('provider tool matches', prov?.tools[0]?.name === 'new_tool');
+
+    // removeTool also updates provider
+    trm2.removeTool('test:new_tool', 'admin_approved');
+    const prov2 = trm2.getProvider('test');
+    check('provider tools updated after removeTool', prov2?.tools.length === 0);
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: ToolUpstreamMonitor
+  // -------------------------------------------------------------------
+  console.log('--- Test: ToolUpstreamMonitor ---');
+  {
+    // Create a mock McpClientAdapter
+    class MockMcpAdapter {
+      constructor(id, tools) {
+        this._providerId = id;
+        this._tools = tools;
+        this._connected = true;
+      }
+      get providerId() { return this._providerId; }
+      get connected() { return this._connected; }
+      async listTools() { return this._tools; }
+    }
+
+    // Set up registry with known tools
+    const trm = new ToolRegistryManager();
+    trm.loadFromSync({
+      providers: [{
+        id: 'mock-mcp', name: 'MockMCP', endpoint: 'http://localhost:9000', authType: 'no_auth',
+        tools: [
+          { name: 'existing_tool', description: 'Existing', category: 'read', readOnly: true, dangerous: false, modes: ['conversation'] },
+          { name: 'stable_tool', description: 'Stable', category: 'read', readOnly: true, dangerous: false, modes: ['task'] },
+        ],
+      }],
+      registryHash: 'mock-hash',
+    });
+
+    // MCP adapter returns existing_tool + NEW tool (upstream_new) but NOT stable_tool
+    const mockAdapter = new MockMcpAdapter('mock-mcp', [
+      { name: 'existing_tool', description: 'Existing tool' },
+      { name: 'upstream_new', description: 'Brand new upstream tool' },
+    ]);
+    const mcpMap = new Map();
+    mcpMap.set('mock-mcp', mockAdapter);
+
+    const violations = [];
+    const notices = [];
+
+    const monitor = new ToolUpstreamMonitor(
+      trm,
+      mcpMap,
+      (change) => violations.push(change),
+      (change) => notices.push(change),
+    );
+
+    // initializeFromRegistry captures current tools
+    monitor.initializeFromRegistry();
+    check('no pending changes initially', monitor.getPendingChanges().length === 0);
+
+    // checkProvider detects new + removed tools
+    const result = await monitor.checkProvider('mock-mcp');
+    check('checkProvider returns providerId', result.providerId === 'mock-mcp');
+    check('checkProvider detects 2 changes', result.changes.length === 2);
+
+    const newToolChange = result.changes.find(c => c.type === 'new_tool');
+    check('new_tool change detected', newToolChange !== undefined);
+    check('new_tool fullId', newToolChange?.fullId === 'mock-mcp:upstream_new');
+    check('new_tool source is mcp', newToolChange?.source === 'mcp');
+    check('new_tool has details', newToolChange?.details === 'Brand new upstream tool');
+
+    const removedToolChange = result.changes.find(c => c.type === 'removed_tool');
+    check('removed_tool change detected', removedToolChange !== undefined);
+    check('removed_tool name is stable_tool', removedToolChange?.toolName === 'stable_tool');
+
+    // Violations and notices triggered
+    check('violation callback fired for new tool', violations.length === 1);
+    check('notice callback fired for removed tool', notices.length === 1);
+
+    // Pending changes
+    check('pending changes has 1 entry', monitor.getPendingChanges().length === 1);
+    check('pending change is upstream_new', monitor.getPendingChanges()[0]?.fullId === 'mock-mcp:upstream_new');
+
+    // acknowledgeChange clears pending
+    monitor.acknowledgeChange('mock-mcp:upstream_new');
+    check('pending changes empty after acknowledge', monitor.getPendingChanges().length === 0);
+
+    // registerKnownTool updates known set
+    monitor.registerKnownTool('mock-mcp', 'upstream_new');
+    const violations2 = [];
+    const monitor2 = new ToolUpstreamMonitor(
+      trm,
+      mcpMap,
+      (change) => violations2.push(change),
+      () => {},
+    );
+    monitor2.initializeFromRegistry();
+    // Re-register the new tool as known
+    monitor2.registerKnownTool('mock-mcp', 'upstream_new');
+    const result2 = await monitor2.checkProvider('mock-mcp');
+    const newToolsInResult2 = result2.changes.filter(c => c.type === 'new_tool');
+    check('no new_tool after registerKnownTool', newToolsInResult2.length === 0);
+
+    // checkProvider with nonexistent adapter
+    const resultBad = await monitor.checkProvider('nonexistent');
+    check('nonexistent adapter returns error', resultBad.error === 'No adapter');
+
+    // checkAllProviders
+    const allResults = await monitor.checkAllProviders();
+    check('checkAllProviders returns array', Array.isArray(allResults));
+    check('checkAllProviders covers all adapters', allResults.length === 1);
+
+    // Shutdown cleans up
+    monitor.shutdown();
+    monitor2.shutdown();
+    check('shutdown completes without error', true);
   }
   console.log();
 

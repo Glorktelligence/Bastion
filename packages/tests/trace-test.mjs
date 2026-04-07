@@ -284,8 +284,9 @@ function validPayloads() {
     tool_denied: { requestId: crypto.randomUUID(), toolId: 'obsidian:read_note', reason: 'Not needed' },
     tool_result: { requestId: crypto.randomUUID(), toolId: 'obsidian:read_note', result: { content: '# Note' }, durationMs: 150, success: true },
     tool_revoke: { toolId: 'obsidian:read_note', reason: 'Session cleanup' },
-    tool_alert: { toolId: 'obsidian:new_tool', alertType: 'new_tool', details: 'New tool discovered' },
+    tool_alert: { alertType: 'new_tool_detected', severity: 'warning', toolName: 'new_tool', providerId: 'obsidian', fullId: 'obsidian:new_tool', source: 'mcp', detectedAt: '2026-03-26T10:00:00.000Z', description: 'A newly discovered tool', message: 'Tool "new_tool" detected but not in registry' },
     tool_alert_response: { toolId: 'obsidian:new_tool', decision: 'accept' },
+    tool_register: { providerId: 'obsidian', tool: { name: 'new_tool', description: 'A new tool', category: 'read', readOnly: true, dangerous: false, modes: ['conversation'] }, action: 'approve' },
     challenge_status: { active: true, timezone: 'Europe/London', currentTime: '2026-03-26T23:00:00Z', periodEnd: '2026-03-27T06:00:00', restrictions: ['budget_change'] },
     challenge_config: { schedule: { weekdays: { start: '22:00', end: '06:00' }, weekends: { start: '23:00', end: '08:00' } }, cooldowns: { budgetChangeDays: 7, scheduleChangeDays: 7, toolRegistrationDays: 1 } },
     challenge_config_ack: { accepted: true, reason: 'Schedule updated', cooldownExpires: null },
@@ -411,8 +412,8 @@ async function run() {
         break;
       }
     }
-    check('all 85 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 87 entries', ALL_MESSAGE_TYPES.length === 87);
+    check('all 88 message types accepted in envelope', allTypesValid);
+    check('ALL_MESSAGE_TYPES has 87 entries', ALL_MESSAGE_TYPES.length === 88);
   }
   console.log();
 
@@ -448,8 +449,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 87 entries', typeKeys.length === 87);
-    check('PAYLOAD_SCHEMAS has 87 entries', Object.keys(PAYLOAD_SCHEMAS).length === 87);
+    check('MESSAGE_TYPES has 87 entries', typeKeys.length === 88);
+    check('PAYLOAD_SCHEMAS has 87 entries', Object.keys(PAYLOAD_SCHEMAS).length === 88);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -855,7 +856,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 85 message types survive serialisation round-trip', allPassed);
+    check('all 88 message types survive serialisation round-trip', allPassed);
   }
   console.log();
 

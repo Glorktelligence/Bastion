@@ -369,17 +369,37 @@ export interface ToolRevokePayload {
   readonly reason: string;
 }
 
-/** AI → Human (via Relay): Tool change alert. */
+/** AI → Human (via Relay): Tool change alert with upstream detection details. */
 export interface ToolAlertPayload {
-  readonly toolId: string;
-  readonly alertType: 'new_tool' | 'lost_tool' | 'changed_tool';
-  readonly details: string;
+  readonly alertType: 'new_tool_detected' | 'lost_tool' | 'changed_tool';
+  readonly severity: 'info' | 'warning' | 'critical';
+  readonly toolName: string;
+  readonly providerId: string;
+  readonly fullId: string;
+  readonly source: 'mcp' | 'provider';
+  readonly detectedAt: string;
+  readonly description: string;
+  readonly message: string;
 }
 
 /** Human → AI (via Relay): Accept or decline tool alert. */
 export interface ToolAlertResponsePayload {
   readonly toolId: string;
   readonly decision: 'accept' | 'decline';
+}
+
+/** Human → AI (via Relay): Admin-approved tool registration for hot reload. */
+export interface ToolRegisterPayload {
+  readonly providerId: string;
+  readonly tool: {
+    readonly name: string;
+    readonly description: string;
+    readonly category: 'read' | 'write' | 'destructive';
+    readonly readOnly: boolean;
+    readonly dangerous: boolean;
+    readonly modes: readonly ('conversation' | 'task')[];
+  };
+  readonly action: 'approve' | 'reject';
 }
 
 // ---------------------------------------------------------------------------
@@ -957,6 +977,7 @@ export type MessagePayload =
   | { type: 'tool_revoke'; payload: ToolRevokePayload }
   | { type: 'tool_alert'; payload: ToolAlertPayload }
   | { type: 'tool_alert_response'; payload: ToolAlertResponsePayload }
+  | { type: 'tool_register'; payload: ToolRegisterPayload }
   | { type: 'challenge_status'; payload: ChallengeStatusPayload }
   | { type: 'challenge_config'; payload: ChallengeConfigPayload }
   | { type: 'challenge_config_ack'; payload: ChallengeConfigAckPayload }

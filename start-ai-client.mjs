@@ -11,6 +11,7 @@ import {
   MemoryStore,
   ProjectStore,
   ToolRegistryManager,
+  ToolUpstreamMonitor,
   McpClientAdapter,
   validateParameters,
   ChallengeManager,
@@ -932,6 +933,46 @@ async function connectMcpProviders() {
 }
 
 // ---------------------------------------------------------------------------
+// Tool upstream monitor
+// ---------------------------------------------------------------------------
+
+const toolUpstreamMonitor = new ToolUpstreamMonitor(
+  toolRegistry,
+  mcpAdapters,
+  // On MCP violation (severe — 2hr timer)
+  (change) => {
+    console.log(`[!] TOOL VIOLATION: ${change.source} tool "${change.fullId}" not in registry`);
+    // Send alert to relay → human client
+    if (client?.connected) {
+      sendSecure({
+        type: 'tool_alert',
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        sender: IDENTITY,
+        payload: {
+          alertType: 'new_tool_detected',
+          severity: change.source === 'mcp' ? 'warning' : 'info',
+          toolName: change.toolName,
+          providerId: change.providerId,
+          fullId: change.fullId,
+          source: change.source,
+          detectedAt: change.detectedAt,
+          description: change.details || 'Unknown tool',
+          message: change.source === 'mcp'
+            ? `User-configured tool "${change.toolName}" detected but not in Bastion registry. Register or reject within 2 hours.`
+            : `Authorised Provider added tool "${change.toolName}" — see Relay Admin for registration.`,
+        },
+      });
+    }
+    // Audit is handled at the relay when it receives the tool_alert message
+  },
+  // On Provider notice (informational — removed tools, etc.)
+  (change) => {
+    console.log(`[i] Provider tool notice: "${change.fullId}" (${change.type})`);
+  }
+);
+
+// ---------------------------------------------------------------------------
 // Client setup
 // ---------------------------------------------------------------------------
 
@@ -969,6 +1010,17 @@ client.on('authenticated', async (jwt, expiresAt) => {
 
   // Connect to MCP providers
   await connectMcpProviders();
+
+  // Lock registry after initial sync + MCP discovery
+  if (!toolRegistry.isLocked) {
+    toolRegistry.lock();
+    console.log(`[✓] Tool registry locked (${toolRegistry.toolCount} tools, ${toolRegistry.providerCount} providers)`);
+  }
+
+  // Initialize upstream monitor from current registry state
+  toolUpstreamMonitor.initializeFromRegistry();
+  toolUpstreamMonitor.startPeriodicChecks();
+  console.log('[✓] Tool upstream monitor initialised');
 
   // Send challenge status to human
   const challengeStatus = challengeManager.getStatus();
@@ -1317,6 +1369,40 @@ client.on('message', async (data) => {
     const p = msg.payload || msg;
     toolRegistry.revokeTrust(p.toolId);
     console.log(`[✗] Tool trust revoked: ${p.toolId} — ${p.reason}`);
+    return;
+  }
+
+  // Handle tool_register — admin-approved tool addition via hot reload
+  if (msg.type === 'tool_register') {
+    const p = msg.payload || msg;
+    const { providerId, tool, action } = p;
+
+    if (action === 'approve' && tool) {
+      const fullId = `${providerId}:${tool.name}`;
+      const registeredTool = {
+        providerId,
+        providerName: providerId,
+        name: tool.name,
+        fullId,
+        description: tool.description,
+        category: tool.category,
+        readOnly: tool.readOnly,
+        dangerous: tool.dangerous,
+        modes: [...(tool.modes || [])],
+      };
+      const registered = toolRegistry.addTool(providerId, registeredTool, 'admin_approved');
+      if (registered) {
+        toolUpstreamMonitor.acknowledgeChange(fullId);
+        toolUpstreamMonitor.registerKnownTool(providerId, tool.name);
+        console.log(`[✓] Tool registered via hot reload: ${fullId}`);
+      } else {
+        console.log(`[!] Tool hot reload failed (already exists or not locked): ${fullId}`);
+      }
+    } else if (action === 'reject') {
+      const fullId = `${providerId}:${tool?.name || 'unknown'}`;
+      toolUpstreamMonitor.acknowledgeChange(fullId);
+      console.log(`[✗] Tool rejected: ${fullId}`);
+    }
     return;
   }
 

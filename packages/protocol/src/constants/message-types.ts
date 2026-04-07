@@ -3,7 +3,7 @@
 // See LICENSE file for full terms
 
 /**
- * All 87 message types in the Bastion protocol.
+ * All 88 message types in the Bastion protocol.
  *
  * Core spec (11): task, conversation, challenge, confirmation, denial,
  *   status, result, error, file_manifest, file_offer, file_request, heartbeat
@@ -81,6 +81,7 @@ export const MESSAGE_TYPES = {
   TOOL_REVOKE: 'tool_revoke',
   TOOL_ALERT: 'tool_alert',
   TOOL_ALERT_RESPONSE: 'tool_alert_response',
+  TOOL_REGISTER: 'tool_register',
 
   // --- Challenge Me More (Temporal Governance) ---
   CHALLENGE_STATUS: 'challenge_status',

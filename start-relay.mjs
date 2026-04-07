@@ -607,7 +607,7 @@ const SENDER_TYPE_RESTRICTIONS = {
   // Human-only messages (human → AI)
   task: 'human', confirmation: 'human',
   context_update: 'human', tool_approved: 'human', tool_denied: 'human',
-  tool_revoke: 'human', challenge_config: 'human', budget_config: 'human',
+  tool_revoke: 'human', tool_register: 'human', challenge_config: 'human', budget_config: 'human',
   memory_proposal: 'human', memory_list: 'human', memory_update: 'human',
   memory_delete: 'human', project_sync: 'human', project_list: 'human',
   project_delete: 'human', project_config: 'human',
@@ -967,7 +967,7 @@ relay.on('message', async (data, info) => {
   }
 
   // ----- tool_* messages: forward between paired clients -----
-  if (msg.type === 'tool_registry_sync' || msg.type === 'tool_registry_ack' || msg.type === 'tool_request' || msg.type === 'tool_approved' || msg.type === 'tool_denied' || msg.type === 'tool_result' || msg.type === 'tool_revoke' || msg.type === 'tool_alert' || msg.type === 'tool_alert_response') {
+  if (msg.type === 'tool_registry_sync' || msg.type === 'tool_registry_ack' || msg.type === 'tool_request' || msg.type === 'tool_approved' || msg.type === 'tool_denied' || msg.type === 'tool_result' || msg.type === 'tool_revoke' || msg.type === 'tool_alert' || msg.type === 'tool_alert_response' || msg.type === 'tool_register') {
     const peerId = router.getPeer(connId);
     if (peerId) {
       relay.send(peerId, data);

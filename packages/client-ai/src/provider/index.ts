@@ -75,11 +75,15 @@ export { ProjectStore, validatePath, scanContent } from './project-store.js';
 
 // Tool Registry Manager
 export { ToolRegistryManager } from './tool-registry-manager.js';
-export type { RegisteredTool, ToolProvider, SessionTrust } from './tool-registry-manager.js';
+export type { RegisteredTool, ToolProvider, SessionTrust, RegistryViolation } from './tool-registry-manager.js';
 
 // Challenge Manager
 export { ChallengeManager } from './challenge-manager.js';
 export type { ChallengeConfig, ChallengeSchedule, ChallengeCooldowns, ChallengeResult } from './challenge-manager.js';
+
+// Tool Upstream Monitor
+export { ToolUpstreamMonitor } from './tool-upstream-monitor.js';
+export type { UpstreamToolChange, UpstreamCheckResult } from './tool-upstream-monitor.js';
 
 // MCP Client Adapter
 export { McpClientAdapter, validateParameters } from './mcp-client-adapter.js';
