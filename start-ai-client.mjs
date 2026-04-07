@@ -2778,8 +2778,8 @@ client.on('message', async (data) => {
     const handler = extensionDispatcher.getHandler(msg.type);
     if (handler) {
       // Resolve adapter hint from extension type metadata
-      const extMeta = extensionRegistry?.resolveMessageType?.(msg.type);
-      const adapterHint = extMeta?.messageType?.adapterHint || 'default';
+      // Adapter hint from extension metadata (extensionRegistry lives on relay, not AI client)
+      const adapterHint = 'default';
       const hintResult = adapterRegistry.resolveHint(adapterHint, 'game');
 
       const namespace = msg.type.split(':')[0];
