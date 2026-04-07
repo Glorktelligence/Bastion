@@ -3575,8 +3575,11 @@ async function run() {
       check('deleteDirectory returns deleted=true', dirResult.deleted === true);
       check('deleteDirectory removes directory from disk', !existsSync(subDir));
 
-      // reportViolation
+      // reportViolation (suppress console.warn — node --test treats stderr as failure)
+      const origWarn = console.warn;
+      console.warn = () => {};
       pm.reportViolation('TestCaller', '/some/path');
+      console.warn = origWarn;
       check('reportViolation triggers onViolation callback', violations.length === 1);
       check('reportViolation type is PURGE_VIOLATION', violations[0].type === 'PURGE_VIOLATION');
       check('reportViolation caller is TestCaller', violations[0].caller === 'TestCaller');
