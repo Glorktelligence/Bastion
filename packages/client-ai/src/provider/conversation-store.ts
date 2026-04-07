@@ -444,6 +444,64 @@ export class ConversationStore {
   }
 
   // -----------------------------------------------------------------------
+  // Search — keyword-based message retrieval for recall
+  // -----------------------------------------------------------------------
+
+  /**
+   * Search all messages in a conversation by keyword query.
+   * Returns matches sorted by relevance (keyword hit count).
+   * Searches across ALL messages including those covered by compaction summaries.
+   */
+  searchMessages(conversationId: string, query: string, limit = 5): MessageRecord[] {
+    const allMessages = this.db
+      .prepare('SELECT * FROM messages WHERE conversationId = ? ORDER BY timestamp ASC')
+      .all(conversationId) as Record<string, unknown>[];
+
+    const keywords = query
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2);
+    if (keywords.length === 0) return [];
+
+    const scored: Array<{ msg: Record<string, unknown>; score: number }> = [];
+    const queryLower = query.toLowerCase();
+
+    for (const msg of allMessages) {
+      const contentLower = String(msg.content ?? '').toLowerCase();
+      let score = 0;
+      for (const keyword of keywords) {
+        if (contentLower.includes(keyword)) score++;
+      }
+      // Bonus for exact phrase match
+      if (contentLower.includes(queryLower)) score += 3;
+      if (score > 0) scored.push({ msg, score });
+    }
+
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, limit).map((s) => this.mapMessage(s.msg));
+  }
+
+  /**
+   * Get message context — the message before and after a given message.
+   */
+  getMessageContext(conversationId: string, messageId: string): { before?: MessageRecord; after?: MessageRecord } {
+    const beforeRow = this.db
+      .prepare(
+        'SELECT * FROM messages WHERE conversationId = ? AND timestamp < (SELECT timestamp FROM messages WHERE id = ?) ORDER BY timestamp DESC LIMIT 1',
+      )
+      .get(conversationId, messageId) as Record<string, unknown> | undefined;
+    const afterRow = this.db
+      .prepare(
+        'SELECT * FROM messages WHERE conversationId = ? AND timestamp > (SELECT timestamp FROM messages WHERE id = ?) ORDER BY timestamp ASC LIMIT 1',
+      )
+      .get(conversationId, messageId) as Record<string, unknown> | undefined;
+    return {
+      before: beforeRow ? this.mapMessage(beforeRow) : undefined,
+      after: afterRow ? this.mapMessage(afterRow) : undefined,
+    };
+  }
+
+  // -----------------------------------------------------------------------
   // Migration: import existing in-memory messages
   // -----------------------------------------------------------------------
 

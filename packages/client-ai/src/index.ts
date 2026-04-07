@@ -70,6 +70,7 @@ export {
   ExtensionDispatcher,
   DreamCycleManager,
   DateTimeManager,
+  RecallHandler,
 } from './provider/index.js';
 export type {
   ToolRegistry,
@@ -151,6 +152,9 @@ export type {
   MemoryCandidate,
   DateTimeInfo,
   DateTimeManagerConfig,
+  RecallRequest,
+  RecallMatch,
+  RecallResult,
 } from './provider/index.js';
 
 // ---------------------------------------------------------------------------

@@ -136,6 +136,10 @@ export type { ExtensionContext, ExtensionHandler } from './extension-dispatcher.
 export { DateTimeManager } from './datetime-manager.js';
 export type { DateTimeInfo, DateTimeManagerConfig } from './datetime-manager.js';
 
+// Recall Handler (conversation history search)
+export { RecallHandler } from './recall-handler.js';
+export type { RecallRequest, RecallMatch, RecallResult } from './recall-handler.js';
+
 // Dream Cycle Manager (Layer 6)
 export { DreamCycleManager } from './dream-cycle-manager.js';
 export type { DreamCycleConfig, DreamCycleResult, MemoryCandidate } from './dream-cycle-manager.js';

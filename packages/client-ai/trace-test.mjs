@@ -34,6 +34,7 @@ import {
   IntakeDirectory,
   OutboundStaging,
   FilePurgeManager,
+  RecallHandler,
 } from './dist/index.js';
 import {
   BastionRelay,
@@ -3101,6 +3102,241 @@ async function run() {
     } finally {
       try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
     }
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: bastion_recall — searchMessages + getMessageContext
+  // -------------------------------------------------------------------
+  {
+    console.log('--- bastion_recall: ConversationStore search ---');
+    const { rmSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const os = await import('node:os');
+    const tmpDb = join(os.tmpdir(), `bastion-recall-store-${Date.now()}.db`);
+
+    try {
+      const store = new ConversationStore({ path: tmpDb });
+      const conv = store.createConversation('Recall test');
+
+      // Populate messages
+      const m1 = store.addMessage(conv.id, 'user', 'text', 'I want to deploy the API to production on Friday');
+      const m2 = store.addMessage(conv.id, 'assistant', 'text', 'I can help with the API deployment. The production server needs TLS certificates first.');
+      const m3 = store.addMessage(conv.id, 'user', 'text', 'What about the database migration?');
+      const m4 = store.addMessage(conv.id, 'assistant', 'text', 'The database migration script is ready. Run migrate-v2.sql before deploying.');
+      const m5 = store.addMessage(conv.id, 'user', 'text', 'Thanks, lets also update the README with the new endpoint docs');
+
+      // --- searchMessages finds messages by keyword ---
+      const results1 = store.searchMessages(conv.id, 'deploy production');
+      check('searchMessages finds messages with "deploy production"', results1.length >= 1);
+      check('searchMessages top result contains deploy keyword', results1[0]?.content.toLowerCase().includes('deploy'));
+
+      // --- searchMessages returns empty for no matches ---
+      const results2 = store.searchMessages(conv.id, 'kubernetes helm chart');
+      check('searchMessages returns empty for no matches', results2.length === 0);
+
+      // --- searchMessages respects limit ---
+      const results3 = store.searchMessages(conv.id, 'the', 2);
+      check('searchMessages respects limit parameter', results3.length <= 2);
+
+      // --- searchMessages scores exact phrase higher ---
+      const results4 = store.searchMessages(conv.id, 'database migration', 5);
+      check('searchMessages: exact phrase "database migration" ranks high', results4.length >= 1);
+      // The message with the exact phrase should score highest
+      const topContent = results4[0]?.content.toLowerCase() || '';
+      check('searchMessages: top result contains exact phrase', topContent.includes('database migration'));
+
+      // --- searchMessages rejects short/empty queries ---
+      const results5 = store.searchMessages(conv.id, 'ab');
+      check('searchMessages returns empty for short query (words < 3 chars)', results5.length === 0);
+      const results6 = store.searchMessages(conv.id, '');
+      check('searchMessages returns empty for empty query', results6.length === 0);
+
+      // --- getMessageContext returns surrounding messages ---
+      const ctx = store.getMessageContext(conv.id, m3.id);
+      check('getMessageContext returns before message', ctx.before?.id === m2.id);
+      check('getMessageContext returns after message', ctx.after?.id === m4.id);
+
+      // Edge cases: first and last messages
+      const ctxFirst = store.getMessageContext(conv.id, m1.id);
+      check('getMessageContext: first message has no before', ctxFirst.before === undefined);
+      check('getMessageContext: first message has after', ctxFirst.after?.id === m2.id);
+
+      const ctxLast = store.getMessageContext(conv.id, m5.id);
+      check('getMessageContext: last message has before', ctxLast.before?.id === m4.id);
+      check('getMessageContext: last message has no after', ctxLast.after === undefined);
+    } finally {
+      try { rmSync(tmpDb, { force: true }); } catch {}
+    }
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: bastion_recall — RecallHandler
+  // -------------------------------------------------------------------
+  {
+    console.log('--- bastion_recall: RecallHandler ---');
+    const { rmSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const os = await import('node:os');
+    const tmpDb = join(os.tmpdir(), `bastion-recall-handler-${Date.now()}.db`);
+
+    try {
+      const store = new ConversationStore({ path: tmpDb });
+      const conv = store.createConversation('Recall handler test');
+      const handler = new RecallHandler(store);
+
+      // Populate messages
+      store.addMessage(conv.id, 'user', 'text', 'The budget limit is $500 per month for API calls');
+      store.addMessage(conv.id, 'assistant', 'text', 'Understood. I will track spending against the $500 monthly budget.');
+      store.addMessage(conv.id, 'user', 'text', 'Also enable TLS certificate rotation every 90 days');
+      store.addMessage(conv.id, 'assistant', 'text', 'TLS certificate rotation configured for 90-day intervals.');
+      // Add a long message for truncation testing
+      store.addMessage(conv.id, 'user', 'text', 'x'.repeat(3000));
+
+      // --- RecallHandler.recall returns results ---
+      const result1 = handler.recall(conv.id, { query: 'budget limit', scope: 'conversation', limit: 5 });
+      check('recall returns matches for "budget limit"', result1.matches.length >= 1);
+      check('recall returns totalFound', result1.totalFound >= 1);
+      check('recall returns query string', result1.query === 'budget limit');
+      check('recall returns searchScope', result1.searchScope.startsWith('conversation:'));
+      check('recall returns queryTimeMs', typeof result1.queryTimeMs === 'number');
+
+      // --- RecallHandler.recall returns empty for empty/short query ---
+      const result2 = handler.recall(conv.id, { query: '', scope: 'conversation' });
+      check('recall returns empty for empty query', result2.matches.length === 0);
+      const result3 = handler.recall(conv.id, { query: 'a', scope: 'conversation' });
+      check('recall returns empty for single-char query', result3.matches.length === 0);
+
+      // --- RecallHandler.recall returns empty for null conversationId without all scope ---
+      const result4 = handler.recall(null, { query: 'budget', scope: 'conversation' });
+      check('recall returns empty when no conversationId and scope=conversation', result4.matches.length === 0);
+
+      // --- RecallHandler.recall respects MAX_CONTENT_PER_MATCH truncation ---
+      const result5 = handler.recall(conv.id, { query: 'xxx', scope: 'conversation', limit: 1 });
+      if (result5.matches.length > 0) {
+        check('recall truncates long content with ...', result5.matches[0].content.endsWith('...'));
+        check('recall truncated content ≤ 2003 chars', result5.matches[0].content.length <= 2003);
+      } else {
+        check('recall truncation: found long message', false, 'no matches for xxx query');
+      }
+
+      // --- RecallHandler.recall respects MAX_TOTAL_RECALL_CHARS ---
+      // Add many searchable messages
+      for (let i = 0; i < 20; i++) {
+        store.addMessage(conv.id, 'user', 'text', `RECALL_TOKEN_${i} ${'y'.repeat(800)}`);
+      }
+      const result6 = handler.recall(conv.id, { query: 'RECALL_TOKEN', scope: 'conversation', limit: 20 });
+      let totalChars = 0;
+      for (const m of result6.matches) totalChars += m.content.length;
+      check('recall respects MAX_TOTAL_RECALL_CHARS (8000)', totalChars <= 8000);
+
+      // --- RecallHandler.formatForPrompt produces readable block ---
+      const formatted = handler.formatForPrompt(result1);
+      check('formatForPrompt contains header', formatted.includes('--- Recalled Context'));
+      check('formatForPrompt contains query', formatted.includes('budget limit'));
+      check('formatForPrompt contains match count', formatted.includes('matches for'));
+      check('formatForPrompt contains end marker', formatted.includes('--- End Recalled Context ---'));
+
+      // --- formatForPrompt with no matches ---
+      const emptyResult = handler.recall(conv.id, { query: 'nonexistent_term_xyz' });
+      const emptyFormatted = handler.formatForPrompt(emptyResult);
+      check('formatForPrompt with no matches shows "No matches"', emptyFormatted.includes('No matches found'));
+
+      // --- RecallHandler.recall includes context ---
+      const result7 = handler.recall(conv.id, { query: 'TLS certificate rotation', limit: 1 });
+      if (result7.matches.length > 0) {
+        check('recall match includes contextBefore', typeof result7.matches[0].contextBefore === 'string');
+        check('recall match includes contextAfter', typeof result7.matches[0].contextAfter === 'string');
+      }
+    } finally {
+      try { rmSync(tmpDb, { force: true }); } catch {}
+    }
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: bastion_recall — ACTION_BLOCK_RE + rate limiter + ConversationManager
+  // -------------------------------------------------------------------
+  {
+    console.log('--- bastion_recall: regex, rate limiter, ConversationManager ---');
+
+    // --- ACTION_BLOCK_RE matches [BASTION:RECALL] blocks ---
+    const RE = /\[BASTION:(CHALLENGE|MEMORY|RECALL)\]([\s\S]*?)\[\/BASTION:\1\]/g;
+    const testText = 'Hello [BASTION:RECALL]{"query":"budget","scope":"conversation","limit":3}[/BASTION:RECALL] world';
+    const matches = [...testText.matchAll(RE)];
+    check('ACTION_BLOCK_RE matches RECALL block', matches.length === 1);
+    check('ACTION_BLOCK_RE captures type as RECALL', matches[0][1] === 'RECALL');
+    check('ACTION_BLOCK_RE captures JSON payload', matches[0][2].includes('"query"'));
+
+    // Also verify CHALLENGE and MEMORY still work
+    const testText2 = '[BASTION:CHALLENGE]{"reason":"test"}[/BASTION:CHALLENGE] [BASTION:MEMORY]{"content":"test"}[/BASTION:MEMORY]';
+    const matches2 = [...testText2.matchAll(RE)];
+    check('ACTION_BLOCK_RE still matches CHALLENGE', matches2.some(m => m[1] === 'CHALLENGE'));
+    check('ACTION_BLOCK_RE still matches MEMORY', matches2.some(m => m[1] === 'MEMORY'));
+
+    // Cleaning: blocks removed from text
+    const cleaned = testText.replace(RE, '').replace(/\n{3,}/g, '\n\n').trim();
+    check('ACTION_BLOCK_RE cleaning removes block', cleaned === 'Hello  world');
+
+    // --- Rate limiter ---
+    const limiter = {
+      recallCount: 0, maxRecallsPerSession: 3,
+      messagesSinceLastRecall: 0, recallMinMessageGap: 5,
+      canRecall() { return this.recallCount < this.maxRecallsPerSession && this.messagesSinceLastRecall >= this.recallMinMessageGap; },
+      recordRecall() { this.recallCount++; this.messagesSinceLastRecall = 0; },
+      tickMessage() { this.messagesSinceLastRecall++; },
+    };
+
+    // Initially blocked (not enough messages since start)
+    check('canRecall blocked at start (messageGap=0)', !limiter.canRecall());
+
+    // After enough messages
+    for (let i = 0; i < 5; i++) limiter.tickMessage();
+    check('canRecall allowed after 5 messages', limiter.canRecall());
+
+    // Record recall — resets gap
+    limiter.recordRecall();
+    check('canRecall blocked immediately after recall (gap reset)', !limiter.canRecall());
+    check('recallCount incremented to 1', limiter.recallCount === 1);
+
+    // After more messages
+    for (let i = 0; i < 5; i++) limiter.tickMessage();
+    check('canRecall allowed again after 5 more messages', limiter.canRecall());
+
+    // Exhaust session limit
+    limiter.recordRecall();
+    for (let i = 0; i < 5; i++) limiter.tickMessage();
+    limiter.recordRecall();
+    for (let i = 0; i < 5; i++) limiter.tickMessage();
+    check('canRecall blocked after max 3 recalls', !limiter.canRecall());
+
+    // --- ConversationManager recall buffer ---
+    const cm = new ConversationManager({ tokenBudget: 100000 });
+
+    // No recall results initially
+    check('hasRecallResults false initially', !cm.hasRecallResults());
+
+    // Set recall results
+    cm.setRecallResults('--- Recalled Context ---\nTest recalled content\n--- End Recalled Context ---');
+    check('hasRecallResults true after set', cm.hasRecallResults());
+
+    // Recall results appear in assembled prompt
+    const { prompt, report } = cm.assemblePrompt();
+    check('recall results appear in prompt', prompt.includes('Recalled Context'));
+    check('recall results appear in prompt components', report.zones.some(z => z.components.includes('Recalled Context')));
+
+    // Recall results cleared after injection (one-shot)
+    check('hasRecallResults false after assemblePrompt (one-shot)', !cm.hasRecallResults());
+
+    // Second assembly should NOT contain recalled context
+    const { prompt: prompt2, report: report2 } = cm.assemblePrompt();
+    check('recall results NOT in second assemblePrompt', !prompt2.includes('Test recalled content'));
+    check('recall results NOT in second prompt components', !report2.zones.some(z => z.components.includes('Recalled Context')));
+
+    // RECALL action documented in prompt
+    check('RECALL action documented in system prompt', prompt.includes('[BASTION:RECALL]'));
+    check('RECALL rules documented in system prompt', prompt.includes('RECALL:'));
   }
   console.log();
 

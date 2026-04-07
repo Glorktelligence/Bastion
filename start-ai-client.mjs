@@ -35,6 +35,7 @@ import {
   ExtensionDispatcher,
   DreamCycleManager,
   DateTimeManager,
+  RecallHandler,
 } from './packages/client-ai/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -370,6 +371,13 @@ const compactionManager = new CompactionManager(conversationStore, {
 console.log(`[✓] Compaction manager initialised (budget: ${CONVERSATION_BUDGET}, trigger: ${COMPACTION_TRIGGER_PERCENT}%, keep: ${COMPACTION_KEEP_RECENT})`);
 
 // ---------------------------------------------------------------------------
+// Recall handler — AI-initiated conversation history search
+// ---------------------------------------------------------------------------
+
+const recallHandler = new RecallHandler(conversationStore);
+console.log('[✓] Recall handler initialised');
+
+// ---------------------------------------------------------------------------
 // Dream Cycle Manager — Layer 6 memory extraction via Opus
 // ---------------------------------------------------------------------------
 
@@ -646,7 +654,7 @@ function sendUsageStatusDebounced() {
 // AI Action Block Parser — extract structured actions from AI response
 // ---------------------------------------------------------------------------
 
-const ACTION_BLOCK_RE = /\[BASTION:(CHALLENGE|MEMORY)\]([\s\S]*?)\[\/BASTION:\1\]/g;
+const ACTION_BLOCK_RE = /\[BASTION:(CHALLENGE|MEMORY|RECALL)\]([\s\S]*?)\[\/BASTION:\1\]/g;
 
 /**
  * Parse [BASTION:ACTION]{...}[/BASTION:ACTION] blocks from response text.
@@ -684,10 +692,14 @@ function parseActionBlocks(text) {
 const aiActionLimits = {
   challengeCount: 0,
   memoryCount: 0,
+  recallCount: 0,
   messagesSinceLastMemory: 0,
+  messagesSinceLastRecall: 0,
   maxChallengesPerSession: 3,
   maxMemoriesPerSession: 3,
+  maxRecallsPerSession: 3,
   memoryMinMessageGap: 5,
+  recallMinMessageGap: 5,
 
   canChallenge() {
     return this.challengeCount < this.maxChallengesPerSession;
@@ -705,8 +717,19 @@ const aiActionLimits = {
     this.memoryCount++;
     this.messagesSinceLastMemory = 0;
   },
+  canRecall() {
+    return (
+      this.recallCount < this.maxRecallsPerSession &&
+      this.messagesSinceLastRecall >= this.recallMinMessageGap
+    );
+  },
+  recordRecall() {
+    this.recallCount++;
+    this.messagesSinceLastRecall = 0;
+  },
   recordMessage() {
     this.messagesSinceLastMemory++;
+    this.messagesSinceLastRecall++;
   },
 };
 
@@ -1984,6 +2007,36 @@ client.on('message', async (data) => {
               sourceMessageId: msg.id || '',
             });
             console.log(`[→] AI memory proposal: "${String(payload.content || '').substring(0, 60)}"`);
+          } else if (action.type === 'RECALL' && aiActionLimits.canRecall()) {
+            aiActionLimits.recordRecall();
+            const payload = action.data;
+            const query = String(payload.query || '');
+            const scope = payload.scope || 'conversation';
+            const limit = typeof payload.limit === 'number' ? payload.limit : 5;
+
+            console.log(`[→] AI recall request: "${query.substring(0, 60)}" (scope: ${scope}, limit: ${limit})`);
+
+            const result = recallHandler.recall(
+              scope === 'conversation' ? activeConversationId : null,
+              { query, scope, limit },
+            );
+
+            if (result.matches.length > 0) {
+              const formatted = recallHandler.formatForPrompt(result);
+              conversationManager.setRecallResults(formatted);
+              console.log(`[✓] Recall: ${result.matches.length} matches for "${query.substring(0, 40)}" (${result.queryTimeMs}ms)`);
+            } else {
+              conversationManager.setRecallResults(`--- Recalled Context ---\nNo matches found for: "${query}"\n--- End Recalled Context ---`);
+              console.log(`[✗] Recall: no matches for "${query.substring(0, 40)}"`);
+            }
+
+            // Audit trail via usage tracker
+            usageTracker.record({
+              timestamp: new Date().toISOString(),
+              adapterId: 'system', adapterRole: 'recall', purpose: `recall:${query.substring(0, 50)}`,
+              conversationId: activeConversationId || null,
+              inputTokens: 0, outputTokens: 0, costUsd: 0,
+            });
           }
         }
 

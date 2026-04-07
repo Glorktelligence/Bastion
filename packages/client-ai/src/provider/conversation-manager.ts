@@ -226,6 +226,9 @@ export class ConversationManager {
   private lastAiMessageAt: Date | null = null;
   private sessionMessageCount = 0;
 
+  // Recall buffer — one-shot injection of recalled historical messages
+  private recallResults: string | null = null;
+
   constructor(config?: ConversationManagerConfig) {
     this.tokenBudget = config?.tokenBudget ?? DEFAULT_TOKEN_BUDGET;
     this.userContextPath = config?.userContextPath ?? DEFAULT_USER_CONTEXT_PATH;
@@ -368,6 +371,19 @@ export class ConversationManager {
 
   clear(): void {
     this.messages = [];
+  }
+
+  /**
+   * Set recall results for one-shot injection into the next prompt assembly.
+   * The results are cleared after injection — recall is one-shot, not persistent.
+   */
+  setRecallResults(formatted: string | null): void {
+    this.recallResults = formatted;
+  }
+
+  /** Check if recall results are pending injection. */
+  hasRecallResults(): boolean {
+    return this.recallResults !== null;
   }
 
   static getRoleContext(): string {
@@ -605,16 +621,33 @@ export class ConversationManager {
         '[BASTION:MEMORY]{"content":"what to remember","category":"fact|preference|workflow|project","reason":"why save this"}[/BASTION:MEMORY]\n',
       );
 
+      // RECALL action — always available
+      actionParts.push(
+        'RECALL (search your full conversation history, including compacted messages, for specific details):',
+      );
+      actionParts.push('[BASTION:RECALL]{"query":"search terms","scope":"conversation","limit":5}[/BASTION:RECALL]\n');
+
       actionParts.push('Rules:');
       if (this.challengeManager?.isActive()) {
         actionParts.push('- CHALLENGE: Only for genuinely risky actions during these active challenge hours');
       }
       actionParts.push('- MEMORY: Only when genuinely useful, max 1 per response, user approves all saves');
+      actionParts.push(
+        '- RECALL: Use when you need specific details from earlier that may have been compacted. Max 3 per session. Results appear in your next turn.',
+      );
       actionParts.push('- These blocks are stripped from your visible response \u2014 the human sees clean text');
       actionParts.push('- Do NOT use these for normal conversation or minor decisions');
 
       parts.push(actionParts.join('\n'));
       components.push('Available Actions');
+    }
+
+    // Recalled context — one-shot injection from bastion_recall
+    if (this.recallResults) {
+      parts.push(this.recallResults);
+      components.push('Recalled Context');
+      // Clear after injection — recall is one-shot, not persistent
+      this.recallResults = null;
     }
 
     // Project context
