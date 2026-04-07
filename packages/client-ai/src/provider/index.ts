@@ -145,6 +145,10 @@ export type {
 export { ExtensionDispatcher } from './extension-dispatcher.js';
 export type { ExtensionContext, ExtensionHandler } from './extension-dispatcher.js';
 
+// Extension Handler Loader
+export { loadExtensionHandlers } from './extension-handler-loader.js';
+export type { ExtensionHandlerContext } from './extension-handler-loader.js';
+
 // DateTime Manager (sole DateTime authority)
 export { DateTimeManager } from './datetime-manager.js';
 export type { DateTimeInfo, DateTimeManagerConfig } from './datetime-manager.js';

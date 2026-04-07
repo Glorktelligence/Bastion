@@ -29,6 +29,7 @@ import {
   SkillStore,
   DataEraser,
   ExtensionDispatcher,
+  loadExtensionHandlers,
   DreamCycleManager,
   DateTimeManager,
   CompactionManager,
@@ -49,6 +50,9 @@ import {
 import { verifyChain } from '@bastion/crypto';
 import { PROTOCOL_VERSION, MESSAGE_TYPES, SAFETY_FLOORS, SAFETY_OUTCOMES, DreamCycleRequestPayloadSchema, DreamCycleCompletePayloadSchema } from '@bastion/protocol';
 import { randomUUID, randomBytes } from 'node:crypto';
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 let pass = 0, fail = 0;
 function check(name, condition, detail) {
@@ -3210,6 +3214,153 @@ async function run() {
 
     // Handlers still accessible after lock
     check('handler accessible after lock', dispatcher.hasHandler('game:turn_submit'));
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // loadExtensionHandlers — generic extension handler loader
+  // -------------------------------------------------------------------
+  console.log('--- loadExtensionHandlers ---');
+  {
+    // Create a temp directory for each sub-test to avoid interference
+    const testBase = join(tmpdir(), `bastion-ext-test-${randomUUID()}`);
+
+    // Test 1: Empty handler directory results in 0 loaded
+    {
+      const emptyDir = join(testBase, 'empty');
+      mkdirSync(emptyDir, { recursive: true });
+      const d = new ExtensionDispatcher();
+      const count = await loadExtensionHandlers(d, {}, emptyDir);
+      check('empty dir → 0 loaded', count === 0);
+      check('empty dir → 0 handlers', d.size === 0);
+    }
+
+    // Test 2: Loads valid handlers.js that exports registerHandlers
+    {
+      const dir = join(testBase, 'valid-handlers');
+      const nsDir = join(dir, 'chronicle');
+      mkdirSync(nsDir, { recursive: true });
+      writeFileSync(join(nsDir, 'handlers.js'), `
+        export function registerHandlers(dispatcher, context) {
+          dispatcher.registerHandler('chronicle:turn_submit', async () => {});
+          dispatcher.registerHandler('chronicle:session_create', async () => {});
+        }
+      `);
+      const d = new ExtensionDispatcher();
+      const count = await loadExtensionHandlers(d, { test: true }, dir);
+      check('valid handlers.js → 1 extension loaded', count === 1);
+      check('valid handlers.js → 2 handlers registered', d.size === 2);
+      check('has chronicle:turn_submit', d.hasHandler('chronicle:turn_submit'));
+      check('has chronicle:session_create', d.hasHandler('chronicle:session_create'));
+    }
+
+    // Test 3: Loads index.js as fallback when no handlers.js
+    {
+      const dir = join(testBase, 'index-fallback');
+      const nsDir = join(dir, 'chess');
+      mkdirSync(nsDir, { recursive: true });
+      writeFileSync(join(nsDir, 'index.js'), `
+        export function registerHandlers(dispatcher, context) {
+          dispatcher.registerHandler('chess:move', async () => {});
+        }
+      `);
+      const d = new ExtensionDispatcher();
+      const count = await loadExtensionHandlers(d, {}, dir);
+      check('index.js fallback → 1 extension loaded', count === 1);
+      check('index.js fallback → has chess:move', d.hasHandler('chess:move'));
+    }
+
+    // Test 4: Skips directories without handlers.js or index.js
+    {
+      const dir = join(testBase, 'no-handler');
+      mkdirSync(join(dir, 'empty-ext'), { recursive: true });
+      mkdirSync(join(dir, 'also-empty'), { recursive: true });
+      // Add a plain file (not a directory) — should be skipped
+      writeFileSync(join(dir, 'README.md'), 'not an extension');
+      const d = new ExtensionDispatcher();
+      const count = await loadExtensionHandlers(d, {}, dir);
+      check('no handler files → 0 loaded', count === 0);
+      check('no handler files → 0 handlers', d.size === 0);
+    }
+
+    // Test 5: Handles import failures gracefully (no crash)
+    {
+      const dir = join(testBase, 'bad-import');
+      const nsDir = join(dir, 'broken');
+      mkdirSync(nsDir, { recursive: true });
+      writeFileSync(join(nsDir, 'handlers.js'), `
+        throw new Error('Module initialisation failed');
+      `);
+      const d = new ExtensionDispatcher();
+      const count = await loadExtensionHandlers(d, {}, dir);
+      check('bad import → 0 loaded (no crash)', count === 0);
+      check('bad import → 0 handlers', d.size === 0);
+    }
+
+    // Test 6: Skips modules missing registerHandlers export
+    {
+      const dir = join(testBase, 'missing-export');
+      const nsDir = join(dir, 'incomplete');
+      mkdirSync(nsDir, { recursive: true });
+      writeFileSync(join(nsDir, 'handlers.js'), `
+        export function somethingElse() { return 42; }
+      `);
+      const d = new ExtensionDispatcher();
+      const count = await loadExtensionHandlers(d, {}, dir);
+      check('missing registerHandlers → 0 loaded', count === 0);
+      check('missing registerHandlers → 0 handlers', d.size === 0);
+    }
+
+    // Test 7: Context is passed to registerHandlers
+    {
+      const dir = join(testBase, 'context-pass');
+      const nsDir = join(dir, 'ctx-test');
+      mkdirSync(nsDir, { recursive: true });
+      writeFileSync(join(nsDir, 'handlers.js'), `
+        export function registerHandlers(dispatcher, context) {
+          // Store context values on a global for verification
+          globalThis.__bastionTestCtx = context;
+          dispatcher.registerHandler('ctx-test:ping', async () => {});
+        }
+      `);
+      const ctx = { myService: 'hello', count: 42 };
+      const d = new ExtensionDispatcher();
+      await loadExtensionHandlers(d, ctx, dir);
+      check('context passed — myService', globalThis.__bastionTestCtx?.myService === 'hello');
+      check('context passed — count', globalThis.__bastionTestCtx?.count === 42);
+      delete globalThis.__bastionTestCtx;
+    }
+
+    // Test 8: Multiple extensions load in one scan
+    {
+      const dir = join(testBase, 'multi');
+      for (const ns of ['alpha', 'beta', 'gamma']) {
+        const nsDir = join(dir, ns);
+        mkdirSync(nsDir, { recursive: true });
+        writeFileSync(join(nsDir, 'handlers.js'), `
+          export function registerHandlers(dispatcher) {
+            dispatcher.registerHandler('${ns}:action', async () => {});
+          }
+        `);
+      }
+      const d = new ExtensionDispatcher();
+      const count = await loadExtensionHandlers(d, {}, dir);
+      check('multi-extension → 3 loaded', count === 3);
+      check('multi-extension → 3 handlers', d.size === 3);
+      check('multi-extension → has alpha:action', d.hasHandler('alpha:action'));
+      check('multi-extension → has beta:action', d.hasHandler('beta:action'));
+      check('multi-extension → has gamma:action', d.hasHandler('gamma:action'));
+    }
+
+    // Test 9: Non-existent directory → 0 loaded (graceful)
+    {
+      const d = new ExtensionDispatcher();
+      const count = await loadExtensionHandlers(d, {}, join(testBase, 'does-not-exist-' + randomUUID()));
+      check('non-existent dir → 0 loaded', count === 0);
+    }
+
+    // Cleanup temp directory
+    try { rmSync(testBase, { recursive: true, force: true }); } catch {}
   }
   console.log();
 

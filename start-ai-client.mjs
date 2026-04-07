@@ -35,6 +35,7 @@ import {
   ImportExecutor,
   UsageTracker,
   ExtensionDispatcher,
+  loadExtensionHandlers,
   DreamCycleManager,
   DateTimeManager,
   RecallHandler,
@@ -108,6 +109,7 @@ const REJECT_UNAUTHORIZED = process.env.BASTION_TLS_REJECT_UNAUTHORIZED !== 'fal
 // Extension system — data directory for extension-namespaced state
 const EXTENSIONS_DATA = process.env.BASTION_EXTENSIONS_DATA || '/var/lib/bastion/extensions';
 try { mkdirSync(EXTENSIONS_DATA, { recursive: true }); } catch {}
+const EXTENSION_HANDLERS_DIR = process.env.BASTION_EXTENSION_HANDLERS_DIR || '/var/lib/bastion/extension-handlers';
 
 // Three Bastion Official Adapters — Sonnet, Haiku, Opus
 // All share ANTHROPIC_API_KEY. Each targets a different model with role-specific config.
@@ -225,10 +227,7 @@ console.log('[✓] Adapter registry locked');
 // ---------------------------------------------------------------------------
 
 const extensionDispatcher = new ExtensionDispatcher();
-// Extensions would register handlers here before lock:
-// extensionDispatcher.registerHandler('game:turn_submit', handleTurnSubmit);
-extensionDispatcher.lock();
-console.log(`[✓] Extension dispatcher: ${extensionDispatcher.size} handlers registered, locked`);
+// Handler registration deferred — loadExtensionHandlers() runs after all services initialised
 
 // ---------------------------------------------------------------------------
 // Memory store — persistent Layer 2 memory
@@ -644,6 +643,28 @@ if (dataEraser.checkExpiredErasures()) {
   }
 }
 console.log('[✓] Data eraser initialised (GDPR Article 17)');
+
+// ---------------------------------------------------------------------------
+// Extension handler loading — all services now available for context
+// ---------------------------------------------------------------------------
+
+const extensionContext = {
+  conversationStore,
+  conversationManager,
+  memoryStore,
+  adapterRegistry,
+  usageTracker,
+  budgetGuard,
+  filePurgeManager,
+  dateTimeManager,
+  recallHandler,
+  bastionBash,
+  extensionsDataDir: EXTENSIONS_DATA,
+};
+
+const handlerCount = await loadExtensionHandlers(extensionDispatcher, extensionContext, EXTENSION_HANDLERS_DIR);
+extensionDispatcher.lock();
+console.log(`[✓] Extension dispatcher: ${handlerCount} extensions loaded, ${extensionDispatcher.size} handlers registered, locked`);
 
 /** Debounce timer for usage_status — max once per 30 seconds. */
 let usageStatusTimer = null;
