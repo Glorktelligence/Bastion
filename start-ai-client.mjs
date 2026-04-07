@@ -2778,21 +2778,29 @@ client.on('message', async (data) => {
     const handler = extensionDispatcher.getHandler(msg.type);
     if (handler) {
       // Resolve adapter hint from extension type metadata
-      const adapterHint = 'default'; // Default — extensions that register handlers can pass hints via message payload
+      const extMeta = extensionRegistry?.resolveMessageType?.(msg.type);
+      const adapterHint = extMeta?.messageType?.adapterHint || 'default';
       const hintResult = adapterRegistry.resolveHint(adapterHint, 'game');
 
       const namespace = msg.type.split(':')[0];
       const extDataDir = `${EXTENSIONS_DATA}/${namespace}`;
       try { mkdirSync(extDataDir, { recursive: true }); } catch {}
 
+      console.log(`[←] Extension: ${msg.type} (adapter: ${adapterHint}, namespace: ${namespace})`);
+
       try {
         await handler({
           message: msg,
           adapterId: hintResult?.providerId ?? null,
           adapterHint,
+          adapterRegistry,
           conversationManager,
           conversationStore,
           memoryStore,
+          usageTracker,
+          budgetGuard,
+          auditLogger,
+          dateTimeManager,
           send: (responseType, payload) => {
             sendSecure({
               type: responseType,
@@ -2804,6 +2812,7 @@ client.on('message', async (data) => {
           },
           dataDir: extDataDir,
         });
+        console.log(`[✓] Extension: ${msg.type} handled successfully`);
       } catch (err) {
         console.error(`[!] Extension handler error for ${msg.type}: ${err.message}`);
         sendSecure({
