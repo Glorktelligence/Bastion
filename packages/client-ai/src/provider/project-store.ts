@@ -12,6 +12,7 @@
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, normalize, posix } from 'node:path';
+import type { FilePurgeManager } from '../files/purge.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,6 +37,8 @@ export interface ProjectStoreConfig {
   readonly maxFileSize?: number;
   /** Max total project size in bytes. Default: 50MB. */
   readonly maxTotalSize?: number;
+  /** Optional PurgeManager — sole deletion authority. */
+  readonly purgeManager?: FilePurgeManager;
 }
 
 export type ProjectSaveResult =
@@ -134,16 +137,23 @@ export class ProjectStore {
   private readonly rootDir: string;
   private readonly maxFileSize: number;
   private readonly maxTotalSize: number;
+  private purgeManager: FilePurgeManager | null;
   private config: ProjectConfig;
 
   constructor(cfg?: ProjectStoreConfig) {
     this.rootDir = cfg?.rootDir ?? DEFAULT_ROOT;
     this.maxFileSize = cfg?.maxFileSize ?? DEFAULT_MAX_FILE;
     this.maxTotalSize = cfg?.maxTotalSize ?? DEFAULT_MAX_TOTAL;
+    this.purgeManager = cfg?.purgeManager ?? null;
     this.config = { alwaysLoaded: [], available: [] };
 
     mkdirSync(this.rootDir, { recursive: true });
     this.loadConfig();
+  }
+
+  /** Set the PurgeManager after construction (for late wiring). */
+  setPurgeManager(pm: FilePurgeManager): void {
+    this.purgeManager = pm;
   }
 
   // -----------------------------------------------------------------------
@@ -192,7 +202,12 @@ export class ProjectStore {
     if (!v.valid) return false;
     const fullPath = join(this.rootDir, v.sanitised!);
     try {
-      rmSync(fullPath);
+      if (this.purgeManager) {
+        const result = this.purgeManager.deleteFile(fullPath, 'project-file-delete');
+        if (!result.deleted) return false;
+      } else {
+        rmSync(fullPath);
+      }
       // Remove from config if present
       this.config.alwaysLoaded = this.config.alwaysLoaded.filter((p) => p !== v.sanitised);
       this.config.available = this.config.available.filter((p) => p !== v.sanitised);

@@ -17,6 +17,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type { FilePurgeManager } from '../files/purge.js';
 import type { ConversationStore } from './conversation-store.js';
 import type { MemoryStore } from './memory-store.js';
 import type { ProjectStore } from './project-store.js';
@@ -33,6 +34,7 @@ export interface DataEraserConfig {
   readonly usageTracker: UsageTracker;
   readonly challengeConfigPath: string;
   readonly userContextPath: string;
+  readonly purgeManager?: FilePurgeManager;
 }
 
 export interface ErasurePreview {
@@ -67,6 +69,7 @@ export class DataEraser {
   private readonly usageTracker: UsageTracker;
   private readonly challengeConfigPath: string;
   private readonly userContextPath: string;
+  private readonly purgeManager: FilePurgeManager | null;
 
   constructor(config: DataEraserConfig) {
     this.conversationStore = config.conversationStore;
@@ -75,6 +78,7 @@ export class DataEraser {
     this.usageTracker = config.usageTracker;
     this.challengeConfigPath = config.challengeConfigPath;
     this.userContextPath = config.userContextPath;
+    this.purgeManager = config.purgeManager ?? null;
   }
 
   /** Count all user data that would be deleted. */
@@ -168,7 +172,11 @@ export class DataEraser {
 
     // Reset challenge config to defaults
     try {
-      rmSync(this.challengeConfigPath, { force: true });
+      if (this.purgeManager) {
+        this.purgeManager.deleteFile(this.challengeConfigPath, 'gdpr-soft-delete');
+      } else {
+        rmSync(this.challengeConfigPath, { force: true });
+      }
     } catch {
       // File may not exist
     }
@@ -225,7 +233,11 @@ export class DataEraser {
     const erasedDir = join(projectDir, '.erased');
     if (existsSync(erasedDir)) {
       this.restoreFiles(erasedDir, projectDir);
-      rmSync(erasedDir, { recursive: true, force: true });
+      if (this.purgeManager) {
+        this.purgeManager.deleteDirectory(erasedDir, 'gdpr-cancel-erasure');
+      } else {
+        rmSync(erasedDir, { recursive: true, force: true });
+      }
     }
 
     // Remove erasure tracking
@@ -262,7 +274,11 @@ export class DataEraser {
     const projectDir = (this.projectStore as unknown as { rootDir: string }).rootDir;
     const erasedDir = join(projectDir, '.erased');
     if (existsSync(erasedDir)) {
-      rmSync(erasedDir, { recursive: true, force: true });
+      if (this.purgeManager) {
+        this.purgeManager.deleteDirectory(erasedDir, 'gdpr-hard-delete');
+      } else {
+        rmSync(erasedDir, { recursive: true, force: true });
+      }
     }
 
     // VACUUM to reclaim space

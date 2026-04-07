@@ -1,6 +1,7 @@
 # Project Bastion — Human-AI Secure Messaging Protocol
 
 ## Project Overview
+
 Open-source, privacy-first secure messaging protocol for structured Human-AI communication.
 Licence: Apache 2.0 | Stack: TypeScript monorepo (PNPM) | Status: All 5 phases complete
 Repository: https://github.com/Glorktelligence/Bastion
@@ -8,6 +9,7 @@ Repository: https://github.com/Glorktelligence/Bastion
 ## Critical Rules
 
 ### Five Immutable Boundaries
+
 These are HARDCODED and NON-NEGOTIABLE. Never make them configurable. Never weaken them.
 
 1. **MaliClaw Clause** — 13 blocked identifiers + `/claw/i` regex. Checked before allowlist. Cannot be removed or configured.
@@ -17,18 +19,22 @@ These are HARDCODED and NON-NEGOTIABLE. Never make them configurable. Never weak
 5. **Dangerous Tool Blindness** — Destructive tools always per-call approval. AI cannot see parameters until human approves.
 
 ### Security Non-Negotiables
+
 - E2E encryption means the relay NEVER sees plaintext. Log metadata only.
 - File transfers ALWAYS go through quarantine with 3-stage hash verification. No shortcuts.
 - Default to DENY when uncertain about any security decision.
 - Content scanning (13 dangerous patterns) on project_sync at relay + AI client.
+- **FilePurgeManager is the SOLE deletion authority.** No other code may delete files from disk. All deletion must route through `FilePurgeManager.deleteFile()` or `FilePurgeManager.deleteDirectory()`. Violation attempts are logged as `PURGE_VIOLATION` audit events. Test cleanup code is exempt.
 
 ### Protocol First
+
 - ALL message type changes start in `@bastion/protocol` package (87 message types, 48 error codes).
 - Other packages consume protocol types — they never define their own message structures.
 - Protocol extensions use namespaced message types (`namespace:type` format).
 - Protocol version bumps require an Architecture Decision Record in `docs/architecture/decisions/`.
 
 ### Implementation Quality (from Claude Code insights)
+
 - After implementing any feature, trace through the main code path with realistic sample data. Show step-by-step what happens with 2-3 inputs including an edge case. Fix issues before committing.
 - When working with Node.js native modules or database libraries, check compatibility with the current Node version BEFORE attempting installation. Run `node --version` first.
 - When a feature spans multiple packages (protocol → relay → client), implement ALL sides before considering the task complete. Explicitly call out if any package update is still missing.
@@ -38,13 +44,35 @@ These are HARDCODED and NON-NEGOTIABLE. Never make them configurable. Never weak
 - **Svelte 5 store subscriptions**: In `.svelte` route files, use `onMount()` (NOT `$effect()`) for `store.subscribe()` calls. Our custom stores call subscribers synchronously, and `$effect` tracks reactive reads — if a subscribe callback reads `$state` inside `$effect`, it creates an infinite loop (`effect_update_depth_exceeded`). `onMount` has no reactive tracking, so this cannot occur.
 - **Browser packages CANNOT import `@bastion/protocol` values** — only `import type` is safe. The protocol package re-exports `hash.ts` which uses `node:crypto`, breaking Vite browser builds. Affected: `client-human`, `relay-admin-ui`, `client-human-mobile`. Use Vite `define` for version (`__BASTION_VERSION__`), and hardcode safety floor values with comments referencing the protocol source. Node.js packages (`relay`, `client-ai`, `crypto`) can import freely.
 
+### Error Handling Philosophy: Fail Loud, Never Fake
+
+**Priority order — this is non-negotiable:**
+
+1. Work correctly with real data, or don't work at all
+2. Fail visibly with a stack trace and BASTION-CXXX error code
+3. Surface the error to the human — banner, log, warning, metadata flag
+4. Send a clear error message over the protocol (never swallow errors silently)
+5. Silently degrading to look "fine" is NEVER acceptable
+
+**Specific rules:**
+
+- **No placeholder data as live results.** If an API call fails, return an error — don't substitute mock data. "Swallowed exceptions with defaults" is a bug, not resilience.
+- **No hardcoded fallback data.** Defaults are acceptable for *configuration*. Defaults are NOT acceptable for *content* (messages, AI responses, user data).
+- **No optimistic self-reporting.** Never log "set up X integration" if the setup actually failed. If a mock got put in its place, say so explicitly.
+- **Static data disguised as live results is a critical defect.** If something returns cached/stale data, it must be flagged as such.
+- **Fallbacks are for the human to decide.** If the AI client can't reach the provider, send `provider_error` (BASTION-6XXX) to the relay and let the human see it. Don't retry silently forever.
+- **Errors propagate UP, never sideways.** A failing component reports failure through the protocol chain. It does not attempt to "handle" the error by pretending success to downstream consumers.
+- **Every catch block must DO something.** Empty catch blocks and `catch (e) { /* ignore */ }` are banned. At minimum: log, audit event, and propagate.
+
 ### Version Management
+
 - The `VERSION` file at repo root is the **single source of truth** for the project version.
 - Run `pnpm run version:sync` after editing `VERSION` — it updates all `package.json` files and `packages/protocol/src/constants/version.ts` (which exports `PROTOCOL_VERSION`).
 - **NEVER manually edit version strings** in `package.json` files or `version.ts`. Always edit `VERSION` and run the sync script.
 - Version bump workflow: edit `VERSION` → `pnpm run version:sync` → update `CHANGELOG.md` → commit.
 
 ### Working With Harry
+
 - Harry has ADHD. If he proposes something with security, privacy, or irreversible consequences, CHALLENGE HIM and suggest a safer alternative. This is explicitly requested and non-optional.
 - Read the skills in `.claude/skills/` before starting work — especially `project-context`, `safety-engine`, and `protocol-design`.
 - Commit messages follow Conventional Commits with package scope: `feat(protocol): description`
@@ -71,10 +99,12 @@ deploy/systemd/         → Systemd service templates for all components
 ```
 
 Startup scripts (root level):
+
 - `start-relay.mjs` — Wires all relay library code into runtime
 - `start-ai-client.mjs` — Wires all AI client library code into runtime
 
 ## Key Documentation
+
 - Core spec: `docs/spec/Project-Bastion-Spec-v0.1.0.docx`
 - Supplementary spec: `docs/spec/bastion-supplementary-spec.md`
 - Protocol specification: `docs/protocol/bastion-protocol-v0.5.0.md`
@@ -82,27 +112,32 @@ Startup scripts (root level):
 - Skills: `.claude/skills/` (9 skills covering all development patterns)
 
 ## Error Codes
+
 Format: `BASTION-CXXX` — 48 codes across 8 categories:
 1XXX=Connection (7) | 2XXX=Auth (6) | 3XXX=Protocol (6) | 4XXX=Safety (6) | 5XXX=File (7) | 6XXX=Provider (6) | 7XXX=Config (5) | 8XXX=Budget (5)
 Total: 48 codes.
 
 ## Three Bastion Official Adapters
+
 All share `ANTHROPIC_API_KEY`. Each targets a different model with role-specific config.
 
-| Adapter | Model | Context | Roles | Temperature | Pricing (in/out per MTok) |
-|---------|-------|---------|-------|-------------|---------------------------|
-| **Sonnet** | claude-sonnet-4-6 | 1M | default, conversation, task | 1.0 | $3 / $15 |
-| **Haiku** | claude-haiku-4-5-20251001 | 200k | compaction, game | 0.3 | $1 / $5 |
-| **Opus** | claude-opus-4-6 | 1M | research, dream | 1.0 | $5 / $25 |
+| Adapter          | Model                     | Context | Roles                       | Temperature | Pricing (in/out per MTok) |
+| ---------------- | ------------------------- | ------- | --------------------------- | ----------- | ------------------------- |
+| **Sonnet** | claude-sonnet-4-6         | 1M      | default, conversation, task | 1.0         | $3 / $15                  |
+| **Haiku**  | claude-haiku-4-5-20251001 | 200k    | compaction, game            | 0.3         | $1 / $5                   |
+| **Opus**   | claude-opus-4-6           | 1M      | research, dream             | 1.0         | $5 / $25                  |
 
 Env vars: `BASTION_SONNET_MODEL`, `BASTION_HAIKU_MODEL`, `BASTION_OPUS_MODEL` (override model IDs).
 
 ## Soul Document
+
 The AI client's system prompt is a three-layer "soul document" (`packages/client-ai/src/provider/conversation-manager.ts`):
+
 - **Layer 0** — Immutable Core (~400 tokens): identity, environment, five boundaries
 - **Layer 1** — Values & Principles (~800 tokens): honesty, harmlessness, helpfulness, transparency, user sovereignty
 - **Layer 2** — Operational Guidance (~900 tokens): conversation mode, adapter identity, memory proposals, challenge support
-Compaction uses Layer 0 only (via `ConversationManager.getCoreContext()`).
+  Compaction uses Layer 0 only (via `ConversationManager.getCoreContext()`).
 
 ## Tech Stack
+
 PNPM workspaces | TypeScript (ES2022/Node16) | Zod (validation) | node:test (testing, 2,993+ tests) | Biome (linting) | WebSocket over TLS | tweetnacl + libsodium (E2E encryption) | node:sqlite DatabaseSync (audit, usage) | SQLite (memories, budget, conversations) | jose (JWT) | Tauri + SvelteKit (desktop) | React Native (mobile)

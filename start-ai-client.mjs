@@ -34,6 +34,7 @@ import {
   UsageTracker,
   ExtensionDispatcher,
   DreamCycleManager,
+  DateTimeManager,
 } from './packages/client-ai/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -273,6 +274,13 @@ const challengeManager = new ChallengeManager(CHALLENGE_CONFIG_PATH);
 console.log(`[✓] Challenge manager: ${challengeManager.enabled ? 'ENABLED' : 'disabled'} (tz: ${challengeManager.timezone}, active: ${challengeManager.isActive()})`);
 
 // ---------------------------------------------------------------------------
+// DateTimeManager — sole DateTime authority
+// ---------------------------------------------------------------------------
+
+const dateTimeManager = new DateTimeManager({ timezone: process.env.BASTION_TIMEZONE });
+console.log(`[✓] DateTimeManager initialised (${dateTimeManager.now().timezone}, source: ${dateTimeManager.now().source})`);
+
+// ---------------------------------------------------------------------------
 // Conversation manager — session context + user context + memories + project
 // ---------------------------------------------------------------------------
 
@@ -295,6 +303,7 @@ const conversationManager = new ConversationManager({
   projectStore,
   challengeManager,
   skillStore,
+  dateTimeManager,
 });
 
 // Log prompt budget report
@@ -409,33 +418,41 @@ async function summariseForCompaction(prompt) {
   }
 }
 
+/** Re-entry guard — prevents compaction from triggering while already in progress. */
+let compactionInProgress = false;
+
 /** Persist a message to the active conversation + auto-compact check. */
 function persistMessage(role, type, content) {
   if (activeConversationId) {
     conversationStore.addMessage(activeConversationId, role, type, content);
 
-    // Auto-compact check (non-blocking)
-    const check = compactionManager.shouldCompact(activeConversationId);
-    if (check.needed) {
-      compactionManager.compact(activeConversationId, summariseForCompaction).then(result => {
-        if (result.success && result.messagesCovered > 0) {
-          console.log(`[✓] Auto-compacted: ${result.messagesCovered} messages, ~${result.tokensSaved} tokens saved`);
-          // Notify human client
-          if (client) {
-            client.send(JSON.stringify({
-              type: 'conversation_compact_ack', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
-              payload: {
-                conversationId: activeConversationId,
-                summaryPreview: (result.summary || '').slice(0, 200),
-                messagesCovered: result.messagesCovered,
-                tokensSaved: result.tokensSaved,
-              },
-            }));
+    // Auto-compact check (non-blocking, with re-entry guard)
+    if (!compactionInProgress) {
+      const check = compactionManager.shouldCompact(activeConversationId);
+      if (check.needed) {
+        compactionInProgress = true;
+        compactionManager.compact(activeConversationId, summariseForCompaction).then(result => {
+          compactionInProgress = false;
+          if (result.success && result.messagesCovered > 0) {
+            console.log(`[✓] Auto-compacted: ${result.messagesCovered} messages, ~${result.tokensSaved} tokens saved`);
+            // Notify human client
+            if (client) {
+              client.send(JSON.stringify({
+                type: 'conversation_compact_ack', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
+                payload: {
+                  conversationId: activeConversationId,
+                  summaryPreview: (result.summary || '').slice(0, 200),
+                  messagesCovered: result.messagesCovered,
+                  tokensSaved: result.tokensSaved,
+                },
+              }));
+            }
           }
-        }
-      }).catch(err => {
-        console.error(`[!] Auto-compaction failed: ${err.message}`);
-      });
+        }).catch(err => {
+          compactionInProgress = false;
+          console.error(`[!] Auto-compaction failed: ${err.message}`);
+        });
+      }
     }
   }
 }
@@ -464,6 +481,9 @@ const filePurgeManager = new FilePurgeManager(intakeDirectory, outboundStaging, 
 });
 filePurgeManager.start();
 console.log(`[✓] File purge manager started (timeout: ${FILE_PURGE_TIMEOUT_MS}ms, check: 30s)`);
+
+// Wire PurgeManager as sole delete authority into stores created earlier
+projectStore.setPurgeManager(filePurgeManager);
 
 /** Pending file acceptances — transferId → metadata from file_manifest. */
 const pendingFileAcceptances = new Map();
@@ -550,6 +570,7 @@ const dataEraser = new DataEraser({
   usageTracker,
   challengeConfigPath: CHALLENGE_CONFIG_PATH,
   userContextPath: process.env.BASTION_USER_CONTEXT_PATH || '/var/lib/bastion/user-context.md',
+  purgeManager: filePurgeManager,
 });
 
 // Check for expired soft deletes on startup (30-day window passed)

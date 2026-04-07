@@ -30,8 +30,11 @@ export type {
 export { FilePurgeManager, PurgeError } from './purge.js';
 export type {
   FilePurgeConfig,
+  FileDeletionResult,
+  PurgeViolation,
   TrackedTask,
   TaskPurgeResult,
   PurgeReason,
   PurgeCallback,
+  ViolationCallback,
 } from './purge.js';

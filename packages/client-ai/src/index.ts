@@ -69,6 +69,7 @@ export {
   ImportExecutor,
   ExtensionDispatcher,
   DreamCycleManager,
+  DateTimeManager,
 } from './provider/index.js';
 export type {
   ToolRegistry,
@@ -148,6 +149,8 @@ export type {
   DreamCycleConfig,
   DreamCycleResult,
   MemoryCandidate,
+  DateTimeInfo,
+  DateTimeManagerConfig,
 } from './provider/index.js';
 
 // ---------------------------------------------------------------------------
@@ -171,8 +174,11 @@ export type {
   StageResult,
   SubmitResult,
   FilePurgeConfig,
+  FileDeletionResult,
+  PurgeViolation,
   TrackedTask,
   TaskPurgeResult,
   PurgeReason,
   PurgeCallback,
+  ViolationCallback,
 } from './files/index.js';

@@ -417,6 +417,24 @@ export class ConversationStore {
     return rows.map((r) => this.mapMessage(r));
   }
 
+  /**
+   * Get messages added after a specific message ID.
+   * Uses the timestamp of the reference message to find subsequent messages.
+   * Returns messages in chronological order (oldest first).
+   */
+  getMessagesSince(conversationId: string, afterMessageId: string): MessageRecord[] {
+    // Get the timestamp of the reference message
+    const ref = this.db
+      .prepare('SELECT timestamp FROM messages WHERE id = ? AND conversationId = ?')
+      .get(afterMessageId, conversationId) as { timestamp: string } | undefined;
+    if (!ref) return this.getRecentMessages(conversationId, 10000);
+
+    const rows = this.db
+      .prepare('SELECT * FROM messages WHERE conversationId = ? AND timestamp > ? ORDER BY timestamp ASC')
+      .all(conversationId, ref.timestamp) as Record<string, unknown>[];
+    return rows.map((r) => this.mapMessage(r));
+  }
+
   /** Get pinned messages for a conversation. */
   getPinnedMessages(conversationId: string): MessageRecord[] {
     const rows = this.db

@@ -12,7 +12,7 @@
  * Pinned messages are excluded from compaction and always stay in full.
  */
 
-import type { CompactionSummary, ConversationStore } from './conversation-store.js';
+import type { CompactionSummary, ConversationStore, MessageRecord } from './conversation-store.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,20 +68,34 @@ export class CompactionManager {
 
   /**
    * Check if compaction is needed for a conversation.
+   *
+   * Only counts messages AFTER the last compaction to prevent infinite loops
+   * where shouldCompact() keeps returning true because it was counting
+   * already-summarised messages.
    */
   shouldCompact(conversationId: string): CompactionCheck {
-    const messageCount = this.store.getMessageCount(conversationId);
-    const recent = this.store.getRecentMessages(conversationId, 10000);
+    // Get latest compaction summary to know what's already covered
+    const lastCompaction = this.store.getLatestCompaction(conversationId);
+
+    // Only count messages SINCE the last compaction
+    let recent: readonly MessageRecord[];
+    if (lastCompaction) {
+      recent = this.store.getMessagesSince(conversationId, lastCompaction.toMessageId);
+    } else {
+      recent = this.store.getRecentMessages(conversationId, 10000);
+    }
+
     let totalChars = 0;
     for (const m of recent) {
       totalChars += m.content.length;
     }
+
     const tokenEstimate = Math.ceil(totalChars / this.charsPerToken);
     const budgetPercent = Math.round((tokenEstimate / this.conversationBudget) * 100);
 
     return {
-      needed: budgetPercent >= this.triggerPercent && messageCount > this.keepRecent,
-      messageCount,
+      needed: budgetPercent >= this.triggerPercent && recent.length > this.keepRecent,
+      messageCount: recent.length,
       tokenEstimate,
       budgetPercent,
     };

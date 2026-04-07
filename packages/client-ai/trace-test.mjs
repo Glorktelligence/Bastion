@@ -28,6 +28,12 @@ import {
   DataEraser,
   ExtensionDispatcher,
   DreamCycleManager,
+  DateTimeManager,
+  CompactionManager,
+  ConversationStore,
+  IntakeDirectory,
+  OutboundStaging,
+  FilePurgeManager,
 } from './dist/index.js';
 import {
   BastionRelay,
@@ -2901,6 +2907,200 @@ async function run() {
     // Message types registered
     check('DREAM_CYCLE_REQUEST in MESSAGE_TYPES', MESSAGE_TYPES.DREAM_CYCLE_REQUEST === 'dream_cycle_request');
     check('DREAM_CYCLE_COMPLETE in MESSAGE_TYPES', MESSAGE_TYPES.DREAM_CYCLE_COMPLETE === 'dream_cycle_complete');
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: Compaction infinite loop fix — shouldCompact + getMessagesSince
+  // -------------------------------------------------------------------
+  {
+    console.log('--- Compaction infinite loop fix ---');
+    const { rmSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const os = await import('node:os');
+    const tmpDb = join(os.tmpdir(), `bastion-compact-test-${Date.now()}.db`);
+
+    try {
+      const store = new ConversationStore({ path: tmpDb });
+      const conv = store.createConversation('Compact test');
+
+      // --- getMessagesSince ---
+      const m1 = store.addMessage(conv.id, 'user', 'text', 'hello');
+      const m2 = store.addMessage(conv.id, 'assistant', 'text', 'hi there');
+      const m3 = store.addMessage(conv.id, 'user', 'text', 'how are you?');
+
+      const since1 = store.getMessagesSince(conv.id, m1.id);
+      check('getMessagesSince returns messages after m1', since1.length === 2);
+      check('getMessagesSince first result is m2', since1[0]?.id === m2.id);
+      check('getMessagesSince second result is m3', since1[1]?.id === m3.id);
+
+      const since2 = store.getMessagesSince(conv.id, m2.id);
+      check('getMessagesSince after m2 returns only m3', since2.length === 1 && since2[0]?.id === m3.id);
+
+      const since3 = store.getMessagesSince(conv.id, m3.id);
+      check('getMessagesSince after last message returns empty', since3.length === 0);
+
+      // Nonexistent ID falls back to getRecentMessages
+      const sinceBad = store.getMessagesSince(conv.id, 'nonexistent-id');
+      check('getMessagesSince with bad ID falls back to all messages', sinceBad.length === 3);
+
+      // --- shouldCompact returns false immediately after compaction ---
+      // Fill enough messages to trigger compaction threshold
+      const mgr = new CompactionManager(store, {
+        conversationBudget: 200, // Very low budget to trigger easily
+        triggerPercent: 50,
+        keepRecent: 3,
+        charsPerToken: 4,
+      });
+
+      // Add enough messages to exceed budget
+      for (let i = 0; i < 20; i++) {
+        store.addMessage(conv.id, i % 2 === 0 ? 'user' : 'assistant', 'text',
+          `Message ${i}: ${'x'.repeat(100)}`);
+      }
+
+      const check1 = mgr.shouldCompact(conv.id);
+      check('shouldCompact returns true before compaction', check1.needed === true);
+
+      // Simulate compaction by storing a summary
+      const compactable = store.getCompactableMessages(conv.id, 3);
+      if (compactable.length > 0) {
+        store.addCompactionSummary(
+          conv.id, compactable[0].id, compactable[compactable.length - 1].id,
+          'Test compaction summary', compactable.length, 500,
+        );
+      }
+
+      const check2 = mgr.shouldCompact(conv.id);
+      check('shouldCompact returns false after compaction (infinite loop fix)', check2.needed === false);
+
+      // --- shouldCompact returns true when NEW messages accumulate ---
+      for (let i = 0; i < 30; i++) {
+        store.addMessage(conv.id, i % 2 === 0 ? 'user' : 'assistant', 'text',
+          `Post-compaction message ${i}: ${'y'.repeat(100)}`);
+      }
+
+      const check3 = mgr.shouldCompact(conv.id);
+      check('shouldCompact returns true when new messages accumulate after compaction', check3.needed === true);
+    } finally {
+      try { rmSync(tmpDb, { force: true }); } catch {}
+    }
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: DateTimeManager
+  // -------------------------------------------------------------------
+  {
+    console.log('--- DateTimeManager ---');
+
+    // Basic field presence
+    const dtm = new DateTimeManager();
+    const info = dtm.now();
+    check('DateTimeManager.now() returns iso string', typeof info.iso === 'string' && info.iso.includes('T'));
+    check('DateTimeManager.now() returns unix number', typeof info.unix === 'number' && info.unix > 0);
+    check('DateTimeManager.now() returns formatted string', typeof info.formatted === 'string' && info.formatted.length > 0);
+    check('DateTimeManager.now() returns timezone string', typeof info.timezone === 'string' && info.timezone.length > 0);
+    check('DateTimeManager.now() returns source', info.source === 'system-clock');
+    check('DateTimeManager.now() returns uptimeMs >= 0', info.uptimeMs >= 0);
+
+    // formatDuration
+    check('formatDuration: 0ms → 0s', dtm.formatDuration(0) === '0s');
+    check('formatDuration: 5000ms → 5s', dtm.formatDuration(5000) === '5s');
+    check('formatDuration: 90000ms → 1m 30s', dtm.formatDuration(90000) === '1m 30s');
+    check('formatDuration: 3661000ms → 1h 1m', dtm.formatDuration(3661000) === '1h 1m');
+    check('formatDuration: 90000000ms → 1d 1h', dtm.formatDuration(90000000) === '1d 1h');
+
+    // formatTimeDiff
+    const from = new Date('2026-01-01T00:00:00Z');
+    const to = new Date('2026-01-01T00:05:30Z');
+    check('formatTimeDiff: 5m 30s', dtm.formatTimeDiff(from, to) === '5m 30s');
+
+    // Timezone from config
+    const dtmTz = new DateTimeManager({ timezone: 'America/New_York' });
+    check('DateTimeManager respects config timezone', dtmTz.now().timezone === 'America/New_York');
+
+    // Timezone from env var
+    const origTz = process.env.BASTION_TIMEZONE;
+    process.env.BASTION_TIMEZONE = 'Asia/Tokyo';
+    const dtmEnv = new DateTimeManager();
+    check('DateTimeManager uses BASTION_TIMEZONE env var', dtmEnv.now().timezone === 'Asia/Tokyo');
+    if (origTz !== undefined) { process.env.BASTION_TIMEZONE = origTz; }
+    else { delete process.env.BASTION_TIMEZONE; }
+
+    // Config timezone takes precedence over env
+    process.env.BASTION_TIMEZONE = 'Asia/Tokyo';
+    const dtmPrecedence = new DateTimeManager({ timezone: 'Europe/London' });
+    check('DateTimeManager config timezone takes precedence over env', dtmPrecedence.now().timezone === 'Europe/London');
+    if (origTz !== undefined) { process.env.BASTION_TIMEZONE = origTz; }
+    else { delete process.env.BASTION_TIMEZONE; }
+
+    // buildTemporalBlock
+    const block = dtm.buildTemporalBlock();
+    check('buildTemporalBlock contains header', block.includes('--- Temporal Awareness ---'));
+    check('buildTemporalBlock contains source', block.includes('system-clock'));
+    check('buildTemporalBlock contains uptime', block.includes('AI client uptime'));
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: PurgeManager sole delete authority
+  // -------------------------------------------------------------------
+  {
+    console.log('--- PurgeManager sole delete authority ---');
+    const { mkdirSync, writeFileSync, existsSync, rmSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const os = await import('node:os');
+    const tmpDir = join(os.tmpdir(), `bastion-purge-test-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+
+    try {
+      const intake = new IntakeDirectory({ rootDir: join(tmpDir, 'intake'), maxFiles: 10 });
+      const outbound = new OutboundStaging({ rootDir: join(tmpDir, 'outbound'), maxFiles: 10 });
+
+      let violations = [];
+      const pm = new FilePurgeManager(intake, outbound, {
+        onViolation: (v) => violations.push(v),
+      });
+
+      // deleteFile — creates and deletes a file
+      const testFile = join(tmpDir, 'deleteme.txt');
+      writeFileSync(testFile, 'temp content');
+      check('test file exists before deleteFile', existsSync(testFile));
+
+      const delResult = pm.deleteFile(testFile, 'test-cleanup');
+      check('deleteFile returns deleted=true', delResult.deleted === true);
+      check('deleteFile removes file from disk', !existsSync(testFile));
+      check('deleteFile returns reason', delResult.reason === 'test-cleanup');
+      check('deleteFile returns timestamp', typeof delResult.timestamp === 'string');
+
+      // deleteFile — nonexistent file returns deleted=true (force)
+      const delResult2 = pm.deleteFile(join(tmpDir, 'nonexistent.txt'), 'test');
+      check('deleteFile with force on nonexistent returns deleted=true', delResult2.deleted === true);
+
+      // deleteDirectory — creates and deletes a directory
+      const subDir = join(tmpDir, 'subdir');
+      mkdirSync(subDir, { recursive: true });
+      writeFileSync(join(subDir, 'a.txt'), 'content');
+      const dirResult = pm.deleteDirectory(subDir, 'test-dir-cleanup');
+      check('deleteDirectory returns deleted=true', dirResult.deleted === true);
+      check('deleteDirectory removes directory from disk', !existsSync(subDir));
+
+      // reportViolation
+      pm.reportViolation('TestCaller', '/some/path');
+      check('reportViolation triggers onViolation callback', violations.length === 1);
+      check('reportViolation type is PURGE_VIOLATION', violations[0].type === 'PURGE_VIOLATION');
+      check('reportViolation caller is TestCaller', violations[0].caller === 'TestCaller');
+      check('reportViolation path matches', violations[0].path === '/some/path');
+
+      // Destroyed purge manager rejects deleteFile
+      pm.destroy();
+      let threwOnDelete = false;
+      try { pm.deleteFile('/tmp/nope', 'test'); } catch (e) { threwOnDelete = true; }
+      check('deleteFile throws after destroy', threwOnDelete);
+    } finally {
+      try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    }
   }
   console.log();
 

@@ -14,6 +14,7 @@
  * task runs longer than the timeout, all its files are purged.
  */
 
+import { rmSync } from 'node:fs';
 import type { Timestamp } from '@bastion/protocol';
 import type { IntakeDirectory } from './intake.js';
 import type { OutboundStaging } from './outbound.js';
@@ -43,8 +44,28 @@ export interface TrackedTask {
   readonly timeoutAt: Timestamp;
 }
 
+/** Result of a single file deletion request. */
+export interface FileDeletionResult {
+  readonly path: string;
+  readonly deleted: boolean;
+  readonly reason: string;
+  readonly timestamp: Timestamp;
+}
+
+/** Audit event for deletion attempts outside the PurgeManager. */
+export interface PurgeViolation {
+  readonly type: 'PURGE_VIOLATION';
+  readonly caller: string;
+  readonly path: string;
+  readonly timestamp: Timestamp;
+  readonly message: string;
+}
+
 /** Callback invoked when a task's files are purged. */
 export type PurgeCallback = (result: TaskPurgeResult) => void;
+
+/** Callback invoked when a purge violation is detected. */
+export type ViolationCallback = (violation: PurgeViolation) => void;
 
 /** Configuration for the file purge manager. */
 export interface FilePurgeConfig {
@@ -54,6 +75,8 @@ export interface FilePurgeConfig {
   readonly checkIntervalMs?: number;
   /** Callback invoked when a task's files are purged. */
   readonly onPurge?: PurgeCallback;
+  /** Callback invoked when a deletion is attempted outside PurgeManager. */
+  readonly onViolation?: ViolationCallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -76,6 +99,7 @@ export class FilePurgeManager {
   private readonly defaultTimeoutMs: number;
   private readonly checkIntervalMs: number;
   private readonly onPurge: PurgeCallback | undefined;
+  private readonly onViolation: ViolationCallback | undefined;
 
   /** Tracked tasks with their timeout deadlines. */
   private readonly tasks = new Map<string, TrackedTask>();
@@ -89,6 +113,7 @@ export class FilePurgeManager {
     this.defaultTimeoutMs = config.defaultTimeoutMs ?? 3_600_000;
     this.checkIntervalMs = config.checkIntervalMs ?? 30_000;
     this.onPurge = config.onPurge;
+    this.onViolation = config.onViolation;
   }
 
   /** Number of tracked tasks. */
@@ -215,6 +240,74 @@ export class FilePurgeManager {
     this.stop();
     this.tasks.clear();
     this.destroyed = true;
+  }
+
+  /**
+   * Delete a single file from disk. This is the SOLE authorised path for
+   * file deletion in Bastion. All other components MUST use this method
+   * instead of calling fs.rmSync/fs.unlinkSync directly.
+   */
+  deleteFile(filePath: string, reason: string): FileDeletionResult {
+    this.assertNotDestroyed();
+    try {
+      rmSync(filePath, { force: true });
+      return {
+        path: filePath,
+        deleted: true,
+        reason,
+        timestamp: new Date().toISOString() as Timestamp,
+      };
+    } catch (err) {
+      return {
+        path: filePath,
+        deleted: false,
+        reason: `${reason} — failed: ${(err as Error).message}`,
+        timestamp: new Date().toISOString() as Timestamp,
+      };
+    }
+  }
+
+  /**
+   * Delete a directory recursively. Sole authorised path for directory
+   * deletion in Bastion.
+   */
+  deleteDirectory(dirPath: string, reason: string): FileDeletionResult {
+    this.assertNotDestroyed();
+    try {
+      rmSync(dirPath, { recursive: true, force: true });
+      return {
+        path: dirPath,
+        deleted: true,
+        reason,
+        timestamp: new Date().toISOString() as Timestamp,
+      };
+    } catch (err) {
+      return {
+        path: dirPath,
+        deleted: false,
+        reason: `${reason} — failed: ${(err as Error).message}`,
+        timestamp: new Date().toISOString() as Timestamp,
+      };
+    }
+  }
+
+  /**
+   * Report a deletion attempt that occurred outside the PurgeManager.
+   * Logs a PURGE_VIOLATION audit event. This is a canary — if these
+   * events appear, something bypassed the sole delete authority.
+   */
+  reportViolation(caller: string, path: string): void {
+    const violation: PurgeViolation = {
+      type: 'PURGE_VIOLATION',
+      caller,
+      path,
+      timestamp: new Date().toISOString() as Timestamp,
+      message: `Deletion attempted outside PurgeManager by ${caller} on ${path}`,
+    };
+    console.warn(`[!] PURGE_VIOLATION: ${violation.message}`);
+    if (this.onViolation) {
+      this.onViolation(violation);
+    }
   }
 
   // -----------------------------------------------------------------------

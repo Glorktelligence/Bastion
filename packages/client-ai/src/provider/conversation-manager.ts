@@ -16,6 +16,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import type { ChallengeManager } from './challenge-manager.js';
+import type { DateTimeManager } from './datetime-manager.js';
 import type { MemoryStore } from './memory-store.js';
 import type { ProjectStore } from './project-store.js';
 import type { SkillStore } from './skill-store.js';
@@ -71,6 +72,8 @@ export interface ConversationManagerConfig {
   readonly challengeManager?: ChallengeManager;
   /** Optional skill store for Layer 5 skills injection. */
   readonly skillStore?: SkillStore;
+  /** Optional DateTimeManager — sole DateTime authority. */
+  readonly dateTimeManager?: DateTimeManager;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,6 +215,7 @@ export class ConversationManager {
   private readonly projectStore: ProjectStore | null;
   private readonly challengeManager: ChallengeManager | null;
   private readonly skillStore: SkillStore | null;
+  private readonly dateTimeManager: DateTimeManager | null;
   private messages: ConversationMessage[];
   private userContext: string;
   private operatorContext: string;
@@ -235,6 +239,7 @@ export class ConversationManager {
     this.projectStore = config?.projectStore ?? null;
     this.challengeManager = config?.challengeManager ?? null;
     this.skillStore = config?.skillStore ?? null;
+    this.dateTimeManager = config?.dateTimeManager ?? null;
     this.messages = [];
     this.userContext = '';
     this.operatorContext = '';
@@ -646,6 +651,9 @@ export class ConversationManager {
   // -----------------------------------------------------------------------
 
   private formatTimeDiff(from: Date, to: Date): string {
+    if (this.dateTimeManager) {
+      return `${this.dateTimeManager.formatTimeDiff(from, to)} ago`;
+    }
     const diffMs = to.getTime() - from.getTime();
     const seconds = Math.floor(diffMs / 1000);
     if (seconds < 60) return `${seconds}s ago`;
