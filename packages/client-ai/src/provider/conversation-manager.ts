@@ -229,6 +229,9 @@ export class ConversationManager {
   // Recall buffer — one-shot injection of recalled historical messages
   private recallResults: string | null = null;
 
+  // Exec results buffer — accumulates within a single response, clears after injection
+  private execResults: string | null = null;
+
   constructor(config?: ConversationManagerConfig) {
     this.tokenBudget = config?.tokenBudget ?? DEFAULT_TOKEN_BUDGET;
     this.userContextPath = config?.userContextPath ?? DEFAULT_USER_CONTEXT_PATH;
@@ -384,6 +387,25 @@ export class ConversationManager {
   /** Check if recall results are pending injection. */
   hasRecallResults(): boolean {
     return this.recallResults !== null;
+  }
+
+  /**
+   * Set exec results for injection into the next prompt assembly.
+   * Unlike recall (one-shot), exec results ACCUMULATE within a single
+   * response because one AI message can contain multiple [BASTION:EXEC] blocks.
+   * They all get injected together, then cleared after prompt assembly.
+   */
+  setExecResults(formatted: string | null): void {
+    if (this.execResults && formatted) {
+      this.execResults += `\n${formatted}`;
+    } else {
+      this.execResults = formatted;
+    }
+  }
+
+  /** Check if exec results are pending injection. */
+  hasExecResults(): boolean {
+    return this.execResults !== null;
   }
 
   static getRoleContext(): string {
@@ -627,6 +649,27 @@ export class ConversationManager {
       );
       actionParts.push('[BASTION:RECALL]{"query":"search terms","scope":"conversation","limit":5}[/BASTION:RECALL]\n');
 
+      // EXEC action — governed command execution
+      actionParts.push('EXEC (run commands in the governed execution environment):');
+      actionParts.push('[BASTION:EXEC]command here[/BASTION:EXEC]\n');
+
+      actionParts.push('Available workspace paths:');
+      actionParts.push('  /bastion/workspace/  \u2014 active project files');
+      actionParts.push('  /bastion/intake/     \u2014 read-only incoming files');
+      actionParts.push('  /bastion/outbound/   \u2014 write-once outgoing files');
+      actionParts.push(
+        '  /bastion/trash/      \u2014 reversible deletion (mv here, PurgeManager handles permanent delete)',
+      );
+      actionParts.push('  /bastion/scratch/    \u2014 temporary work area\n');
+
+      actionParts.push(
+        'Available commands: ls, cat, head, tail, find, grep, wc, diff, tree, touch, mkdir, cp, mv, echo, cd, pwd, sort, uniq, node, pnpm, git (read-only: log, diff, show, status, branch, tag, blame, shortlog)\n',
+      );
+
+      actionParts.push(
+        'To delete files, move them to /bastion/trash/ \u2014 permanent deletion requires human approval through PurgeManager.\n',
+      );
+
       actionParts.push('Rules:');
       if (this.challengeManager?.isActive()) {
         actionParts.push('- CHALLENGE: Only for genuinely risky actions during these active challenge hours');
@@ -634,6 +677,9 @@ export class ConversationManager {
       actionParts.push('- MEMORY: Only when genuinely useful, max 1 per response, user approves all saves');
       actionParts.push(
         '- RECALL: Use when you need specific details from earlier that may have been compacted. Max 3 per session. Results appear in your next turn.',
+      );
+      actionParts.push(
+        '- EXEC: Commands run in a sandboxed environment. Network access, system administration, and privilege escalation are not available. Max 5 commands per response.',
       );
       actionParts.push('- These blocks are stripped from your visible response \u2014 the human sees clean text');
       actionParts.push('- Do NOT use these for normal conversation or minor decisions');
@@ -648,6 +694,14 @@ export class ConversationManager {
       components.push('Recalled Context');
       // Clear after injection — recall is one-shot, not persistent
       this.recallResults = null;
+    }
+
+    // Execution results — accumulated across multiple EXEC blocks, then cleared
+    if (this.execResults) {
+      parts.push(this.execResults);
+      components.push('Execution Results');
+      // Clear after injection
+      this.execResults = null;
     }
 
     // Project context

@@ -38,6 +38,7 @@ import {
   DreamCycleManager,
   DateTimeManager,
   RecallHandler,
+  BastionBash,
 } from './packages/client-ai/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -511,6 +512,38 @@ console.log(`[✓] File purge manager started (timeout: ${FILE_PURGE_TIMEOUT_MS}
 // Wire PurgeManager as sole delete authority into stores created earlier
 projectStore.setPurgeManager(filePurgeManager);
 
+// ---------------------------------------------------------------------------
+// Bastion Bash — Governed AI Execution Environment
+// ---------------------------------------------------------------------------
+
+const BASH_WORKSPACE = process.env.BASTION_BASH_WORKSPACE || '/var/lib/bastion/workspace';
+const BASH_INTAKE = process.env.BASTION_BASH_INTAKE || INTAKE_DIR;
+const BASH_OUTBOUND = process.env.BASTION_BASH_OUTBOUND || OUTBOUND_DIR;
+const BASH_TRASH = process.env.BASTION_BASH_TRASH || '/var/lib/bastion/trash';
+const BASH_SCRATCH = process.env.BASTION_BASH_SCRATCH || '/var/lib/bastion/scratch';
+
+// Create governed directories
+for (const dir of [BASH_WORKSPACE, BASH_TRASH, BASH_SCRATCH]) {
+  mkdirSync(dir, { recursive: true });
+}
+
+const bastionBash = new BastionBash(
+  {
+    workspacePath: BASH_WORKSPACE,
+    intakePath: BASH_INTAKE,
+    outboundPath: BASH_OUTBOUND,
+    trashPath: BASH_TRASH,
+    scratchPath: BASH_SCRATCH,
+    maxOutputChars: 8000,
+    maxCommandLength: 1000,
+  },
+  filePurgeManager,
+  null, // audit logger — logged inline in action handler
+);
+console.log('[✓] Bastion Bash initialised (governed execution environment)');
+console.log(`    workspace: ${BASH_WORKSPACE}`);
+console.log(`    trash: ${BASH_TRASH} (PurgeManager territory)`);
+
 /** Pending file acceptances — transferId → metadata from file_manifest. */
 const pendingFileAcceptances = new Map();
 
@@ -672,7 +705,7 @@ function sendUsageStatusDebounced() {
 // AI Action Block Parser — extract structured actions from AI response
 // ---------------------------------------------------------------------------
 
-const ACTION_BLOCK_RE = /\[BASTION:(CHALLENGE|MEMORY|RECALL)\]([\s\S]*?)\[\/BASTION:\1\]/g;
+const ACTION_BLOCK_RE = /\[BASTION:(CHALLENGE|MEMORY|RECALL|EXEC)\]([\s\S]*?)\[\/BASTION:\1\]/g;
 
 /**
  * Parse [BASTION:ACTION]{...}[/BASTION:ACTION] blocks from response text.
@@ -685,12 +718,18 @@ function parseActionBlocks(text) {
   let match;
   while ((match = ACTION_BLOCK_RE.exec(text)) !== null) {
     const actionType = match[1];
-    const jsonStr = match[2].trim();
-    try {
-      const data = JSON.parse(jsonStr);
-      actions.push({ type: actionType, data });
-    } catch {
-      console.log(`[!] Failed to parse BASTION:${actionType} block — invalid JSON`);
+    const rawContent = match[2].trim();
+
+    if (actionType === 'EXEC') {
+      // EXEC blocks contain raw command strings, not JSON
+      actions.push({ type: 'EXEC', data: rawContent });
+    } else {
+      try {
+        const data = JSON.parse(rawContent);
+        actions.push({ type: actionType, data });
+      } catch {
+        console.log(`[!] Failed to parse BASTION:${actionType} block — invalid JSON`);
+      }
     }
   }
 
@@ -711,11 +750,15 @@ const aiActionLimits = {
   challengeCount: 0,
   memoryCount: 0,
   recallCount: 0,
+  execCount: 0,
+  execCountThisResponse: 0,
   messagesSinceLastMemory: 0,
   messagesSinceLastRecall: 0,
   maxChallengesPerSession: 3,
   maxMemoriesPerSession: 3,
   maxRecallsPerSession: 3,
+  maxExecsPerResponse: 5,
+  maxExecsPerSession: 20,
   memoryMinMessageGap: 5,
   recallMinMessageGap: 5,
 
@@ -744,6 +787,19 @@ const aiActionLimits = {
   recordRecall() {
     this.recallCount++;
     this.messagesSinceLastRecall = 0;
+  },
+  canExec() {
+    return (
+      this.execCount < this.maxExecsPerSession &&
+      this.execCountThisResponse < this.maxExecsPerResponse
+    );
+  },
+  recordExec() {
+    this.execCount++;
+    this.execCountThisResponse++;
+  },
+  resetResponseExecCount() {
+    this.execCountThisResponse = 0;
   },
   recordMessage() {
     this.messagesSinceLastMemory++;
@@ -2170,8 +2226,38 @@ client.on('message', async (data) => {
               conversationId: activeConversationId || null,
               inputTokens: 0, outputTokens: 0, costUsd: 0,
             });
+          } else if (action.type === 'EXEC' && aiActionLimits.canExec()) {
+            aiActionLimits.recordExec();
+            // EXEC block data is a raw command string (not JSON)
+            const commandStr = typeof action.data === 'string'
+              ? action.data
+              : (typeof action.data === 'object' && action.data.command)
+                ? String(action.data.command)
+                : String(action.data);
+
+            console.log(`[→] AI exec request: "${commandStr.substring(0, 80)}"`);
+
+            const execResult = await bastionBash.execute(commandStr);
+
+            // Audit trail
+            const auditType = execResult.tier === 3 ? 'BASH_INVISIBLE' : execResult.tier === 2 ? 'BASH_BLOCKED' : 'BASH_COMMAND';
+            usageTracker.record({
+              timestamp: new Date().toISOString(),
+              adapterId: 'system', adapterRole: 'bash', purpose: `${auditType}:${commandStr.substring(0, 50)}`,
+              conversationId: activeConversationId || null,
+              inputTokens: 0, outputTokens: 0, costUsd: 0,
+            });
+
+            // Inject result into conversation context for next prompt
+            const formatted = bastionBash.formatForPrompt(execResult);
+            conversationManager.setExecResults(formatted);
+
+            console.log(`[${execResult.success ? '✓' : '✗'}] Bash tier ${execResult.tier}: "${commandStr.substring(0, 60)}" (${execResult.executionTimeMs}ms)`);
           }
         }
+
+        // Reset per-response exec counter
+        aiActionLimits.resetResponseExecCount();
 
         // Send final stream chunk marker if streaming was active
         if (STREAMING_ENABLED && streamChunkIndex > 0) {

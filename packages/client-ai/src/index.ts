@@ -73,6 +73,7 @@ export {
   DreamCycleManager,
   DateTimeManager,
   RecallHandler,
+  BastionBash,
 } from './provider/index.js';
 export type {
   ToolRegistry,
@@ -164,6 +165,9 @@ export type {
   RecallRequest,
   RecallMatch,
   RecallResult,
+  BastionBashConfig,
+  CommandResult,
+  BashAuditLogger,
 } from './provider/index.js';
 
 // ---------------------------------------------------------------------------

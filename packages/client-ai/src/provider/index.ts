@@ -156,3 +156,7 @@ export type { RecallRequest, RecallMatch, RecallResult } from './recall-handler.
 // Dream Cycle Manager (Layer 6)
 export { DreamCycleManager } from './dream-cycle-manager.js';
 export type { DreamCycleConfig, DreamCycleResult, MemoryCandidate } from './dream-cycle-manager.js';
+
+// Bastion Bash (Governed Execution)
+export { BastionBash } from './bastion-bash.js';
+export type { BastionBashConfig, CommandResult, AuditLogger as BashAuditLogger } from './bastion-bash.js';

@@ -1,7 +1,7 @@
 # Project Bastion
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-2%2C974_passing-brightgreen.svg)](#run-tests)
+[![Tests](https://img.shields.io/badge/Tests-3%2C376_passing-brightgreen.svg)](#run-tests)
 [![Packages](https://img.shields.io/badge/Packages-8-purple.svg)](#packages)
 [![Protocol](https://img.shields.io/badge/Protocol-89_message_types-orange.svg)](#protocol)
 [![Node](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-339933.svg)](https://nodejs.org)
@@ -181,7 +181,7 @@ pnpm dev
 ### Run Tests
 
 ```bash
-pnpm test    # All 2,974+ tests across 14 files
+pnpm test    # All 3,376+ tests across 14 files
 pnpm lint    # Biome linting
 ```
 

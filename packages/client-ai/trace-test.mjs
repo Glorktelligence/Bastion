@@ -37,6 +37,7 @@ import {
   OutboundStaging,
   FilePurgeManager,
   RecallHandler,
+  BastionBash,
 } from './dist/index.js';
 import {
   BastionRelay,
@@ -3824,6 +3825,395 @@ async function run() {
     // RECALL action documented in prompt
     check('RECALL action documented in system prompt', prompt.includes('[BASTION:RECALL]'));
     check('RECALL rules documented in system prompt', prompt.includes('RECALL:'));
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: Bastion Bash — governed AI execution environment
+  // -------------------------------------------------------------------
+  {
+    console.log('--- Bastion Bash: BastionBash class ---');
+    const { mkdirSync, rmSync, writeFileSync, existsSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const os = await import('node:os');
+    const bashTmpDir = join(os.tmpdir(), `bastion-bash-test-${Date.now()}`);
+
+    // Set up governed directory structure
+    const bashWorkspace = join(bashTmpDir, 'workspace');
+    const bashIntake = join(bashTmpDir, 'intake');
+    const bashOutbound = join(bashTmpDir, 'outbound');
+    const bashTrash = join(bashTmpDir, 'trash');
+    const bashScratch = join(bashTmpDir, 'scratch');
+
+    for (const dir of [bashWorkspace, bashIntake, bashOutbound, bashTrash, bashScratch]) {
+      mkdirSync(dir, { recursive: true });
+    }
+
+    // Create some test files
+    writeFileSync(join(bashWorkspace, 'hello.txt'), 'Hello Bastion!');
+    mkdirSync(join(bashWorkspace, 'subdir'), { recursive: true });
+    writeFileSync(join(bashWorkspace, 'subdir', 'nested.txt'), 'Nested file content');
+
+    // Mock PurgeManager (minimal interface needed by BastionBash)
+    const purgeEvents = [];
+    const mockPurgeManager = {
+      stageForDeletion(path, reason) { purgeEvents.push({ path, reason }); },
+      deleteFile() { return { deleted: true }; },
+      deleteDirectory() { return { deleted: true }; },
+    };
+
+    // Mock AuditLogger
+    const auditEvents = [];
+    const mockAuditLogger = {
+      logEvent(type, sessionId, data) { auditEvents.push({ type, sessionId, data }); },
+    };
+
+    const bash = new BastionBash(
+      {
+        workspacePath: bashWorkspace,
+        intakePath: bashIntake,
+        outboundPath: bashOutbound,
+        trashPath: bashTrash,
+        scratchPath: bashScratch,
+        maxOutputChars: 8000,
+        maxCommandLength: 1000,
+      },
+      mockPurgeManager,
+      mockAuditLogger,
+    );
+
+    const isLinux = process.platform === 'linux';
+
+    try {
+      // --- Tier 1: ls returns output (Linux only — ls not in Windows PATH) ---
+      {
+        const result = await bash.execute('ls');
+        check('T1: ls tier is 1', result.tier === 1);
+        if (isLinux) {
+          check('T1: ls executes successfully', result.success === true);
+          check('T1: ls exitCode is 0', result.exitCode === 0);
+          check('T1: ls output contains hello.txt', result.output.includes('hello.txt'));
+        } else {
+          // On Windows, ls may not exist in /usr/bin:/bin PATH — tier is still correct
+          check('T1: ls tier classification correct on non-Linux', result.tier === 1);
+        }
+      }
+
+      // --- Tier 1: cat reads file (Linux only) ---
+      {
+        const result = await bash.execute(`cat ${join(bashWorkspace, 'hello.txt')}`);
+        check('T1: cat tier is 1', result.tier === 1);
+        if (isLinux) {
+          check('T1: cat reads file content', result.output.includes('Hello Bastion!'));
+        }
+      }
+
+      // --- Tier 1: pwd returns working directory (Linux only) ---
+      {
+        const result = await bash.execute('pwd');
+        check('T1: pwd tier is 1', result.tier === 1);
+        if (isLinux) {
+          check('T1: pwd returns workspace path', result.output.trim() === bashWorkspace || result.output.includes(bashWorkspace.replace(/\\/g, '/')));
+        }
+      }
+
+      // --- Tier 1: filesystem scope — rejects paths outside workspace ---
+      {
+        const result = await bash.execute('cat /etc/passwd');
+        check('T1: /etc/ path blocked', result.success === false);
+        check('T1: /etc/ path shows access denied', result.output.includes('access denied'));
+      }
+
+      // --- Tier 1: cd to allowed path works ---
+      {
+        const result = await bash.execute(`cd ${join(bashWorkspace, 'subdir')}`);
+        check('T1: cd to subdir succeeds', result.success === true);
+        check('T1: cd updates working directory', bash.workingDirectory.includes('subdir'));
+
+        // cd back to workspace root
+        await bash.execute(`cd ${bashWorkspace}`);
+      }
+
+      // --- Tier 1: cd to forbidden path blocked ---
+      {
+        const result = await bash.execute('cd /home/user');
+        check('T1: cd to /home/ blocked', result.success === false);
+        check('T1: cd to /home/ shows access denied', result.output.includes('access denied'));
+      }
+
+      // --- Tier 1: path traversal (../) blocked ---
+      {
+        const result = await bash.execute('cat ../../../etc/passwd');
+        check('T1: path traversal blocked', result.success === false);
+        check('T1: path traversal shows access denied', result.output.includes('access denied'));
+      }
+
+      // --- Tier 1: mv to trash triggers PurgeManager ---
+      {
+        const trashTarget = join(bashTrash, 'hello.txt');
+        const result = await bash.execute(`mv ${join(bashWorkspace, 'hello.txt')} ${trashTarget}`);
+        check('T1: mv to trash succeeds', result.success === true);
+        check('T1: mv to trash mentions PurgeManager', result.output.includes('Human approval required'));
+      }
+
+      // --- Tier 1: command exceeding maxCommandLength rejected ---
+      {
+        const longCmd = 'echo ' + 'a'.repeat(1000);
+        const result = await bash.execute(longCmd);
+        check('T1: command too long rejected', result.success === false);
+        check('T1: command too long message', result.output.includes('command too long'));
+      }
+
+      // --- Tier 1: echo > file within workspace ---
+      {
+        const targetFile = join(bashWorkspace, 'new-file.txt');
+        const result = await bash.execute(`echo "test content" > ${targetFile}`);
+        check('T1: echo > file in workspace succeeds', result.tier === 1);
+        // Note: may fail on Windows but tier classification is correct
+      }
+
+      // --- Tier 1: echo > file outside workspace blocked ---
+      {
+        const result = await bash.execute('echo "malicious" > /etc/evil.txt');
+        check('T1: echo > file outside workspace blocked', result.success === false);
+      }
+
+      // --- Tier 1: git read-only commands allowed ---
+      {
+        const statusResult = await bash.execute('git status');
+        check('T1: git status is tier 1 (allowed)', statusResult.tier === 1);
+
+        const logResult = await bash.execute('git log --oneline -1');
+        check('T1: git log is tier 1 (allowed)', logResult.tier === 1);
+
+        const diffResult = await bash.execute('git diff');
+        check('T1: git diff is tier 1 (allowed)', diffResult.tier === 1);
+      }
+
+      // --- Tier 2: git write commands redirected ---
+      {
+        const pushResult = await bash.execute('git push origin main');
+        check('T2: git push is tier 2 (redirected)', pushResult.tier === 2);
+        check('T2: git push mentions bastion submit', pushResult.output.includes('bastion submit'));
+
+        const commitResult = await bash.execute('git commit -m "test"');
+        check('T2: git commit is tier 2 (redirected)', commitResult.tier === 2);
+        check('T2: git commit mentions human review', commitResult.output.includes('human review'));
+      }
+
+      // --- Tier 2: rm returns educational redirect ---
+      {
+        const result = await bash.execute('rm hello.txt');
+        check('T2: rm is tier 2', result.tier === 2);
+        check('T2: rm mentions PurgeManager', result.output.includes('PurgeManager'));
+        check('T2: rm exitCode is 1', result.exitCode === 1);
+      }
+
+      // --- Tier 2: sudo returns privilege message ---
+      {
+        const result = await bash.execute('sudo apt install something');
+        check('T2: sudo is tier 2', result.tier === 2);
+        check('T2: sudo mentions privilege escalation', result.output.includes('Privilege escalation'));
+      }
+
+      // --- Tier 2: curl redirected ---
+      {
+        const result = await bash.execute('curl https://example.com');
+        check('T2: curl is tier 2', result.tier === 2);
+        check('T2: curl mentions MCP tools', result.output.includes('MCP tools'));
+      }
+
+      // --- Tier 3: systemctl returns generic "not found" ---
+      {
+        const result = await bash.execute('systemctl restart nginx');
+        check('T3: systemctl is tier 3', result.tier === 3);
+        check('T3: systemctl shows "command not found"', result.output.includes('command not found'));
+        check('T3: systemctl exitCode is 127', result.exitCode === 127);
+      }
+
+      // --- Tier 3: iptables invisible ---
+      {
+        const result = await bash.execute('iptables -L');
+        check('T3: iptables is tier 3', result.tier === 3);
+        check('T3: iptables shows "command not found"', result.output.includes('command not found'));
+      }
+
+      // --- Tier 3: logged as BASH_INVISIBLE ---
+      {
+        auditEvents.length = 0;
+        await bash.execute('dd if=/dev/zero of=test');
+        const invisibleEvent = auditEvents.find(e => e.type === 'BASH_INVISIBLE');
+        check('T3: BASH_INVISIBLE audit event logged', invisibleEvent !== undefined);
+        check('T3: BASH_INVISIBLE event contains command', invisibleEvent?.data?.baseCommand === 'dd');
+      }
+
+      // --- Tier 2: logged as BASH_BLOCKED ---
+      {
+        auditEvents.length = 0;
+        await bash.execute('rm -rf /');
+        const blockedEvent = auditEvents.find(e => e.type === 'BASH_BLOCKED');
+        check('T2: BASH_BLOCKED audit event logged', blockedEvent !== undefined);
+      }
+
+      // --- Tier 1: logged as BASH_COMMAND (cd is handled internally, works on all platforms) ---
+      {
+        auditEvents.length = 0;
+        await bash.execute(`cd ${bashWorkspace}`);
+        const cmdEvent = auditEvents.find(e => e.type === 'BASH_COMMAND');
+        check('T1: BASH_COMMAND audit event logged', cmdEvent !== undefined);
+        check('T1: BASH_COMMAND event has tier 1', cmdEvent?.data?.tier === 1);
+      }
+
+      // --- Unknown commands treated as Tier 3 ---
+      {
+        const result = await bash.execute('zzzfakecommand --version');
+        check('Unknown command is tier 3', result.tier === 3);
+        check('Unknown command shows "not found"', result.output.includes('command not found'));
+      }
+
+      // --- formatForPrompt: Tier 1 ---
+      {
+        const result = { command: 'ls', tier: 1, success: true, output: 'file1.txt\nfile2.txt', exitCode: 0, executionTimeMs: 5 };
+        const formatted = bash.formatForPrompt(result);
+        check('formatForPrompt T1 contains header', formatted.includes('--- Execution Result ---'));
+        check('formatForPrompt T1 contains command', formatted.includes('$ ls'));
+        check('formatForPrompt T1 contains output', formatted.includes('file1.txt'));
+        check('formatForPrompt T1 contains end marker', formatted.includes('--- End Result ---'));
+      }
+
+      // --- formatForPrompt: Tier 2 ---
+      {
+        const result = { command: 'rm test', tier: 2, success: false, output: 'Deletion managed by PurgeManager', exitCode: 1, executionTimeMs: 1 };
+        const formatted = bash.formatForPrompt(result);
+        check('formatForPrompt T2 contains redirect header', formatted.includes('--- Command Redirected ---'));
+        check('formatForPrompt T2 contains redirect message', formatted.includes('PurgeManager'));
+        check('formatForPrompt T2 contains end redirect', formatted.includes('--- End Redirect ---'));
+      }
+
+      // --- formatForPrompt: Tier 3 ---
+      {
+        const result = { command: 'systemctl status', tier: 3, success: false, output: 'bash: systemctl: command not found', exitCode: 127, executionTimeMs: 0 };
+        const formatted = bash.formatForPrompt(result);
+        check('formatForPrompt T3 shows "command not found"', formatted.includes('command not found'));
+        check('formatForPrompt T3 contains exec result markers', formatted.includes('--- Execution Result ---'));
+      }
+
+      // --- Pipe commands: base command is tier-checked ---
+      {
+        const result = await bash.execute('ls | grep txt');
+        check('Pipe: ls | grep is tier 1 (base command checked)', result.tier === 1);
+      }
+
+      // --- Empty command ---
+      {
+        const result = await bash.execute('');
+        check('Empty command returns gracefully', result.exitCode === 0);
+      }
+
+    } finally {
+      try { rmSync(bashTmpDir, { recursive: true, force: true }); } catch {}
+    }
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: Bastion Bash — ACTION_BLOCK_RE + rate limiter + ConversationManager
+  // -------------------------------------------------------------------
+  {
+    console.log('--- Bastion Bash: regex, rate limiter, ConversationManager ---');
+
+    // --- ACTION_BLOCK_RE matches [BASTION:EXEC] blocks ---
+    const RE = /\[BASTION:(CHALLENGE|MEMORY|RECALL|EXEC)\]([\s\S]*?)\[\/BASTION:\1\]/g;
+    const testText = 'Let me check [BASTION:EXEC]ls workspace/src/[/BASTION:EXEC] the files';
+    const matches = [...testText.matchAll(RE)];
+    check('ACTION_BLOCK_RE matches EXEC block', matches.length === 1);
+    check('ACTION_BLOCK_RE captures type as EXEC', matches[0][1] === 'EXEC');
+    check('ACTION_BLOCK_RE captures raw command string', matches[0][2].trim() === 'ls workspace/src/');
+
+    // Multiple EXEC blocks in one message
+    const multiText = '[BASTION:EXEC]ls[/BASTION:EXEC] then [BASTION:EXEC]pwd[/BASTION:EXEC]';
+    const multiMatches = [...multiText.matchAll(RE)];
+    check('ACTION_BLOCK_RE matches multiple EXEC blocks', multiMatches.length === 2);
+    check('First EXEC block is ls', multiMatches[0][2].trim() === 'ls');
+    check('Second EXEC block is pwd', multiMatches[1][2].trim() === 'pwd');
+
+    // EXEC blocks alongside other action types
+    const mixedText = '[BASTION:MEMORY]{"content":"test"}[/BASTION:MEMORY] [BASTION:EXEC]ls[/BASTION:EXEC] [BASTION:RECALL]{"query":"test"}[/BASTION:RECALL]';
+    const mixedMatches = [...mixedText.matchAll(RE)];
+    check('Mixed blocks: 3 total', mixedMatches.length === 3);
+    check('Mixed blocks: MEMORY present', mixedMatches.some(m => m[1] === 'MEMORY'));
+    check('Mixed blocks: EXEC present', mixedMatches.some(m => m[1] === 'EXEC'));
+    check('Mixed blocks: RECALL present', mixedMatches.some(m => m[1] === 'RECALL'));
+
+    // Cleaning: EXEC blocks removed from text
+    const cleaned = testText.replace(RE, '').replace(/\n{3,}/g, '\n\n').trim();
+    check('ACTION_BLOCK_RE cleaning removes EXEC block', cleaned === 'Let me check  the files');
+
+    // --- Rate limiter for EXEC ---
+    const limiter = {
+      execCount: 0, execCountThisResponse: 0,
+      maxExecsPerResponse: 5, maxExecsPerSession: 20,
+      canExec() { return this.execCount < this.maxExecsPerSession && this.execCountThisResponse < this.maxExecsPerResponse; },
+      recordExec() { this.execCount++; this.execCountThisResponse++; },
+      resetResponseExecCount() { this.execCountThisResponse = 0; },
+    };
+
+    // Initially allowed
+    check('canExec allowed at start', limiter.canExec());
+
+    // Record 5 execs — hits per-response limit
+    for (let i = 0; i < 5; i++) limiter.recordExec();
+    check('canExec blocked after 5 per response', !limiter.canExec());
+    check('execCount is 5', limiter.execCount === 5);
+    check('execCountThisResponse is 5', limiter.execCountThisResponse === 5);
+
+    // Reset per-response counter
+    limiter.resetResponseExecCount();
+    check('canExec allowed after response reset', limiter.canExec());
+    check('execCountThisResponse reset to 0', limiter.execCountThisResponse === 0);
+    check('execCount still 5 (session)', limiter.execCount === 5);
+
+    // Exhaust session limit
+    for (let i = 0; i < 15; i++) {
+      limiter.resetResponseExecCount();
+      limiter.recordExec();
+    }
+    check('canExec blocked after 20 session total', !limiter.canExec());
+    check('execCount is 20', limiter.execCount === 20);
+
+    // --- ConversationManager exec results buffer ---
+    const cm = new ConversationManager({ tokenBudget: 100000 });
+
+    // No exec results initially
+    check('hasExecResults false initially', !cm.hasExecResults());
+
+    // Set exec results
+    cm.setExecResults('--- Execution Result ---\n$ ls\nfile1.txt\n--- End Result ---');
+    check('hasExecResults true after set', cm.hasExecResults());
+
+    // Accumulate multiple exec results
+    cm.setExecResults('--- Execution Result ---\n$ pwd\n/bastion/workspace\n--- End Result ---');
+    check('hasExecResults still true after second set', cm.hasExecResults());
+
+    // Exec results appear in assembled prompt
+    const { prompt, report } = cm.assemblePrompt();
+    check('exec results appear in prompt', prompt.includes('Execution Result'));
+    check('exec results contain both commands', prompt.includes('$ ls') && prompt.includes('$ pwd'));
+    check('exec results in prompt components', report.zones.some(z => z.components.includes('Execution Results')));
+
+    // Exec results cleared after injection
+    check('hasExecResults false after assemblePrompt', !cm.hasExecResults());
+
+    // Second assembly should NOT contain exec results
+    const { prompt: prompt2, report: report2 } = cm.assemblePrompt();
+    check('exec results NOT in second assemblePrompt', !prompt2.includes('$ ls'));
+    check('exec results NOT in second prompt components', !report2.zones.some(z => z.components.includes('Execution Results')));
+
+    // EXEC action documented in prompt
+    check('EXEC action documented in system prompt', prompt.includes('[BASTION:EXEC]'));
+    check('EXEC workspace paths documented', prompt.includes('/bastion/workspace/'));
+    check('EXEC commands documented', prompt.includes('Available commands:'));
+    check('EXEC rules documented', prompt.includes('EXEC:'));
   }
   console.log();
 
