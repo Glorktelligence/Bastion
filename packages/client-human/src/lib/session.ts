@@ -107,6 +107,12 @@ export function getIdentity(): { type: 'human'; id: string; displayName: string 
 export const RELAY_URL = getRelayUrl();
 export const IDENTITY = getIdentity();
 
+// Extension message forwarding — set by ExtensionUIHost to forward messages to bridge iframes
+let extensionMessageHandler: ((type: string, payload: unknown) => void) | null = null;
+export function setExtensionMessageHandler(handler: ((type: string, payload: unknown) => void) | null): void {
+  extensionMessageHandler = handler;
+}
+
 // ---------------------------------------------------------------------------
 // Shared store instances (survive route changes AND Vite HMR)
 //
@@ -1621,6 +1627,12 @@ function handleRelayMessage(data: string): void {
     type === 'reconnect' ||
     type === 'pong'
   ) {
+    return;
+  }
+
+  // Extension-namespaced messages → forward to bridge iframes (not shown in chat)
+  if (type.includes(':') && extensionMessageHandler) {
+    extensionMessageHandler(type, payload);
     return;
   }
 

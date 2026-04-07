@@ -2,6 +2,7 @@
 import type { ExtensionUIComponentInfo } from '../stores/extensions.js';
 import { scanExtensionHTML, BRIDGE_SCRIPT, ExtensionBridgeManager } from '../extensions/bridge.js';
 import * as session from '../session.js';
+import { setExtensionMessageHandler } from '../session.js';
 
 const {
   components,
@@ -41,11 +42,17 @@ $effect(() => {
   });
   bridgeManager = mgr;
 
+  // Register as extension message handler — forward relay responses to bridge iframes
+  setExtensionMessageHandler((type, payload) => {
+    mgr.forwardToExtensions(type, payload);
+  });
+
   const handler = (e: MessageEvent) => mgr.handleMessage(e);
   globalThis.addEventListener('message', handler);
 
   return () => {
     globalThis.removeEventListener('message', handler);
+    setExtensionMessageHandler(null);
     mgr.destroy();
   };
 });
