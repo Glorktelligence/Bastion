@@ -2799,7 +2799,6 @@ client.on('message', async (data) => {
           memoryStore,
           usageTracker,
           budgetGuard,
-          auditLogger,
           dateTimeManager,
           send: (responseType, payload) => {
             sendSecure({
