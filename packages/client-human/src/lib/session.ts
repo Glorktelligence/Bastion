@@ -1630,9 +1630,9 @@ function handleRelayMessage(data: string): void {
     return;
   }
 
-  // Extension-namespaced messages → forward to bridge iframes (not shown in chat)
-  if (type.includes(':') && extensionMessageHandler) {
-    extensionMessageHandler(type, payload);
+  // Extension-namespaced messages → forward to bridge iframes (never shown in chat)
+  if (type.includes(':')) {
+    extensionMessageHandler?.(type, payload);
     return;
   }
 
