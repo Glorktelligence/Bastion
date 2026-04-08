@@ -39,6 +39,15 @@ $effect(() => {
     onDisable: (componentId) => {
       session.addNotification(`Extension component disabled (5 violations): ${componentId}`, 'error');
     },
+    onSwitchConversation: (conversationId) => {
+      session.sendSecure({
+        type: 'conversation_switch',
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        sender: session.getIdentity(),
+        payload: { conversationId },
+      });
+    },
   });
   bridgeManager = mgr;
 

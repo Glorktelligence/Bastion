@@ -37,7 +37,8 @@ export interface BridgeMessage {
     | 'getConversationId'
     | 'isChallengeHoursActive'
     | 'requestConfirmation'
-    | 'getExtensionState';
+    | 'getExtensionState'
+    | 'switchConversation';
   readonly type?: string;
   readonly payload?: unknown;
   readonly requestId?: string;
@@ -172,6 +173,9 @@ export const BRIDGE_SCRIPT = `
         window.addEventListener('message', handler);
         window.parent.postMessage({ bridge: 'bastion', action: 'getExtensionState', requestId: rid, namespace: namespace }, '*');
       });
+    },
+    switchConversation: function(conversationId) {
+      window.parent.postMessage({ bridge: 'bastion', action: 'switchConversation', payload: { conversationId: conversationId } }, '*');
     }
   };
   // Receive messages forwarded by host
@@ -210,6 +214,7 @@ export class ExtensionBridgeManager {
   private isChallengeActive: (() => boolean) | null = null;
   private onViolation: ((componentId: string, attempted: string, reason: string) => void) | null = null;
   private onDisable: ((componentId: string) => void) | null = null;
+  private onSwitchConversation: ((conversationId: string) => void) | null = null;
 
   configure(options: {
     sendMessage: (type: string, payload: unknown) => void;
@@ -217,12 +222,14 @@ export class ExtensionBridgeManager {
     isChallengeActive: () => boolean;
     onViolation?: (componentId: string, attempted: string, reason: string) => void;
     onDisable?: (componentId: string) => void;
+    onSwitchConversation?: (conversationId: string) => void;
   }): void {
     this.sendMessage = options.sendMessage;
     this.getConversationId = options.getConversationId;
     this.isChallengeActive = options.isChallengeActive;
     this.onViolation = options.onViolation ?? null;
     this.onDisable = options.onDisable ?? null;
+    this.onSwitchConversation = options.onSwitchConversation ?? null;
   }
 
   registerComponent(componentId: string, namespace: string, allowedTypes: readonly string[], iframe: IFrameRef): void {
@@ -276,6 +283,14 @@ export class ExtensionBridgeManager {
         // The AI client would respond via a forwarded message.
         // For now, reply with null (state bridge requires AI client handler).
         this.reply(component.iframe, requestId, null);
+        break;
+      }
+      case 'switchConversation': {
+        const p = data.payload as Record<string, unknown> | undefined;
+        const convId = p?.conversationId ? String(p.conversationId) : null;
+        if (convId) {
+          this.onSwitchConversation?.(convId);
+        }
         break;
       }
     }
