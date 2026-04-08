@@ -21,6 +21,7 @@ import {
 import { PROTOCOL_VERSION, MESSAGE_TYPES } from '@bastion/protocol';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { request as httpsRequest } from 'node:https';
+import { join } from 'node:path';
 
 let pass = 0, fail = 0;
 function check(name, condition, detail) {
@@ -1662,6 +1663,55 @@ async function run() {
     check('compactable false on state-update', compResolved?.messageType?.compactable === false);
     const compResolved2 = regCompact.resolveMessageType('comptest:compactable-msg');
     check('compactable true on compactable-msg', compResolved2?.messageType?.compactable === true);
+
+    // readRendererFiles — extension with no renderers directory
+    const regRender = new ExtensionRegistry();
+    const rRender = regRender.register({
+      namespace: 'render-test', name: 'RenderTest', version: '1.0.0',
+      messageTypes: [{ name: 'turn', safety: 'passthrough', audit: { logEvent: 'turn' } }],
+    });
+    check('render test extension registered', rRender.ok);
+    // No path set, so readRendererFiles returns empty
+    const noRenderers = regRender.readRendererFiles('render-test');
+    check('readRendererFiles returns empty for no path', Object.keys(noRenderers).length === 0);
+
+    // readRendererFiles — unknown namespace
+    const unknownRenderers = regRender.readRendererFiles('nonexistent');
+    check('readRendererFiles returns empty for unknown namespace', Object.keys(unknownRenderers).length === 0);
+
+    // readRendererFiles with actual files (use loadFromDirectory with a temp dir)
+    const { mkdtempSync, writeFileSync, mkdirSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const tempDir = mkdtempSync(join(tmpdir(), 'bastion-renderer-test-'));
+    const extDir = join(tempDir, 'myext');
+    mkdirSync(extDir);
+    writeFileSync(join(extDir, 'myext.json'), JSON.stringify({
+      namespace: 'myext', name: 'MyExt', version: '1.0.0',
+      messageTypes: [{ name: 'action', safety: 'passthrough', audit: { logEvent: 'action' } }],
+    }));
+    const renderDir = join(extDir, 'renderers');
+    mkdirSync(renderDir);
+    writeFileSync(join(renderDir, 'action.html'), '<!-- style:full markdown --><div>Action renderer</div>');
+    writeFileSync(join(renderDir, 'summary.html'), '<p>Summary</p>');
+    writeFileSync(join(renderDir, 'skip.txt'), 'not html');
+
+    const regDir = new ExtensionRegistry();
+    const dirResult = regDir.loadFromDirectory(tempDir);
+    check('loaded extension from temp dir', dirResult.loaded.includes('myext'));
+
+    const renderers = regDir.readRendererFiles('myext');
+    check('readRendererFiles finds action.html', 'action' in renderers);
+    check('readRendererFiles finds summary.html', 'summary' in renderers);
+    check('readRendererFiles skips non-html', !('skip' in renderers));
+    check('readRendererFiles parses style:full metadata', renderers.action?.style === 'full');
+    check('readRendererFiles parses markdown metadata', renderers.action?.markdown === true);
+    check('readRendererFiles html content correct', renderers.action?.html?.includes('<div>Action renderer</div>'));
+    check('readRendererFiles no metadata defaults', renderers.summary?.style === undefined);
+    check('readRendererFiles no metadata markdown', renderers.summary?.markdown === undefined);
+
+    // Cleanup temp dir
+    const { rmSync } = await import('node:fs');
+    rmSync(tempDir, { recursive: true, force: true });
   }
   console.log();
 

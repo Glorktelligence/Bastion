@@ -131,3 +131,10 @@ export type {
   DreamCycleState,
   DreamCycleCompleteInfo,
 } from './stores/dream-cycles.js';
+
+// Extension renderers
+export {
+  ConversationRendererRegistry,
+  conversationRendererRegistry,
+} from './extensions/conversation-renderer-registry.js';
+export type { RendererConfig } from './extensions/conversation-renderer-registry.js';

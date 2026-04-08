@@ -827,12 +827,16 @@ relay.on('message', async (data, info) => {
               })),
             };
           }
+          // Read conversation renderer HTML files from renderers/ directory
+          const rendererFiles = extensionRegistry.readRendererFiles(e.namespace);
+          const conversationRenderers = Object.keys(rendererFiles).length > 0 ? rendererFiles : undefined;
           return {
             namespace: e.namespace,
             name: e.name,
             version: e.version,
             messageTypes: e.messageTypes.map(mt => mt.name),
             ui,
+            conversationRenderers,
           };
         }),
         totalCount: exts.length,

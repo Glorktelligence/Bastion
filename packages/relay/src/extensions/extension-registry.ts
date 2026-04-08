@@ -498,4 +498,56 @@ export class ExtensionRegistry {
       return null;
     }
   }
+
+  /**
+   * Read conversation renderer HTML files for an extension.
+   * Looks in extensions/{namespace}/renderers/{type}.html.
+   * Returns a map of type → { html, style, markdown } or empty object if none found.
+   */
+  readRendererFiles(namespace: string): Record<string, { html: string; style?: string; markdown?: boolean }> {
+    const basePath = this.extensionPaths.get(namespace);
+    if (!basePath) return {};
+
+    const renderersDir = join(basePath, 'renderers');
+    if (!existsSync(renderersDir)) return {};
+
+    const result: Record<string, { html: string; style?: string; markdown?: boolean }> = {};
+
+    try {
+      const files = readdirSync(renderersDir);
+      for (const file of files) {
+        if (!file.endsWith('.html')) continue;
+
+        // Security: no path traversal
+        if (file.includes('..') || file.includes('/') || file.includes('\\')) continue;
+
+        const typeName = file.slice(0, -5); // strip .html
+        if (!typeName) continue;
+
+        const fullPath = join(renderersDir, file);
+        try {
+          const stat = statSync(fullPath);
+          if (!stat.isFile()) continue;
+          const html = readFileSync(fullPath, 'utf-8');
+          // Check for optional metadata comment at top: <!-- style:full markdown -->
+          let style: string | undefined;
+          let markdown: boolean | undefined;
+          const metaMatch = html.match(/^<!--\s*(.*?)\s*-->/);
+          if (metaMatch?.[1]) {
+            const meta = metaMatch[1];
+            if (meta.includes('style:full')) style = 'full';
+            else if (meta.includes('style:compact')) style = 'compact';
+            if (meta.includes('markdown')) markdown = true;
+          }
+          result[typeName] = { html, style, markdown };
+        } catch {
+          // Skip unreadable files
+        }
+      }
+    } catch {
+      // Directory unreadable — return empty
+    }
+
+    return result;
+  }
 }

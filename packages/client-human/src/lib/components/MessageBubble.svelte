@@ -1,8 +1,11 @@
 <script lang="ts">
 import type { DisplayMessage } from '../stores/messages.js';
+import { conversationRendererRegistry } from '../extensions/conversation-renderer-registry.js';
+import ExtensionMessageRenderer from './ExtensionMessageRenderer.svelte';
 import * as session from '../session.js';
 
 const { message }: { message: DisplayMessage } = $props();
+const rendererConfig = message.type.includes(':') ? conversationRendererRegistry.get(message.type) : undefined;
 
 let showRememberForm = $state(false);
 let rememberContent = $state('');
@@ -71,7 +74,15 @@ function getTransparency(msg: DisplayMessage): { confidence: string; permissions
 	</div>
 
 	<div class="bubble-content">
-		{message.content}
+		{#if rendererConfig}
+			<ExtensionMessageRenderer
+				type={message.type}
+				content={message.content}
+				config={rendererConfig}
+			/>
+		{:else}
+			{message.content}
+		{/if}
 	</div>
 
 	{#if isResult(message)}

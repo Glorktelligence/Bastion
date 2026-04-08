@@ -267,6 +267,9 @@ function validPayloads() {
         name: 'Example Chess',
         version: '0.1.0',
         messageTypes: ['chess-move', 'chess-start'],
+        conversationRenderers: {
+          'game-turn': { html: '<div>Turn</div>', style: 'compact' },
+        },
       }],
       totalCount: 1,
     },

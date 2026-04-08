@@ -16,6 +16,7 @@
  * memory_list, and project_list.
  */
 
+import { conversationRendererRegistry } from './extensions/conversation-renderer-registry.js';
 import { BastionHumanClient } from './services/connection.js';
 import type { Writable } from './store.js';
 import { writable } from './store.js';
@@ -1592,7 +1593,7 @@ function handleRelayMessage(data: string): void {
     return;
   }
 
-  // Extension list response → extensions store
+  // Extension list response → extensions store + conversation renderer registry
   if (type === 'extension_list_response') {
     const p = payload as Record<string, unknown>;
     const exts =
@@ -1602,6 +1603,7 @@ function handleRelayMessage(data: string): void {
         version: string;
         messageTypes?: readonly string[];
         ui?: Record<string, unknown> | null;
+        conversationRenderers?: Record<string, { html: string; style?: string; markdown?: boolean }>;
       }>) ?? [];
     extensions.setExtensions(
       exts.map((e) => ({
@@ -1612,6 +1614,8 @@ function handleRelayMessage(data: string): void {
         ui: (e.ui as ExtensionInfo['ui']) ?? null,
       })),
     );
+    // Load conversation renderers into the global registry
+    conversationRendererRegistry.loadFromExtensions(exts);
     return;
   }
 
@@ -1630,10 +1634,12 @@ function handleRelayMessage(data: string): void {
     return;
   }
 
-  // Extension-namespaced messages → forward to bridge iframes (never shown in chat)
+  // Extension-namespaced messages → forward to bridge iframes
+  // If a conversation renderer is registered, also add to messages store for display
   if (type.includes(':')) {
     extensionMessageHandler?.(type, payload);
-    return;
+    if (!conversationRendererRegistry.has(type)) return;
+    // Fall through to add to messages store + conversations store
   }
 
   // Default: conversation, task, and other user-facing messages → messages store + conversations store

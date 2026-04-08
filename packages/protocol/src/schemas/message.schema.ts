@@ -331,6 +331,12 @@ export const ExtensionQueryPayloadSchema = z.object({
   includeSchemas: z.boolean().optional(),
 });
 
+export const ExtensionConversationRendererSchema = z.object({
+  html: z.string(),
+  style: z.enum(['compact', 'full']).optional(),
+  markdown: z.boolean().optional(),
+});
+
 export const ExtensionListResponsePayloadSchema = z.object({
   extensions: z.array(
     z.object({
@@ -338,6 +344,7 @@ export const ExtensionListResponsePayloadSchema = z.object({
       name: z.string().min(1),
       version: z.string().min(1),
       messageTypes: z.array(z.string()),
+      conversationRenderers: z.record(z.string(), ExtensionConversationRendererSchema).optional(),
     }),
   ),
   totalCount: z.number().int().nonnegative(),

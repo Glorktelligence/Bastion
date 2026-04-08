@@ -1,26 +1,35 @@
 <script lang="ts">
 import type { DisplayMessage } from '../stores/messages.js';
+import { conversationRendererRegistry } from '../extensions/conversation-renderer-registry.js';
 import MessageBubble from './MessageBubble.svelte';
 
 const { messages }: { messages: DisplayMessage[] } = $props();
+
+// Filter out extension-namespaced messages that have no registered renderer
+const visibleMessages = $derived(
+  messages.filter(msg => {
+    if (msg.type.includes(':') && !conversationRendererRegistry.has(msg.type)) return false;
+    return true;
+  }),
+);
 
 let container: HTMLDivElement | undefined = $state();
 
 $effect(() => {
   // Scroll to bottom whenever messages change
-  if (messages.length && container) {
+  if (visibleMessages.length && container) {
     container.scrollTop = container.scrollHeight;
   }
 });
 </script>
 
 <div class="message-list" bind:this={container}>
-	{#if messages.length === 0}
+	{#if visibleMessages.length === 0}
 		<div class="empty-state">
 			<p>No messages yet. Start a conversation or submit a task.</p>
 		</div>
 	{:else}
-		{#each messages as msg (msg.id)}
+		{#each visibleMessages as msg (msg.id)}
 			<MessageBubble message={msg} />
 		{/each}
 	{/if}

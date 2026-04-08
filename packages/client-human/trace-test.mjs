@@ -26,6 +26,8 @@ import {
   migrateConfig,
   CONFIG_VERSION,
   createDreamCyclesStore,
+  ConversationRendererRegistry,
+  conversationRendererRegistry,
 } from './dist/index.js';
 
 let pass = 0, fail = 0;
@@ -1711,6 +1713,90 @@ async function run() {
 
     // Clean up mock
     delete globalThis.localStorage;
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // ConversationRendererRegistry
+  // -------------------------------------------------------------------
+  console.log('--- ConversationRendererRegistry ---');
+  {
+    // Fresh registry (not the singleton, to avoid cross-test contamination)
+    const reg = new ConversationRendererRegistry();
+    check('registry starts empty', reg.size === 0);
+
+    // Register and retrieve
+    reg.register('game:turn', { html: '<div>Turn</div>', style: 'compact', namespace: 'game' });
+    check('has returns true for registered type', reg.has('game:turn'));
+    check('has returns false for unregistered type', !reg.has('game:other'));
+    check('get returns config for registered type', reg.get('game:turn')?.html === '<div>Turn</div>');
+    check('get returns correct style', reg.get('game:turn')?.style === 'compact');
+    check('get returns correct namespace', reg.get('game:turn')?.namespace === 'game');
+    check('get returns undefined for unregistered', reg.get('game:other') === undefined);
+    check('size is 1 after register', reg.size === 1);
+
+    // Register full-style with markdown
+    reg.register('game:result', { html: '<p>Result</p>', style: 'full', markdown: true, namespace: 'game' });
+    check('size is 2 after second register', reg.size === 2);
+    check('full style preserved', reg.get('game:result')?.style === 'full');
+    check('markdown flag preserved', reg.get('game:result')?.markdown === true);
+
+    // Clear
+    reg.clear();
+    check('clear empties registry', reg.size === 0);
+    check('has returns false after clear', !reg.has('game:turn'));
+
+    // loadFromExtensions
+    const reg2 = new ConversationRendererRegistry();
+    reg2.loadFromExtensions([
+      {
+        namespace: 'chronicle',
+        conversationRenderers: {
+          'game-turn': { html: '<div>Chronicle Turn</div>', style: 'full', markdown: true },
+          'game-turn-result': { html: '<div>Result</div>' },
+        },
+      },
+      {
+        namespace: 'dice',
+        conversationRenderers: {
+          'roll': { html: '<span>Roll</span>', style: 'compact' },
+        },
+      },
+      {
+        namespace: 'no-renderers',
+        // No conversationRenderers field
+      },
+    ]);
+    check('loadFromExtensions registers chronicle:game-turn', reg2.has('chronicle:game-turn'));
+    check('loadFromExtensions registers chronicle:game-turn-result', reg2.has('chronicle:game-turn-result'));
+    check('loadFromExtensions registers dice:roll', reg2.has('dice:roll'));
+    check('loadFromExtensions total size is 3', reg2.size === 3);
+    check('loadFromExtensions preserves html', reg2.get('chronicle:game-turn')?.html === '<div>Chronicle Turn</div>');
+    check('loadFromExtensions preserves style full', reg2.get('chronicle:game-turn')?.style === 'full');
+    check('loadFromExtensions preserves markdown', reg2.get('chronicle:game-turn')?.markdown === true);
+    check('loadFromExtensions defaults style to compact', reg2.get('chronicle:game-turn-result')?.style === 'compact');
+    check('loadFromExtensions defaults markdown to false', reg2.get('chronicle:game-turn-result')?.markdown === false);
+    check('loadFromExtensions sets namespace', reg2.get('dice:roll')?.namespace === 'dice');
+
+    // Singleton exists
+    check('singleton registry exported', conversationRendererRegistry instanceof ConversationRendererRegistry);
+
+    // Extension messages with no renderer should be filtered
+    const msgs = createMessagesStore();
+    msgs.addIncoming('chronicle:game-turn', { content: 'Turn 1' }, { type: 'ai', displayName: 'AI' }, 'ext-1', new Date().toISOString());
+    msgs.addIncoming('conversation', { content: 'Hello' }, { type: 'ai', displayName: 'AI' }, 'msg-1', new Date().toISOString());
+    msgs.addIncoming('unknown:type', { data: 'x' }, { type: 'ai', displayName: 'AI' }, 'ext-2', new Date().toISOString());
+    const allMsgs = msgs.store.get().messages;
+    check('all 3 messages stored', allMsgs.length === 3);
+
+    // Filtering logic (same as MessageList component)
+    const visible = allMsgs.filter(msg => {
+      if (msg.type.includes(':') && !reg2.has(msg.type)) return false;
+      return true;
+    });
+    check('unknown:type hidden (no renderer)', visible.length === 2);
+    check('chronicle:game-turn visible (has renderer)', visible.some(m => m.type === 'chronicle:game-turn'));
+    check('conversation visible (not namespaced)', visible.some(m => m.type === 'conversation'));
   }
   console.log();
 

@@ -458,6 +458,13 @@ export interface ExtensionQueryPayload {
   readonly includeSchemas?: boolean;
 }
 
+/** Renderer config for an extension conversation message type. */
+export interface ExtensionConversationRenderer {
+  readonly html: string;
+  readonly style: 'compact' | 'full';
+  readonly markdown?: boolean;
+}
+
 /** Relay → Client: Loaded extensions with namespaces and message types. */
 export interface ExtensionListResponsePayload {
   readonly extensions: readonly {
@@ -465,6 +472,7 @@ export interface ExtensionListResponsePayload {
     readonly name: string;
     readonly version: string;
     readonly messageTypes: readonly string[];
+    readonly conversationRenderers?: Readonly<Record<string, ExtensionConversationRenderer>>;
   }[];
   readonly totalCount: number;
 }
