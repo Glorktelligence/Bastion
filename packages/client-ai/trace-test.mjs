@@ -39,6 +39,8 @@ import {
   FilePurgeManager,
   RecallHandler,
   BastionBash,
+  AiClientAuditLogger,
+  AI_AUDIT_EVENT_TYPES,
 } from './dist/index.js';
 import {
   BastionRelay,
@@ -4588,6 +4590,169 @@ async function run() {
       check('DTM: ConversationStore updatedAt uses injected time', conv?.updatedAt === FIXED_ISO);
       try { const { rmSync: rm2 } = await import('node:fs'); rm2(csDb, { force: true }); } catch {}
     }
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: AiClientAuditLogger — tamper-evident hash chain
+  // -------------------------------------------------------------------
+  console.log('--- AiClientAuditLogger ---');
+  {
+    const { rmSync: rmAudit } = await import('node:fs');
+    const auditDb = '/tmp/bastion-audit-test-' + Date.now() + '.db';
+
+    // Basic construction
+    const logger = new AiClientAuditLogger({ path: auditDb });
+    check('audit: starts with 0 entries', logger.entryCount === 0);
+
+    // Event type registry — register, lock, reject unregistered
+    check('audit: has registered types', logger.registeredTypeCount > 0);
+    check('audit: built-in types include bash_command', Object.values(AI_AUDIT_EVENT_TYPES).includes('bash_command'));
+    check('audit: built-in types include challenge_issued', Object.values(AI_AUDIT_EVENT_TYPES).includes('challenge_issued'));
+
+    // Register custom type before lock
+    logger.registerEventType('custom_test_event', { severity: 'info' });
+    const prevCount = logger.registeredTypeCount;
+
+    // Lock event types
+    logger.lockEventTypes();
+    check('audit: types locked', logger.isLocked);
+
+    // Reject registration after lock
+    let lockErr = false;
+    try { logger.registerEventType('post_lock_type', { severity: 'info' }); } catch { lockErr = true; }
+    check('audit: rejects registration after lock', lockErr);
+
+    // Log a registered event
+    const evt1 = logger.logEvent('bash_command', 'ai', 'bastion-bash', { command: 'ls', tier: 1, success: true });
+    check('audit: event has index 0', evt1.index === 0);
+    check('audit: event has hash', evt1.hash.length === 64);
+    check('audit: event has previousHash', evt1.previousHash.length === 64);
+    check('audit: event type correct', evt1.eventType === 'bash_command');
+    check('audit: event principal', evt1.principal === 'ai');
+    check('audit: entry count is 1', logger.entryCount === 1);
+
+    // AUDIT_CHAIN_LOGGING_VIOLATION for unregistered type
+    const evt2 = logger.logEvent('totally_fake_unregistered_type', 'ai', 'test', {});
+    check('audit: unregistered type → violation event', evt2.eventType === 'audit_chain_logging_violation');
+    check('audit: violation has attemptedEventType', evt2.data.attemptedEventType === 'totally_fake_unregistered_type');
+    check('audit: entry count is 2', logger.entryCount === 2);
+
+    // Custom registered type works
+    const evt3 = logger.logEvent('custom_test_event', 'system', 'test', { key: 'value' });
+    check('audit: custom type works', evt3.eventType === 'custom_test_event');
+
+    // Hash chain integrity verification
+    const integrity = logger.verifyChainIntegrity();
+    check('audit: chain integrity valid', integrity.valid);
+    check('audit: no broken index', integrity.brokenAt === undefined);
+
+    // Domain convenience methods
+    const cmdEvt = logger.logCommand('ls -la', 1, true, { output: 'files' });
+    check('audit: logCommand creates bash_command', cmdEvt.eventType === 'bash_command');
+    check('audit: logCommand stores command', cmdEvt.data.command === 'ls -la');
+
+    const cmdEvt2 = logger.logCommand('rm test', 2, false);
+    check('audit: logCommand tier 2 → bash_blocked', cmdEvt2.eventType === 'bash_blocked');
+
+    const cmdEvt3 = logger.logCommand('systemctl', 3, false);
+    check('audit: logCommand tier 3 → bash_invisible', cmdEvt3.eventType === 'bash_invisible');
+
+    const safeEvt = logger.logSafety('denied', 1, { reason: 'test denial' });
+    check('audit: logSafety denied', safeEvt.eventType === 'safety_denied');
+
+    const chalEvt = logger.logChallenge('issued', { reason: 'risky action' });
+    check('audit: logChallenge issued', chalEvt.eventType === 'challenge_issued');
+    check('audit: challenge principal is ai', chalEvt.principal === 'ai');
+
+    const chalEvt2 = logger.logChallenge('accepted', {});
+    check('audit: logChallenge accepted principal is human', chalEvt2.principal === 'human');
+
+    const toolEvt = logger.logTool('approved', { toolId: 'test-tool' });
+    check('audit: logTool approved', toolEvt.eventType === 'tool_approved');
+
+    const memEvt = logger.logMemory('proposed', { content: 'test memory' });
+    check('audit: logMemory proposed', memEvt.eventType === 'memory_proposed');
+    check('audit: memory principal is ai', memEvt.principal === 'ai');
+
+    const extEvt = logger.logExtension('game', 'game:turn', true, {});
+    check('audit: logExtension success', extEvt.eventType === 'extension_handled');
+
+    const extEvt2 = logger.logExtension('game', 'game:turn', false, { error: 'crash' });
+    check('audit: logExtension failure', extEvt2.eventType === 'extension_error');
+
+    // DateTimeManager integration
+    const FIXED_ISO = '2026-07-01T12:00:00.000Z';
+    const mockDTM2 = {
+      now() { return { iso: FIXED_ISO, unix: new Date(FIXED_ISO).getTime(), formatted: '', timezone: 'UTC', source: 'mock', uptimeMs: 0 }; },
+      formatDuration() { return '0s'; },
+      formatTimeDiff() { return '0s'; },
+      buildTemporalBlock() { return ''; },
+    };
+    const auditDb2 = '/tmp/bastion-audit-dtm-' + Date.now() + '.db';
+    const logger2 = new AiClientAuditLogger({ path: auditDb2, dateTimeManager: mockDTM2 });
+    logger2.lockEventTypes();
+    const dtmEvt = logger2.logEvent('bash_command', 'ai', 'test', {});
+    check('audit: DTM timestamp used', dtmEvt.timestamp === FIXED_ISO);
+
+    // SQLite persistence — read back after restart
+    const entryCountBefore = logger.entryCount;
+    logger.close();
+    const logger3 = new AiClientAuditLogger({ path: auditDb });
+    check('audit: survives restart', logger3.entryCount === entryCountBefore);
+    const recent = logger3.getRecentEvents(3);
+    check('audit: getRecentEvents returns entries', recent.length === 3);
+    check('audit: recent entries ordered by index desc', recent[0].index > recent[1].index);
+
+    // Chain integrity on reloaded logger
+    const integrity2 = logger3.verifyChainIntegrity();
+    check('audit: chain integrity valid after restart', integrity2.valid);
+
+    // Query by eventType
+    const bashEvents = logger3.query({ eventType: 'bash_command' });
+    check('audit: query by eventType finds entries', bashEvents.length >= 1);
+
+    logger3.close();
+    logger2.close();
+    try { rmAudit(auditDb, { force: true }); } catch {}
+    try { rmAudit(auditDb2, { force: true }); } catch {}
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: Relay AuditLogger — event type registry
+  // -------------------------------------------------------------------
+  console.log('--- Relay AuditLogger: event type registry ---');
+  {
+    const relayLogger = new AuditLogger({ store: { path: ':memory:' } });
+
+    // Registry has built-in types
+    check('relay audit: has registered types', relayLogger.registeredTypeCount > 0);
+    check('relay audit: not locked initially', !relayLogger.isTypesLocked);
+
+    // Register custom type
+    relayLogger.registerEventType('custom_relay_test', { severity: 'info', description: 'Test event' });
+    const countBefore = relayLogger.registeredTypeCount;
+
+    // Lock
+    relayLogger.lockEventTypes();
+    check('relay audit: locked after lockEventTypes', relayLogger.isTypesLocked);
+
+    // Reject registration after lock
+    let relayLockErr = false;
+    try { relayLogger.registerEventType('post_lock', { severity: 'info', description: '' }); } catch { relayLockErr = true; }
+    check('relay audit: rejects registration after lock', relayLockErr);
+
+    // Log registered type works
+    const re1 = relayLogger.logEvent('message_routed', 'sess', { test: true });
+    check('relay audit: registered type logged', re1.eventType === 'message_routed');
+
+    // Log unregistered type → AUDIT_CHAIN_LOGGING_VIOLATION
+    const re2 = relayLogger.logEvent('totally_unregistered_fake', 'sess', {});
+    check('relay audit: unregistered → violation', re2.eventType === 'audit_chain_logging_violation');
+    check('relay audit: violation has attemptedType', re2.detail.attemptedType === 'totally_unregistered_fake');
+
+    relayLogger.close();
   }
   console.log();
 

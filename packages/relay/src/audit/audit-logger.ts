@@ -73,6 +73,33 @@ export const AUDIT_EVENT_TYPES = {
   SENDER_MISMATCH: 'sender_mismatch',
   ALLOWLIST_REJECTED: 'allowlist_rejected',
   MALICLAW_REJECTED: 'maliclaw_rejected',
+
+  // Security & auth (relay-wide)
+  JWT_REPLAY_REJECTED: 'jwt_replay_rejected',
+  SESSION_CONFLICT: 'session_conflict',
+  SESSION_SUPERSEDED: 'session_superseded',
+  SECURITY_VIOLATION: 'security_violation',
+  FILE_HASH_MISMATCH: 'file_hash_mismatch',
+  FILE_SUBMITTED: 'file_submitted',
+  EXTENSION_LOADED: 'extension_loaded',
+  CHAIN_INTEGRITY_OK: 'chain_integrity_ok',
+  CHAIN_INTEGRITY_VIOLATION: 'chain_integrity_violation',
+  AUDIT_CHAIN_LOGGING_VIOLATION: 'audit_chain_logging_violation',
+  ADMIN_AUTH_SUCCESS: 'admin_auth_success',
+  ADMIN_AUTH_FAILURE: 'admin_auth_failure',
+
+  // Relay operational events
+  AI_DISCLOSURE_SENT: 'ai_disclosure_sent',
+  SESSION_PAIRED: 'session_paired',
+  PROVIDER_REGISTERED: 'provider_registered',
+  AUDIT_QUERY: 'audit_query',
+  KEY_EXCHANGE: 'key_exchange',
+  BUDGET_ALERT: 'budget_alert',
+  BUDGET_CONFIG_CHANGED: 'budget_config_changed',
+  BUDGET_STATUS: 'budget_status',
+  STREAM_STARTED: 'stream_started',
+  STREAM_COMPLETED: 'stream_completed',
+  CONTEXT_UPDATE: 'context_update',
 } as const;
 
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[keyof typeof AUDIT_EVENT_TYPES];
@@ -101,6 +128,10 @@ export class AuditLogger {
   private chain: HashedAuditEntry[];
   private closed: boolean;
 
+  // Event type registry — validates event types after lock
+  private readonly eventTypes = new Map<string, { severity: string; description: string }>();
+  private typesLocked = false;
+
   constructor(config: AuditLoggerConfig) {
     this.store = new AuditStore(config.store);
     this.chain = [];
@@ -117,6 +148,186 @@ export class AuditLogger {
       this.nextIndex = 0;
       this.lastHash = GENESIS_SEED;
     }
+
+    // Register all built-in event types
+    this.registerEventType(AUDIT_EVENT_TYPES.MESSAGE_ROUTED, {
+      severity: 'info',
+      description: 'Message successfully routed',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.MESSAGE_REJECTED, {
+      severity: 'warning',
+      description: 'Message rejected',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.MESSAGE_RATE_LIMITED, {
+      severity: 'warning',
+      description: 'Message rate-limited',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.AUTH_SUCCESS, {
+      severity: 'info',
+      description: 'Authentication succeeded',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.AUTH_FAILURE, {
+      severity: 'warning',
+      description: 'Authentication failed',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.AUTH_TOKEN_REFRESH, { severity: 'info', description: 'Token refreshed' });
+    this.registerEventType(AUDIT_EVENT_TYPES.AUTH_TOKEN_EXPIRED, { severity: 'warning', description: 'Token expired' });
+    this.registerEventType(AUDIT_EVENT_TYPES.CONNECTION_OPENED, { severity: 'info', description: 'Connection opened' });
+    this.registerEventType(AUDIT_EVENT_TYPES.CONNECTION_CLOSED, { severity: 'info', description: 'Connection closed' });
+    this.registerEventType(AUDIT_EVENT_TYPES.SESSION_STARTED, { severity: 'info', description: 'Session started' });
+    this.registerEventType(AUDIT_EVENT_TYPES.SESSION_ENDED, { severity: 'info', description: 'Session ended' });
+    this.registerEventType(AUDIT_EVENT_TYPES.SESSION_TIMEOUT, {
+      severity: 'warning',
+      description: 'Session timed out',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.FILE_MANIFEST, {
+      severity: 'info',
+      description: 'File manifest received',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.FILE_QUARANTINE, {
+      severity: 'info',
+      description: 'File placed in quarantine',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.FILE_DELIVERED, {
+      severity: 'info',
+      description: 'File delivered to recipient',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.FILE_REJECTED, { severity: 'warning', description: 'File rejected' });
+    this.registerEventType(AUDIT_EVENT_TYPES.FILE_PURGED, {
+      severity: 'info',
+      description: 'File purged from quarantine',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.CONFIG_CHANGE, { severity: 'info', description: 'Configuration changed' });
+    this.registerEventType(AUDIT_EVENT_TYPES.PROVIDER_APPROVED, { severity: 'info', description: 'Provider approved' });
+    this.registerEventType(AUDIT_EVENT_TYPES.PROVIDER_DEACTIVATED, {
+      severity: 'warning',
+      description: 'Provider deactivated',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.PROTOCOL_VIOLATION, {
+      severity: 'warning',
+      description: 'Protocol violation detected',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.SENDER_MISMATCH, {
+      severity: 'warning',
+      description: 'Sender type mismatch',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.ALLOWLIST_REJECTED, {
+      severity: 'warning',
+      description: 'Rejected by allowlist',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.MALICLAW_REJECTED, {
+      severity: 'violation',
+      description: 'Blocked by MaliClaw Clause',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.JWT_REPLAY_REJECTED, {
+      severity: 'violation',
+      description: 'JWT replay attack rejected',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.SESSION_CONFLICT, {
+      severity: 'warning',
+      description: 'Session conflict detected',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.SESSION_SUPERSEDED, {
+      severity: 'warning',
+      description: 'Session superseded by new connection',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.SECURITY_VIOLATION, {
+      severity: 'critical',
+      description: 'Security violation',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.FILE_HASH_MISMATCH, {
+      severity: 'violation',
+      description: 'File hash verification failed',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.EXTENSION_LOADED, { severity: 'info', description: 'Extension loaded' });
+    this.registerEventType(AUDIT_EVENT_TYPES.CHAIN_INTEGRITY_OK, {
+      severity: 'info',
+      description: 'Chain integrity verification passed',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.CHAIN_INTEGRITY_VIOLATION, {
+      severity: 'critical',
+      description: 'Chain integrity violation detected',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.AUDIT_CHAIN_LOGGING_VIOLATION, {
+      severity: 'critical',
+      description: 'Unregistered event type logged after lock',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.ADMIN_AUTH_SUCCESS, {
+      severity: 'info',
+      description: 'Admin authentication succeeded',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.ADMIN_AUTH_FAILURE, {
+      severity: 'warning',
+      description: 'Admin authentication failed',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.FILE_SUBMITTED, {
+      severity: 'info',
+      description: 'File submitted to quarantine',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.AI_DISCLOSURE_SENT, {
+      severity: 'info',
+      description: 'AI disclosure sent to human client',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.SESSION_PAIRED, {
+      severity: 'info',
+      description: 'Human and AI clients paired',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.PROVIDER_REGISTERED, {
+      severity: 'info',
+      description: 'AI provider registered',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.AUDIT_QUERY, { severity: 'info', description: 'Audit log queried' });
+    this.registerEventType(AUDIT_EVENT_TYPES.KEY_EXCHANGE, { severity: 'info', description: 'Key exchange completed' });
+    this.registerEventType(AUDIT_EVENT_TYPES.BUDGET_ALERT, {
+      severity: 'warning',
+      description: 'Budget threshold alert',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.BUDGET_CONFIG_CHANGED, {
+      severity: 'info',
+      description: 'Budget configuration changed',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.BUDGET_STATUS, { severity: 'info', description: 'Budget status update' });
+    this.registerEventType(AUDIT_EVENT_TYPES.STREAM_STARTED, {
+      severity: 'info',
+      description: 'Streaming response started',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.STREAM_COMPLETED, {
+      severity: 'info',
+      description: 'Streaming response completed',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.CONTEXT_UPDATE, {
+      severity: 'info',
+      description: 'Context update forwarded',
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Event type registry
+  // -------------------------------------------------------------------------
+
+  /**
+   * Register an event type in the registry.
+   * Must be called before lockEventTypes(). Extensions use this to register
+   * custom event types at startup.
+   */
+  registerEventType(eventType: string, config: { severity: string; description: string }): void {
+    if (this.typesLocked) throw new AuditLoggerError('Event type registry is locked');
+    this.eventTypes.set(eventType, config);
+  }
+
+  /** Lock the event type registry — after this, unregistered types trigger a violation. */
+  lockEventTypes(): void {
+    this.typesLocked = true;
+  }
+
+  /** Whether the event type registry is locked. */
+  get isTypesLocked(): boolean {
+    return this.typesLocked;
+  }
+
+  /** Number of registered event types. */
+  get registeredTypeCount(): number {
+    return this.eventTypes.size;
   }
 
   /** Number of entries in the audit log. */
@@ -151,6 +362,24 @@ export class AuditLogger {
   logEvent(eventType: string, sessionId: string, detail: Record<string, unknown> = {}): HashedAuditEntry {
     if (this.closed) throw new AuditLoggerError('Logger is closed');
 
+    // Validate event type against registry when locked
+    if (this.typesLocked && !this.eventTypes.has(eventType)) {
+      // Log a violation instead of the unregistered type (avoid infinite recursion via _logInternal)
+      return this._logInternal(AUDIT_EVENT_TYPES.AUDIT_CHAIN_LOGGING_VIOLATION, sessionId, {
+        attemptedType: eventType,
+        originalDetail: detail,
+        reason: 'Unregistered event type after lock',
+      });
+    }
+
+    return this._logInternal(eventType, sessionId, detail);
+  }
+
+  /**
+   * Core logging logic — appends to hash chain and persists.
+   * Separated from logEvent() to avoid infinite recursion during violation logging.
+   */
+  private _logInternal(eventType: string, sessionId: string, detail: Record<string, unknown>): HashedAuditEntry {
     const entry: AuditEntry = {
       index: this.nextIndex,
       timestamp: new Date().toISOString(),

@@ -161,6 +161,10 @@ export type { RecallRequest, RecallMatch, RecallResult } from './recall-handler.
 export { DreamCycleManager } from './dream-cycle-manager.js';
 export type { DreamCycleConfig, DreamCycleResult, MemoryCandidate } from './dream-cycle-manager.js';
 
+// AI Client Audit Logger (sole audit authority)
+export { AiClientAuditLogger, AiClientAuditLoggerError, AI_AUDIT_EVENT_TYPES } from './audit-logger.js';
+export type { AuditEvent, AiClientAuditLoggerConfig } from './audit-logger.js';
+
 // Bastion Bash (Governed Execution)
 export { BastionBash } from './bastion-bash.js';
 export type { BastionBashConfig, CommandResult, AuditLogger as BashAuditLogger } from './bastion-bash.js';

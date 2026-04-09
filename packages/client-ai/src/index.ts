@@ -75,6 +75,9 @@ export {
   DateTimeManager,
   RecallHandler,
   BastionBash,
+  AiClientAuditLogger,
+  AiClientAuditLoggerError,
+  AI_AUDIT_EVENT_TYPES,
 } from './provider/index.js';
 export type {
   ToolRegistry,
@@ -164,6 +167,8 @@ export type {
   MemoryCandidate,
   DateTimeInfo,
   DateTimeManagerConfig,
+  AuditEvent,
+  AiClientAuditLoggerConfig,
   RecallRequest,
   RecallMatch,
   RecallResult,

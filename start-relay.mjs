@@ -200,6 +200,10 @@ if (lockResult.errors.length > 0) {
 }
 console.log(`[✓] Extension registry locked (${extensionRegistry.extensionCount} extensions, ${extensionRegistry.messageTypeCount} types)`);
 
+// Lock event type registry — after this, unregistered event types trigger AUDIT_CHAIN_LOGGING_VIOLATION
+auditLogger.lockEventTypes();
+console.log(`[✓] Audit event type registry locked (${auditLogger.registeredTypeCount} types)`);
+
 // ---------------------------------------------------------------------------
 // File quarantine system
 // ---------------------------------------------------------------------------
@@ -1249,6 +1253,11 @@ relay.on('message', async (data, info) => {
         message: 'File quarantine is full — try again later',
         timestamp: new Date().toISOString(),
       }));
+      const sid = sessionIds.get(connId);
+      if (sid) auditLogger.logEvent('file_rejected', sid, {
+        transferId, filename: p.filename, reason: 'quarantine_full',
+        code: 'BASTION-5004',
+      });
     } else {
       relay.send(connId, JSON.stringify({
         type: 'error',
@@ -1318,6 +1327,12 @@ relay.on('message', async (data, info) => {
         recipient_hash: 'verified',
         stage: 'delivered',
         actor: router.getClient(connId)?.identity.id || 'unknown',
+      });
+      if (sid) auditLogger.logEvent('file_purged', sid, {
+        transferId,
+        reason: 'delivered',
+        actor: router.getClient(connId)?.identity.id || 'unknown',
+        purgedAt: new Date().toISOString(),
       });
     } else if (result.status === 'hash_mismatch_at_delivery') {
       console.log(`[!] BASTION-5001: Hash mismatch at delivery stage — transfer ${transferId.slice(0, 8)} aborted`);

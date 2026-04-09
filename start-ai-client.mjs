@@ -40,6 +40,7 @@ import {
   DateTimeManager,
   RecallHandler,
   BastionBash,
+  AiClientAuditLogger,
 } from './packages/client-ai/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -275,6 +276,11 @@ console.log(`[✓] Skill registry locked (${skillStore.skillCount} skills, ${ski
 const dateTimeManager = new DateTimeManager({ timezone: process.env.BASTION_TIMEZONE });
 console.log(`[✓] DateTimeManager initialised (${dateTimeManager.now().timezone}, source: ${dateTimeManager.now().source})`);
 
+const AUDIT_DB = process.env.BASTION_AUDIT_DB || '/var/lib/bastion/ai-audit.db';
+const auditLogger = new AiClientAuditLogger({ path: AUDIT_DB, dateTimeManager });
+auditLogger.lockEventTypes();
+console.log(`[✓] AI audit logger initialised (db: ${AUDIT_DB}, ${auditLogger.entryCount} entries, ${auditLogger.registeredTypeCount} event types)`);
+
 // Skills Manager — sole authority for skill registry edits post-startup
 const QUARANTINE_DIR = process.env.BASTION_SKILLS_QUARANTINE || './skills-quarantine';
 const skillsManager = new SkillsManager({
@@ -283,9 +289,11 @@ const skillsManager = new SkillsManager({
   dateTimeManager,
   onViolation: (count, detail) => {
     console.error(`[!] Skill violation #${count}: ${detail}`);
+    auditLogger.logViolation('skills-manager', 'skill_violation', { count, detail });
   },
   onShutdown: (reason) => {
     console.error(`[!!!] Shutdown triggered by skill violation: ${reason}`);
+    auditLogger.logViolation('skills-manager', 'skill_violation', { reason, action: 'shutdown' });
     process.exit(1);
   },
 });
@@ -655,6 +663,7 @@ if (dataEraser.checkExpiredErasures()) {
   console.log('[!] Expired erasure found — running hard delete...');
   dataEraser.hardDelete();
   console.log('[✓] Hard delete complete — all soft-deleted data permanently removed');
+  auditLogger.logEvent('data_erasure', 'system', 'data-eraser', { action: 'hard_delete' });
 } else {
   const activeErasure = dataEraser.getActiveErasure();
   if (activeErasure) {
@@ -1059,6 +1068,7 @@ const toolUpstreamMonitor = new ToolUpstreamMonitor(
   // On MCP violation (severe — 2hr timer)
   (change) => {
     console.log(`[!] TOOL VIOLATION: ${change.source} tool "${change.fullId}" not in registry`);
+    auditLogger.logTool('violation', { toolName: change.toolName, source: change.source, fullId: change.fullId });
     // Send alert to relay → human client
     if (client?.connected) {
       sendSecure({
@@ -1086,6 +1096,7 @@ const toolUpstreamMonitor = new ToolUpstreamMonitor(
   // On Provider notice (informational — removed tools, etc.)
   (change) => {
     console.log(`[i] Provider tool notice: "${change.fullId}" (${change.type})`);
+    auditLogger.logEvent('tool_upstream_detected', 'system', 'tool-upstream-monitor', { fullId: change.fullId, type: change.type });
   },
   dateTimeManager,
 );
@@ -1125,6 +1136,7 @@ client.on('connected', () => {
 
 client.on('authenticated', async (jwt, expiresAt) => {
   console.log(`[✓] Authenticated — JWT expires at ${expiresAt}`);
+  auditLogger.logEvent('auth_success', 'ai', 'connection', {});
 
   // Connect to MCP providers
   await connectMcpProviders();
@@ -1155,7 +1167,10 @@ client.on('authenticated', async (jwt, expiresAt) => {
     sender: IDENTITY,
     payload: challengeStatus,
   }));
-  if (challengeStatus.active) console.log(`[🛡️] Challenge hours ACTIVE until ${challengeStatus.periodEnd}`);
+  if (challengeStatus.active) {
+    console.log(`[🛡️] Challenge hours ACTIVE until ${challengeStatus.periodEnd}`);
+    auditLogger.logEvent('challenge_issued', 'system', 'challenge-manager', { active: true });
+  }
 
   // Send budget + usage status to human
   budgetGuard.resetSession();
@@ -1211,6 +1226,7 @@ client.on('tokenRefreshNeeded', () => {
 
 client.on('disconnected', (code, reason) => {
   console.log(`[-] Disconnected from relay (${code}: ${reason})`);
+  auditLogger.logEvent('connection_closed', 'ai', 'connection', { code, reason });
 });
 
 client.on('error', (err) => {
@@ -1351,6 +1367,7 @@ client.on('message', async (data) => {
     const decision = msg.payload?.decision || msg.decision;
     const correlationId = msg.correlationId || msg.payload?.correlationId;
     console.log(`[←] Challenge response: ${decision}`);
+    auditLogger.logChallenge(decision === 'approve' ? 'accepted' : decision === 'cancel' ? 'rejected' : 'accepted', { decision, correlationId });
 
     // Server-side wait timer enforcement
     if (correlationId && pendingChallenges.has(correlationId)) {
@@ -1360,6 +1377,7 @@ client.on('message', async (data) => {
       if (elapsedMs < requiredMs && decision !== 'cancel') {
         const remainingSec = Math.ceil((requiredMs - elapsedMs) / 1000);
         console.log(`[!] Challenge response TOO EARLY: ${elapsedMs}ms elapsed, ${requiredMs}ms required — REJECTED`);
+        auditLogger.logViolation('challenge-manager', 'challenge_rejected', { reason: 'timing_violation', elapsedMs, requiredMs });
         client.send(JSON.stringify({
           type: 'error', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
           payload: { code: 'BASTION-4006', message: `Challenge wait timer not met — ${remainingSec}s remaining` },
@@ -1391,12 +1409,14 @@ client.on('message', async (data) => {
 
     if (decision === 'accept') {
       console.log('[✓] Human accepted AI safety recommendation');
+      auditLogger.logChallenge('accepted', { challengeId });
       if (pending) {
         console.log(`[✓] AI challenge ${challengeId} resolved: accepted (${pending.severity}, ${Date.now() - pending.issuedAt}ms)`);
       }
     } else if (decision === 'override') {
       // Significant: user overrode AI safety recommendation — inform AI in next prompt
       console.log('[!] Human OVERRODE AI safety recommendation — proceeding with user choice');
+      auditLogger.logChallenge('overridden', { challengeId });
       if (pending) {
         console.log(`[!] AI challenge ${challengeId} resolved: OVERRIDDEN (${pending.severity}, ${Date.now() - pending.issuedAt}ms)`);
         // Inform AI of override in conversation context for transparency
@@ -1428,6 +1448,7 @@ client.on('message', async (data) => {
       payload: { accepted: result.accepted, reason: result.reason, cooldownExpires: result.cooldownExpires },
     }));
     console.log(`[${result.accepted ? '✓' : '!'}] Challenge config ${result.accepted ? 'updated' : 'rejected'}: ${result.reason}`);
+    auditLogger.logEvent('challenge_issued', 'operator', 'challenge-manager', { accepted: result.accepted, reason: result.reason });
     // Send updated status
     client.send(JSON.stringify({
       type: 'challenge_status',
@@ -1447,6 +1468,7 @@ client.on('message', async (data) => {
     const challengeCheck = challengeManager.checkAction('budget_change');
     if ('blocked' in challengeCheck && challengeCheck.blocked) {
       console.log(`[!] Budget config BLOCKED: ${challengeCheck.reason}`);
+      auditLogger.logEvent('budget_blocked', 'system', 'budget-guard', { reason: 'challenge_hours_active' });
       client.send(JSON.stringify({
         type: 'error', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
         payload: { code: 'BASTION-8005', message: challengeCheck.reason },
@@ -1458,6 +1480,7 @@ client.on('message', async (data) => {
     const cooldownCheck = budgetGuard.checkCooldown();
     if (!cooldownCheck.allowed) {
       console.log(`[!] Budget config COOLDOWN: ${cooldownCheck.reason}`);
+      auditLogger.logEvent('budget_cooldown', 'system', 'budget-guard', { reason: 'cooldown_active' });
       client.send(JSON.stringify({
         type: 'error', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
         payload: { code: 'BASTION-8004', message: cooldownCheck.reason, availableAt: cooldownCheck.availableAt },
@@ -1477,6 +1500,7 @@ client.on('message', async (data) => {
     challengeManager.recordAction('budget_change');
 
     console.log(`[${result.accepted ? '✓' : '!'}] Budget config: ${result.reason}${result.pendingNextMonth ? ' (pending next month)' : ''}`);
+    auditLogger.logEvent('budget_config_applied', 'operator', 'budget-guard', {});
     client.send(JSON.stringify({
       type: 'config_ack', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
       payload: { configType: 'budget_config', accepted: result.accepted, reason: result.reason, pendingNextMonth: result.pendingNextMonth },
@@ -1514,6 +1538,7 @@ client.on('message', async (data) => {
     // Grant session trust
     toolRegistry.grantTrust(p.toolId, p.trustLevel, p.scope);
     console.log(`[✓] Tool approved: ${p.toolId} (trust: ${p.trustLevel}, scope: ${p.scope}, reason: ${p.reason})`);
+    auditLogger.logTool('approved', { toolId: p.toolId, requestId: p.requestId });
 
     // Validate parameters
     const paramCheck = validateParameters(pending.params);
@@ -1551,6 +1576,7 @@ client.on('message', async (data) => {
     const p = msg.payload || msg;
     pendingToolRequests.delete(p.requestId);
     console.log(`[✗] Tool denied: ${p.toolId} — ${p.reason}`);
+    auditLogger.logTool('denied', { toolId: p.toolId, requestId: p.requestId });
     return;
   }
 
@@ -1559,6 +1585,7 @@ client.on('message', async (data) => {
     const p = msg.payload || msg;
     toolRegistry.revokeTrust(p.toolId);
     console.log(`[✗] Tool trust revoked: ${p.toolId} — ${p.reason}`);
+    auditLogger.logTool('revoked', { toolId: p.toolId });
     return;
   }
 
@@ -1989,6 +2016,7 @@ client.on('message', async (data) => {
     if (actualHash !== declaredHash) {
       console.error(`[!] BASTION-5001: Hash mismatch at receipt — expected ${declaredHash.slice(0, 12)}, got ${actualHash.slice(0, 12)}`);
       console.error(`[!] Transfer ${transferId.slice(0, 8)} ABORTED — custody chain broken`);
+      auditLogger.logViolation('file-transfer', 'purge_violation', { reason: 'hash_mismatch' });
       client.send(JSON.stringify({
         type: 'error', id: randomUUID(), timestamp: new Date().toISOString(), sender: IDENTITY,
         payload: { code: 'BASTION-5001', message: `Hash verification failed at delivery: expected ${declaredHash}, got ${actualHash}` },
@@ -2122,6 +2150,7 @@ client.on('message', async (data) => {
 
     if (safetyResponse.type === 'denial') {
       console.log(`[✗] DENIED by Layer ${safetyResult.decidingLayer}: ${safetyResponse.payload.reason}`);
+      auditLogger.logSafety('denied', safetyResult.decidingLayer, { reason: safetyResponse.payload.reason, action: payload.action });
       const denialMsg = JSON.stringify({
         type: 'denial',
         id: randomUUID(),
@@ -2135,6 +2164,7 @@ client.on('message', async (data) => {
 
     if (safetyResponse.type === 'challenge') {
       console.log(`[?] CHALLENGE by Layer ${safetyResult.decidingLayer}: ${safetyResponse.payload.reason}`);
+      auditLogger.logSafety('challenged', safetyResult.decidingLayer, { reason: safetyResponse.payload.reason });
       const challengeId = randomUUID();
       // Determine wait time: use challenge hours wait if active, otherwise 5s minimum
       const challengeAction = challengeManager.checkAction('dangerous_tool_approval');
@@ -2154,6 +2184,7 @@ client.on('message', async (data) => {
     }
 
     console.log(`[✓] Safety: ALLOW (score: ${safetyResult.layer2?.score?.toFixed(2) ?? 'n/a'})`);
+    auditLogger.logSafety('allowed', safetyResult.decidingLayer, { action: payload.action });
     // For task messages, fall through to API call below
   }
 
@@ -2267,6 +2298,7 @@ client.on('message', async (data) => {
               },
             });
             console.log(`[→] AI challenge issued: ${payload.severity} — ${String(payload.reason || '').substring(0, 60)}`);
+            auditLogger.logChallenge('issued', { severity: payload.severity, reason: String(payload.reason || '') });
           } else if (action.type === 'MEMORY' && aiActionLimits.canMemory()) {
             aiActionLimits.recordMemory();
             const payload = action.data;
@@ -2524,6 +2556,7 @@ client.on('message', async (data) => {
         }));
 
         console.log(`[✓] Data export ready: ${filename} (${exportBuffer.length} bytes, submitted via file_manifest)`);
+        auditLogger.logEvent('data_export', 'human', 'data-exporter', {});
       } catch (err) {
         console.error(`[!] Data export failed: ${err.message}`);
         client.send(JSON.stringify({
@@ -2580,6 +2613,7 @@ client.on('message', async (data) => {
       }));
 
       console.log(`[✓] Data import complete: ${result.imported.conversations}c ${result.imported.memories}m ${result.imported.projectFiles}p ${result.imported.skills}s (${result.errors.length} errors)`);
+      auditLogger.logEvent('data_import', 'human', 'import-executor', {});
     } catch (err) {
       console.error(`[!] Data import failed: ${err.message}`);
       client.send(JSON.stringify({
@@ -2692,6 +2726,7 @@ client.on('message', async (data) => {
     }));
 
     console.log(`[✓] Soft delete complete: erasureId=${result.erasureId}, hard delete at ${result.hardDeleteScheduledAt}`);
+    auditLogger.logEvent('data_erasure', 'human', 'data-eraser', { action: 'soft_delete' });
     return;
   }
 
@@ -2890,8 +2925,10 @@ client.on('message', async (data) => {
           dataDir: extDataDir,
         });
         console.log(`[✓] Extension: ${msg.type} handled successfully`);
+        auditLogger.logExtension(namespace, msg.type, true, {});
       } catch (err) {
         console.error(`[!] Extension handler error for ${msg.type}: ${err.message}`);
+        auditLogger.logExtension(namespace, msg.type, false, { error: err.message });
         sendSecure({
           type: 'error',
           id: randomUUID(),
