@@ -439,6 +439,21 @@ export class BastionBash {
       }
     }
 
+    // Resolve symlinks on file path arguments to prevent traversal via
+    // symlinks pointing outside the workspace (e.g., workspace/link → /etc).
+    // Strip redirects and pipes, then check remaining arguments that look like paths.
+    const stripped = commandString.replace(/(?:&>>|&>|2>>|2>|>>|>)\s*\S+/g, '').replace(/\|.*$/, '');
+    const tokens = stripped.trim().split(/\s+/).slice(1); // skip the command itself
+    for (const token of tokens) {
+      // Skip flags/options
+      if (token.startsWith('-')) continue;
+      // Only check tokens that look like filesystem paths
+      if (!token.includes('/') && !token.includes('\\')) continue;
+      if (!this.isWithinAllowedPaths(token)) {
+        return 'bash: access denied — path outside managed workspace (symlink resolved)';
+      }
+    }
+
     return null;
   }
 
