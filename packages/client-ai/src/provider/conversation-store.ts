@@ -424,19 +424,20 @@ export class ConversationStore {
 
   /**
    * Get messages added after a specific message ID.
-   * Uses the timestamp of the reference message to find subsequent messages.
+   * Uses rowid ordering to reliably find subsequent messages even when
+   * timestamps collide (messages inserted in the same millisecond).
    * Returns messages in chronological order (oldest first).
    */
   getMessagesSince(conversationId: string, afterMessageId: string): MessageRecord[] {
-    // Get the timestamp of the reference message
+    // Get the rowid of the reference message
     const ref = this.db
-      .prepare('SELECT timestamp FROM messages WHERE id = ? AND conversationId = ?')
-      .get(afterMessageId, conversationId) as { timestamp: string } | undefined;
+      .prepare('SELECT rowid FROM messages WHERE id = ? AND conversationId = ?')
+      .get(afterMessageId, conversationId) as { rowid: number } | undefined;
     if (!ref) return this.getRecentMessages(conversationId, 10000);
 
     const rows = this.db
-      .prepare('SELECT * FROM messages WHERE conversationId = ? AND timestamp > ? ORDER BY timestamp ASC')
-      .all(conversationId, ref.timestamp) as Record<string, unknown>[];
+      .prepare('SELECT * FROM messages WHERE conversationId = ? AND rowid > ? ORDER BY rowid ASC')
+      .all(conversationId, ref.rowid) as Record<string, unknown>[];
     return rows.map((r) => this.mapMessage(r));
   }
 
@@ -488,16 +489,17 @@ export class ConversationStore {
 
   /**
    * Get message context — the message before and after a given message.
+   * Uses rowid ordering for reliability when timestamps collide.
    */
   getMessageContext(conversationId: string, messageId: string): { before?: MessageRecord; after?: MessageRecord } {
     const beforeRow = this.db
       .prepare(
-        'SELECT * FROM messages WHERE conversationId = ? AND timestamp < (SELECT timestamp FROM messages WHERE id = ?) ORDER BY timestamp DESC LIMIT 1',
+        'SELECT * FROM messages WHERE conversationId = ? AND rowid < (SELECT rowid FROM messages WHERE id = ?) ORDER BY rowid DESC LIMIT 1',
       )
       .get(conversationId, messageId) as Record<string, unknown> | undefined;
     const afterRow = this.db
       .prepare(
-        'SELECT * FROM messages WHERE conversationId = ? AND timestamp > (SELECT timestamp FROM messages WHERE id = ?) ORDER BY timestamp ASC LIMIT 1',
+        'SELECT * FROM messages WHERE conversationId = ? AND rowid > (SELECT rowid FROM messages WHERE id = ?) ORDER BY rowid ASC LIMIT 1',
       )
       .get(conversationId, messageId) as Record<string, unknown> | undefined;
     return {
