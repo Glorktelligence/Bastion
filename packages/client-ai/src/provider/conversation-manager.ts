@@ -221,7 +221,7 @@ export class ConversationManager {
   private operatorContext: string;
 
   // Session temporal awareness
-  private readonly sessionStartedAt: Date = new Date();
+  private readonly sessionStartedAt: Date;
   private lastHumanMessageAt: Date | null = null;
   private lastAiMessageAt: Date | null = null;
   private sessionMessageCount = 0;
@@ -249,11 +249,21 @@ export class ConversationManager {
     this.challengeManager = config?.challengeManager ?? null;
     this.skillStore = config?.skillStore ?? null;
     this.dateTimeManager = config?.dateTimeManager ?? null;
+    this.sessionStartedAt = this.dateTimeManager ? new Date(this.dateTimeManager.now().unix) : new Date();
     this.messages = [];
     this.userContext = '';
     this.operatorContext = '';
     this.loadUserContext();
     this.loadOperatorContext();
+  }
+
+  // -----------------------------------------------------------------------
+  // DateTime helpers (using DateTimeManager when available)
+  // -----------------------------------------------------------------------
+
+  /** Current Date object, using DateTimeManager if available. */
+  private nowDate(): Date {
+    return this.dateTimeManager ? new Date(this.dateTimeManager.now().unix) : new Date();
   }
 
   // -----------------------------------------------------------------------
@@ -263,14 +273,14 @@ export class ConversationManager {
   addUserMessage(content: string): void {
     this.messages.push({ role: 'user', content });
     this.sessionMessageCount++;
-    this.lastHumanMessageAt = new Date();
+    this.lastHumanMessageAt = this.nowDate();
     this.enforceTokenBudget();
   }
 
   addAssistantMessage(content: string): void {
     this.messages.push({ role: 'assistant', content });
     this.sessionMessageCount++;
-    this.lastAiMessageAt = new Date();
+    this.lastAiMessageAt = this.nowDate();
     this.enforceTokenBudget();
   }
 
@@ -444,7 +454,7 @@ export class ConversationManager {
 
     // Add temporal context if challenge manager available
     if (this.challengeManager) {
-      const now = new Date();
+      const now = this.nowDate();
       const isActive = this.challengeManager.isActive();
       const config = this.challengeManager.getConfig();
       const tz = this.challengeManager.timezone;
@@ -506,7 +516,7 @@ export class ConversationManager {
 
     // Session awareness (always present)
     {
-      const now = new Date();
+      const now = this.nowDate();
       const sessionDuration = this.formatTimeDiff(this.sessionStartedAt, now);
       let awareness = '--- Session Awareness ---';
       awareness += `\nSession started: ${this.sessionStartedAt.toISOString()} (${sessionDuration})`;

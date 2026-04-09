@@ -12,6 +12,7 @@
 
 import type { SafetyConfig, SafetyEvaluation, TaskPayload } from '@bastion/protocol';
 import { SAFETY_LAYERS, SAFETY_OUTCOMES } from '@bastion/protocol';
+import type { DateTimeManager } from '../provider/datetime-manager.js';
 import { defaultSafetyConfig, validateSafetyConfig } from './config.js';
 import { evaluateLayer1 } from './layer1.js';
 import { createPatternHistory, evaluateLayer2 } from './layer2.js';
@@ -29,6 +30,8 @@ export interface SafetyPipelineOptions {
   readonly now?: Date;
   /** If provided, overrides Layer 2 time_of_day with ChallengeManager's isActive() state. */
   readonly challengeActive?: boolean;
+  /** Optional DateTimeManager for consistent time authority. */
+  readonly dateTimeManager?: DateTimeManager;
 }
 
 // ---------------------------------------------------------------------------
@@ -43,7 +46,7 @@ export interface SafetyPipelineOptions {
  * @returns Complete safety evaluation result
  */
 export function evaluateSafety(task: TaskPayload, options?: SafetyPipelineOptions): SafetyEvaluation {
-  const timestamp = new Date().toISOString();
+  const timestamp = options?.dateTimeManager?.now().iso ?? new Date().toISOString();
 
   // 1. Validate/clamp config
   const { config } = options?.config ? validateSafetyConfig(options.config) : { config: defaultSafetyConfig() };
@@ -67,7 +70,14 @@ export function evaluateSafety(task: TaskPayload, options?: SafetyPipelineOption
   }
 
   // 3. Layer 2 — Contextual Evaluation (challengeActive unifies with ChallengeManager)
-  const layer2 = evaluateLayer2(task, config, history, options?.now, options?.challengeActive);
+  const layer2 = evaluateLayer2(
+    task,
+    config,
+    history,
+    options?.now,
+    options?.challengeActive,
+    options?.dateTimeManager,
+  );
 
   // 4. Layer 3 — Completeness (ALWAYS runs if L1 passed)
   const layer3 = evaluateLayer3(task);

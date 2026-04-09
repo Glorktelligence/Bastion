@@ -14,6 +14,7 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
+import type { DateTimeManager } from './datetime-manager.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,6 +66,11 @@ const DEFAULT_CONFIG: ChallengeConfig = {
 /** Safety floor: minimum challenge window in hours. */
 const MIN_CHALLENGE_WINDOW_HOURS = 6;
 
+export interface ChallengeManagerOptions {
+  readonly configPath?: string;
+  readonly dateTimeManager?: DateTimeManager;
+}
+
 const BLOCKED_ACTIONS = ['budget_change', 'new_mcp_registration', 'challenge_schedule_change'];
 const CONFIRM_ACTIONS: Record<string, { waitSeconds: number; message: string }> = {
   dangerous_tool_approval: {
@@ -86,18 +92,36 @@ const CONFIRM_ACTIONS: Record<string, { waitSeconds: number; message: string }> 
 export class ChallengeManager {
   private config: ChallengeConfig;
   private readonly configPath: string;
+  private readonly dateTimeManager: DateTimeManager | null;
 
-  constructor(configPath?: string) {
-    this.configPath = configPath ?? '/var/lib/bastion/challenge-config.json';
+  constructor(configOrPath?: string | ChallengeManagerOptions) {
+    const opts = typeof configOrPath === 'string' ? { configPath: configOrPath } : configOrPath;
+    this.configPath = opts?.configPath ?? '/var/lib/bastion/challenge-config.json';
+    this.dateTimeManager = opts?.dateTimeManager ?? null;
     this.config = { ...DEFAULT_CONFIG };
     this.config.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     this.loadConfig();
   }
 
+  /** Current time as ISO string, using DateTimeManager if available. */
+  private now(): string {
+    return this.dateTimeManager?.now().iso ?? new Date().toISOString();
+  }
+
+  /** Current time as epoch ms, using DateTimeManager if available. */
+  private nowMs(): number {
+    return this.dateTimeManager?.now().unix ?? Date.now();
+  }
+
+  /** Current Date object, using DateTimeManager if available. */
+  private nowDate(): Date {
+    return this.dateTimeManager ? new Date(this.dateTimeManager.now().unix) : new Date();
+  }
+
   /** Whether challenge hours are currently active. */
   isActive(): boolean {
     if (!this.config.enabled) return false;
-    return this.isWithinSchedule(new Date());
+    return this.isWithinSchedule(this.nowDate());
   }
 
   /** Get the current challenge status (includes full config for admin API caching). */
@@ -111,12 +135,12 @@ export class ChallengeManager {
     cooldowns: ChallengeCooldowns;
     lastChanges: Record<string, string>;
   } {
-    const now = new Date();
+    const now = this.nowDate();
     const active = this.isActive();
     return {
       active,
       timezone: this.config.timezone,
-      currentTime: now.toISOString(),
+      currentTime: this.now(),
       periodEnd: active ? this.getPeriodEnd(now) : null,
       restrictions: active ? [...BLOCKED_ACTIONS, ...Object.keys(CONFIRM_ACTIONS)] : [],
       schedule: { ...this.config.schedule },
@@ -137,7 +161,7 @@ export class ChallengeManager {
       return {
         blocked: true,
         reason: `"${actionType}" is blocked during challenge hours. This protects you from impulsive decisions.`,
-        availableAt: this.getPeriodEnd(new Date()) ?? 'unknown',
+        availableAt: this.getPeriodEnd(this.nowDate()) ?? 'unknown',
       };
     }
 
@@ -158,7 +182,7 @@ export class ChallengeManager {
       if (lastChange) {
         const cooldownDays = this.getCooldownDays(cooldownKey);
         const expiresAt = new Date(new Date(lastChange).getTime() + cooldownDays * 86400000);
-        if (new Date() < expiresAt) {
+        if (this.nowMs() < expiresAt.getTime()) {
           return {
             blocked: true,
             reason: `Cooldown active: "${cooldownKey}" was last changed ${lastChange}. Available after ${expiresAt.toISOString()}.`,
@@ -191,7 +215,7 @@ export class ChallengeManager {
       const expires = new Date(
         new Date(lastScheduleChange).getTime() + this.config.cooldowns.scheduleChangeDays * 86400000,
       );
-      if (new Date() < expires) {
+      if (this.nowMs() < expires.getTime()) {
         return {
           accepted: false,
           reason: `Schedule change cooldown active until ${expires.toISOString()}`,
@@ -229,14 +253,14 @@ export class ChallengeManager {
 
     this.config.schedule = schedule;
     this.config.cooldowns = cooldowns;
-    this.config.lastChanges.schedule_change = new Date().toISOString();
+    this.config.lastChanges.schedule_change = this.now();
     this.saveConfig();
     return { accepted: true, reason: 'Schedule updated', cooldownExpires: null };
   }
 
   /** Record that a governance action was performed (for cooldown tracking). */
   recordAction(actionType: string): void {
-    this.config.lastChanges[actionType] = new Date().toISOString();
+    this.config.lastChanges[actionType] = this.now();
     this.saveConfig();
   }
 

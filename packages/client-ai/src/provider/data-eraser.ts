@@ -19,6 +19,7 @@ import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync }
 import { dirname, join } from 'node:path';
 import type { FilePurgeManager } from '../files/purge.js';
 import type { ConversationStore } from './conversation-store.js';
+import type { DateTimeManager } from './datetime-manager.js';
 import type { MemoryStore } from './memory-store.js';
 import type { ProjectStore } from './project-store.js';
 import type { UsageTracker } from './usage-tracker.js';
@@ -35,6 +36,8 @@ export interface DataEraserConfig {
   readonly challengeConfigPath: string;
   readonly userContextPath: string;
   readonly purgeManager?: FilePurgeManager;
+  /** Optional DateTimeManager — sole DateTime authority. */
+  readonly dateTimeManager?: DateTimeManager;
 }
 
 export interface ErasurePreview {
@@ -70,6 +73,7 @@ export class DataEraser {
   private readonly challengeConfigPath: string;
   private readonly userContextPath: string;
   private readonly purgeManager: FilePurgeManager | null;
+  private readonly dateTimeManager: DateTimeManager | null;
 
   constructor(config: DataEraserConfig) {
     this.conversationStore = config.conversationStore;
@@ -79,6 +83,17 @@ export class DataEraser {
     this.challengeConfigPath = config.challengeConfigPath;
     this.userContextPath = config.userContextPath;
     this.purgeManager = config.purgeManager ?? null;
+    this.dateTimeManager = config.dateTimeManager ?? null;
+  }
+
+  /** Current time as ISO string, using DateTimeManager if available. */
+  private now(): string {
+    return this.dateTimeManager?.now().iso ?? new Date().toISOString();
+  }
+
+  /** Current time as epoch ms, using DateTimeManager if available. */
+  private nowMs(): number {
+    return this.dateTimeManager?.now().unix ?? Date.now();
   }
 
   /** Count all user data that would be deleted. */
@@ -111,8 +126,8 @@ export class DataEraser {
    */
   softDelete(): ErasureResult {
     const erasureId = randomUUID();
-    const now = new Date().toISOString();
-    const hardDeleteAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const now = this.now();
+    const hardDeleteAt = new Date(this.nowMs() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
     // Run migration to add deletedAt columns if needed
     this.migrateAddDeletedAt();
@@ -310,7 +325,7 @@ export class DataEraser {
   checkExpiredErasures(): boolean {
     const active = this.getActiveErasure();
     if (!active) return false;
-    return new Date(active.hardDeleteAt) <= new Date();
+    return new Date(active.hardDeleteAt).getTime() <= this.nowMs();
   }
 
   // ---------------------------------------------------------------------------

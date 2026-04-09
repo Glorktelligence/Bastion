@@ -20,6 +20,7 @@ import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { normalize, resolve } from 'node:path';
 import type { FilePurgeManager } from '../files/purge.js';
+import type { DateTimeManager } from './datetime-manager.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -178,7 +179,12 @@ export class BastionBash {
   private readonly allowedPaths: readonly string[];
   private currentDir: string;
 
-  constructor(config: BastionBashConfig, purgeManager: FilePurgeManager, auditLogger: AuditLogger | null) {
+  constructor(
+    config: BastionBashConfig,
+    purgeManager: FilePurgeManager,
+    auditLogger: AuditLogger | null,
+    _dateTimeManager?: DateTimeManager,
+  ) {
     this.config = config;
     this.purgeManager = purgeManager;
     this.auditLogger = auditLogger;

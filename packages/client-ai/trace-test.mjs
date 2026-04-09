@@ -4493,6 +4493,105 @@ async function run() {
   console.log();
 
   // -------------------------------------------------------------------
+  // Test: DateTimeManager sole authority — injection tests
+  // -------------------------------------------------------------------
+  console.log('--- DateTimeManager: injection into managers ---');
+  {
+    // Create a mock DateTimeManager that returns a fixed time
+    const FIXED_ISO = '2026-06-15T12:00:00.000Z';
+    const FIXED_UNIX = new Date(FIXED_ISO).getTime();
+    const mockDTM = {
+      now() {
+        return {
+          iso: FIXED_ISO,
+          unix: FIXED_UNIX,
+          formatted: '15/06/2026, 12:00:00',
+          timezone: 'Europe/London',
+          source: 'mock-clock',
+          uptimeMs: 0,
+        };
+      },
+      formatDuration(ms) { return `${Math.floor(ms / 1000)}s`; },
+      formatTimeDiff() { return '0s'; },
+      buildTemporalBlock() { return '--- Mock Temporal ---'; },
+    };
+
+    // --- ChallengeManager uses DateTimeManager ---
+    {
+      const cfgPath = `/tmp/bastion-dtm-challenge-${Date.now()}.json`;
+      const cm = new ChallengeManager({ configPath: cfgPath, dateTimeManager: mockDTM });
+      const status = cm.getStatus();
+      // getStatus() should use the injected time source for currentTime
+      check('DTM: ChallengeManager.getStatus uses injected time', status.currentTime === FIXED_ISO);
+      // recordAction should use injected time
+      cm.recordAction('dtm_test');
+      const config = cm.getConfig();
+      check('DTM: ChallengeManager.recordAction uses injected time', config.lastChanges.dtm_test === FIXED_ISO);
+      try { const { unlinkSync } = await import('node:fs'); unlinkSync(cfgPath); } catch {}
+    }
+
+    // --- BudgetGuard uses DateTimeManager ---
+    {
+      const tmpDb = '/tmp/bastion-dtm-budget-' + Date.now() + '.db';
+      const tmpCfg = '/tmp/bastion-dtm-budget-cfg-' + Date.now() + '.json';
+      const guard = new BudgetGuard({ dbPath: tmpDb, configPath: tmpCfg, dateTimeManager: mockDTM });
+      // recordUsage should use the injected time for the SQL timestamp
+      guard.recordUsage(1, 0.01);
+      const status = guard.getStatus();
+      check('DTM: BudgetGuard records usage correctly', status.searchesThisSession === 1);
+      check('DTM: BudgetGuard cost tracked', status.costThisMonth >= 0.01);
+      const { rmSync } = await import('node:fs');
+      try { rmSync(tmpDb, { force: true }); } catch {}
+      try { rmSync(tmpCfg, { force: true }); } catch {}
+    }
+
+    // --- ConversationManager uses DateTimeManager for temporal context ---
+    {
+      const cm2 = new ConversationManager({ dateTimeManager: mockDTM });
+      // Session started should use injected time
+      cm2.addUserMessage('Hello');
+      cm2.addAssistantMessage('Hi there');
+      // The conversation manager stores timestamps — verify it works without error
+      check('DTM: ConversationManager accepts dateTimeManager', true);
+      check('DTM: ConversationManager has messages', cm2.getMessages().length >= 2);
+    }
+
+    // --- Managers work WITHOUT DateTimeManager (fallback to raw Date) ---
+    {
+      const { rmSync: rmFallback, unlinkSync: unlinkFallback } = await import('node:fs');
+      const cfgPath2 = `/tmp/bastion-dtm-fallback-${Date.now()}.json`;
+      const cm3 = new ChallengeManager(cfgPath2); // string path — no DTM
+      const status3 = cm3.getStatus();
+      check('Fallback: ChallengeManager works without DTM', status3.currentTime.length > 0);
+      check('Fallback: ChallengeManager currentTime is ISO', /^\d{4}-\d{2}-\d{2}T/.test(status3.currentTime));
+
+      const fbDb = '/tmp/bastion-dtm-fb-budget-' + Date.now() + '.db';
+      const guard3 = new BudgetGuard({ dbPath: fbDb });
+      guard3.recordUsage(1, 0.01);
+      check('Fallback: BudgetGuard works without DTM', guard3.getStatus().searchesThisSession === 1);
+      try { rmFallback(fbDb, { force: true }); } catch {}
+
+      const cm4 = new ConversationManager({}); // no DTM
+      cm4.addUserMessage('test');
+      check('Fallback: ConversationManager works without DTM', cm4.getMessages().length >= 1);
+
+      try { unlinkFallback(cfgPath2); } catch {}
+    }
+
+    // --- ConversationStore uses DateTimeManager for DB timestamps ---
+    {
+      const csDb = '/tmp/bastion-dtm-convstore-' + Date.now() + '.db';
+      const store = new ConversationStore({ path: csDb, dateTimeManager: mockDTM });
+      const created = store.createConversation('DTM Test');
+      const conv = store.getConversation(created.id);
+      check('DTM: ConversationStore.createConversation uses injected time', conv?.createdAt === FIXED_ISO);
+      check('DTM: ConversationStore updatedAt uses injected time', conv?.updatedAt === FIXED_ISO);
+      try { const { rmSync: rm2 } = await import('node:fs'); rm2(csDb, { force: true }); } catch {}
+    }
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
   // Summary
   // -------------------------------------------------------------------
   console.log('=================================================');

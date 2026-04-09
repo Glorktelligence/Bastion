@@ -16,6 +16,7 @@
 
 import { rmSync } from 'node:fs';
 import type { Timestamp } from '@bastion/protocol';
+import type { DateTimeManager } from '../provider/datetime-manager.js';
 import type { IntakeDirectory } from './intake.js';
 import type { OutboundStaging } from './outbound.js';
 
@@ -77,6 +78,8 @@ export interface FilePurgeConfig {
   readonly onPurge?: PurgeCallback;
   /** Callback invoked when a deletion is attempted outside PurgeManager. */
   readonly onViolation?: ViolationCallback;
+  /** Optional DateTimeManager — sole DateTime authority. */
+  readonly dateTimeManager?: DateTimeManager;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,6 +103,7 @@ export class FilePurgeManager {
   private readonly checkIntervalMs: number;
   private readonly onPurge: PurgeCallback | undefined;
   private readonly onViolation: ViolationCallback | undefined;
+  private readonly dateTimeManager: DateTimeManager | null;
 
   /** Tracked tasks with their timeout deadlines. */
   private readonly tasks = new Map<string, TrackedTask>();
@@ -114,6 +118,22 @@ export class FilePurgeManager {
     this.checkIntervalMs = config.checkIntervalMs ?? 30_000;
     this.onPurge = config.onPurge;
     this.onViolation = config.onViolation;
+    this.dateTimeManager = config.dateTimeManager ?? null;
+  }
+
+  /** Current time as ISO string, using DateTimeManager if available. */
+  private nowIso(): string {
+    return this.dateTimeManager?.now().iso ?? new Date().toISOString();
+  }
+
+  /** Current time as epoch ms, using DateTimeManager if available. */
+  private nowMs(): number {
+    return this.dateTimeManager?.now().unix ?? Date.now();
+  }
+
+  /** Current Date object, using DateTimeManager if available. */
+  private nowDate(): Date {
+    return this.dateTimeManager ? new Date(this.dateTimeManager.now().unix) : new Date();
   }
 
   /** Number of tracked tasks. */
@@ -136,13 +156,13 @@ export class FilePurgeManager {
     this.assertNotDestroyed();
 
     const timeout = timeoutMs ?? this.defaultTimeoutMs;
-    const now = new Date();
+    const nowMs = this.nowMs();
 
     const task: TrackedTask = {
       taskId,
-      registeredAt: now.toISOString() as Timestamp,
+      registeredAt: this.nowIso() as Timestamp,
       timeoutMs: timeout,
-      timeoutAt: new Date(now.getTime() + timeout).toISOString() as Timestamp,
+      timeoutAt: new Date(nowMs + timeout).toISOString() as Timestamp,
     };
 
     this.tasks.set(taskId, task);
@@ -176,13 +196,14 @@ export class FilePurgeManager {
    * Called automatically by the periodic checker, or manually.
    * Returns results for all purged tasks.
    */
-  checkTimeouts(now: Date = new Date()): readonly TaskPurgeResult[] {
+  checkTimeouts(now?: Date): readonly TaskPurgeResult[] {
+    const effectiveNow = now ?? this.nowDate();
     this.assertNotDestroyed();
 
     const results: TaskPurgeResult[] = [];
 
     for (const [taskId, task] of this.tasks) {
-      if (new Date(task.timeoutAt) <= now) {
+      if (new Date(task.timeoutAt) <= effectiveNow) {
         const result = this.purgeTask(taskId, 'timed_out');
         if (result) results.push(result);
       }
@@ -255,14 +276,14 @@ export class FilePurgeManager {
         path: filePath,
         deleted: true,
         reason,
-        timestamp: new Date().toISOString() as Timestamp,
+        timestamp: this.nowIso() as Timestamp,
       };
     } catch (err) {
       return {
         path: filePath,
         deleted: false,
         reason: `${reason} — failed: ${(err as Error).message}`,
-        timestamp: new Date().toISOString() as Timestamp,
+        timestamp: this.nowIso() as Timestamp,
       };
     }
   }
@@ -279,14 +300,14 @@ export class FilePurgeManager {
         path: dirPath,
         deleted: true,
         reason,
-        timestamp: new Date().toISOString() as Timestamp,
+        timestamp: this.nowIso() as Timestamp,
       };
     } catch (err) {
       return {
         path: dirPath,
         deleted: false,
         reason: `${reason} — failed: ${(err as Error).message}`,
-        timestamp: new Date().toISOString() as Timestamp,
+        timestamp: this.nowIso() as Timestamp,
       };
     }
   }
@@ -301,7 +322,7 @@ export class FilePurgeManager {
       type: 'PURGE_VIOLATION',
       caller,
       path,
-      timestamp: new Date().toISOString() as Timestamp,
+      timestamp: this.nowIso() as Timestamp,
       message: `Deletion attempted outside PurgeManager by ${caller} on ${path}`,
     };
     console.warn(`[!] PURGE_VIOLATION: ${violation.message}`);
@@ -330,7 +351,7 @@ export class FilePurgeManager {
       intakePurged,
       stagingPurged,
       totalPurged,
-      timestamp: new Date().toISOString() as Timestamp,
+      timestamp: this.nowIso() as Timestamp,
     };
 
     if (this.onPurge) {

@@ -21,6 +21,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import type { DateTimeManager } from './datetime-manager.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,6 +67,8 @@ export interface BudgetGuardOptions {
   readonly configPath?: string;
   /** System timezone (from ChallengeManager). */
   readonly timezone?: string;
+  /** Optional DateTimeManager — sole DateTime authority. */
+  readonly dateTimeManager?: DateTimeManager;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,6 +102,7 @@ export class BudgetGuard {
   private readonly db: DatabaseSync;
   private readonly configPath: string;
   private readonly timezone: string;
+  private readonly dateTimeManager: DateTimeManager | null;
   private config: BudgetGuardConfig;
   private searchesThisSession: number;
 
@@ -106,6 +110,7 @@ export class BudgetGuard {
     const dbPath = options.dbPath ?? '/var/lib/bastion/budget.db';
     this.configPath = options.configPath ?? '/var/lib/bastion/budget-config.json';
     this.timezone = options.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+    this.dateTimeManager = options.dateTimeManager ?? null;
     this.searchesThisSession = 0;
     this.config = { ...DEFAULT_CONFIG, limits: { ...DEFAULT_LIMITS } };
 
@@ -231,7 +236,7 @@ export class BudgetGuard {
     const stmt = this.db.prepare(
       'INSERT INTO budget_usage (date, month, search_count, cost_usd, recorded_at) VALUES (?, ?, ?, ?, ?)',
     );
-    stmt.run(today, month, searchCount, cost, new Date().toISOString());
+    stmt.run(today, month, searchCount, cost, this.nowIso());
 
     // Increment session counter
     this.searchesThisSession += searchCount;
@@ -372,7 +377,7 @@ export class BudgetGuard {
     }
 
     // Record change timestamp for cooldown
-    this.config.lastBudgetChange = new Date().toISOString();
+    this.config.lastBudgetChange = this.nowIso();
     this.saveConfig();
 
     if (anyPending && !anyImmediate) {
@@ -400,7 +405,7 @@ export class BudgetGuard {
 
     const last = new Date(this.config.lastBudgetChange);
     const expires = new Date(last.getTime() + this.config.cooldownDays * 86400000);
-    if (new Date() < expires) {
+    if (this.nowMs() < expires.getTime()) {
       return {
         allowed: false,
         reason: `Budget adjustment locked. Last change: ${this.config.lastBudgetChange}`,
@@ -425,15 +430,34 @@ export class BudgetGuard {
   }
 
   // -----------------------------------------------------------------------
+  // DateTime helpers (using DateTimeManager when available)
+  // -----------------------------------------------------------------------
+
+  /** Current time as ISO string, using DateTimeManager if available. */
+  private nowIso(): string {
+    return this.dateTimeManager?.now().iso ?? new Date().toISOString();
+  }
+
+  /** Current time as epoch ms, using DateTimeManager if available. */
+  private nowMs(): number {
+    return this.dateTimeManager?.now().unix ?? Date.now();
+  }
+
+  /** Current Date object, using DateTimeManager if available. */
+  private nowDate(): Date {
+    return this.dateTimeManager ? new Date(this.dateTimeManager.now().unix) : new Date();
+  }
+
+  // -----------------------------------------------------------------------
   // Date helpers (using server timezone)
   // -----------------------------------------------------------------------
 
   private getToday(): string {
-    return this.formatDate(new Date(), 'date');
+    return this.formatDate(this.nowDate(), 'date');
   }
 
   private getMonth(): string {
-    return this.formatDate(new Date(), 'month');
+    return this.formatDate(this.nowDate(), 'month');
   }
 
   private formatDate(date: Date, mode: 'date' | 'month'): string {

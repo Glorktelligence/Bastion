@@ -12,6 +12,7 @@
 
 import type { Layer2Factor, Layer2Result, PatternSensitivity, SafetyConfig, TaskPayload } from '@bastion/protocol';
 import { SAFETY_FLOORS } from '@bastion/protocol';
+import type { DateTimeManager } from '../provider/datetime-manager.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -46,8 +47,9 @@ export interface PatternHistory {
 /**
  * Create a new in-memory PatternHistory with a circular buffer of 100 entries.
  */
-export function createPatternHistory(): PatternHistory {
+export function createPatternHistory(dateTimeManager?: DateTimeManager): PatternHistory {
   const buffer: PatternEntry[] = [];
+  const dtm = dateTimeManager ?? null;
 
   return {
     record(action: string, target: string, timestamp: Date): void {
@@ -58,7 +60,8 @@ export function createPatternHistory(): PatternHistory {
     },
 
     recent(windowMs: number): readonly PatternEntry[] {
-      const cutoff = Date.now() - windowMs;
+      const nowMs = dtm?.now().unix ?? Date.now();
+      const cutoff = nowMs - windowMs;
       return buffer.filter((e) => e.timestamp.getTime() >= cutoff);
     },
 
@@ -285,6 +288,7 @@ function evaluateCascadingEffects(task: TaskPayload): Layer2Factor {
  * @param now - Optional current time for testable time-of-day evaluation
  * @param challengeActive - If provided, overrides time_of_day with ChallengeManager state.
  *   This unifies Layer 2 and ChallengeManager's definition of "high-risk hours."
+ * @param dateTimeManager - Optional DateTimeManager for consistent time authority
  */
 export function evaluateLayer2(
   task: TaskPayload,
@@ -292,8 +296,9 @@ export function evaluateLayer2(
   history: PatternHistory,
   now?: Date,
   challengeActive?: boolean,
+  dateTimeManager?: DateTimeManager,
 ): Layer2Result {
-  const effectiveNow = now ?? new Date();
+  const effectiveNow = now ?? (dateTimeManager ? new Date(dateTimeManager.now().iso) : new Date());
 
   const factors: Layer2Factor[] = [
     evaluateReversibility(task),

@@ -15,6 +15,7 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import type { DateTimeManager } from './datetime-manager.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,6 +67,8 @@ export interface ChainVerification {
 export interface ConversationStoreConfig {
   /** Path to SQLite database. Default: '/var/lib/bastion/conversations.db'. */
   readonly path?: string;
+  /** Injected DateTimeManager — sole time authority. Falls back to raw Date if omitted. */
+  readonly dateTimeManager?: DateTimeManager;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,8 +138,10 @@ const CREATE_COMPACTION_INDEX =
 
 export class ConversationStore {
   private readonly db: InstanceType<typeof DatabaseSync>;
+  private readonly dateTimeManager: DateTimeManager | null;
 
   constructor(config?: ConversationStoreConfig) {
+    this.dateTimeManager = config?.dateTimeManager ?? null;
     const dbPath = config?.path ?? '/var/lib/bastion/conversations.db';
     this.db = new DatabaseSync(dbPath);
     this.db.exec('PRAGMA journal_mode=WAL');
@@ -162,7 +167,7 @@ export class ConversationStore {
 
   createConversation(name?: string, type?: 'normal' | 'game', preferredAdapter?: string | null): ConversationRecord {
     const id = randomUUID();
-    const now = new Date().toISOString();
+    const ts = this.now();
     const convName = name || 'New Conversation';
     const convType = type || 'normal';
     const adapter = preferredAdapter ?? null;
@@ -171,14 +176,14 @@ export class ConversationStore {
       .prepare(
         'INSERT INTO conversations (id, name, type, createdAt, updatedAt, preferredAdapter) VALUES (?, ?, ?, ?, ?, ?)',
       )
-      .run(id, convName, convType, now, now, adapter);
+      .run(id, convName, convType, ts, ts, adapter);
 
     return {
       id,
       name: convName,
       type: convType,
-      createdAt: now,
-      updatedAt: now,
+      createdAt: ts,
+      updatedAt: ts,
       archived: false,
       messageCount: 0,
       lastMessagePreview: '',
@@ -212,14 +217,14 @@ export class ConversationStore {
   updatePreferredAdapter(id: string, adapterId: string): boolean {
     const result = this.db
       .prepare('UPDATE conversations SET preferredAdapter = ?, updatedAt = ? WHERE id = ?')
-      .run(adapterId, new Date().toISOString(), id);
+      .run(adapterId, this.now(), id);
     return result.changes > 0;
   }
 
   archiveConversation(id: string): boolean {
     const result = this.db
       .prepare('UPDATE conversations SET archived = 1, updatedAt = ? WHERE id = ?')
-      .run(new Date().toISOString(), id);
+      .run(this.now(), id);
     return result.changes > 0;
   }
 
@@ -241,7 +246,7 @@ export class ConversationStore {
     metadata?: Record<string, unknown>,
   ): MessageRecord {
     const id = randomUUID();
-    const timestamp = new Date().toISOString();
+    const timestamp = this.now();
 
     // Get previous hash for chain
     const lastMsg = this.db
@@ -378,13 +383,13 @@ export class ConversationStore {
     tokensSaved: number,
   ): CompactionSummary {
     const id = randomUUID();
-    const now = new Date().toISOString();
+    const ts = this.now();
     this.db
       .prepare(
         'INSERT INTO compaction_summaries (id, conversationId, fromMessageId, toMessageId, summary, messagesCovered, tokensSaved, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       )
-      .run(id, conversationId, fromMessageId, toMessageId, summary, messagesCovered, tokensSaved, now);
-    return { id, conversationId, fromMessageId, toMessageId, summary, messagesCovered, tokensSaved, createdAt: now };
+      .run(id, conversationId, fromMessageId, toMessageId, summary, messagesCovered, tokensSaved, ts);
+    return { id, conversationId, fromMessageId, toMessageId, summary, messagesCovered, tokensSaved, createdAt: ts };
   }
 
   /** Get the most recent compaction summary for a conversation. */
@@ -517,6 +522,10 @@ export class ConversationStore {
   // -----------------------------------------------------------------------
   // Internal helpers
   // -----------------------------------------------------------------------
+
+  private now(): string {
+    return this.dateTimeManager?.now().iso ?? new Date().toISOString();
+  }
 
   private mapConversation(row: Record<string, unknown>): ConversationRecord {
     return {

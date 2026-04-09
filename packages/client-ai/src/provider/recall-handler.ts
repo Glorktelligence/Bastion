@@ -20,6 +20,7 @@
  */
 
 import type { ConversationStore } from './conversation-store.js';
+import type { DateTimeManager } from './datetime-manager.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,7 +64,10 @@ const MAX_RESULTS = 10;
 // ---------------------------------------------------------------------------
 
 export class RecallHandler {
-  constructor(private readonly store: ConversationStore) {}
+  constructor(
+    private readonly store: ConversationStore,
+    _dateTimeManager?: DateTimeManager,
+  ) {}
 
   recall(conversationId: string | null, request: RecallRequest): RecallResult {
     const startTime = Date.now();

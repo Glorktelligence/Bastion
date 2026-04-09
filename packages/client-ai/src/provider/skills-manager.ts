@@ -15,6 +15,7 @@
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
+import type { DateTimeManager } from './datetime-manager.js';
 import type { SkillManifest } from './skill-store.js';
 import type { SkillStore } from './skill-store.js';
 
@@ -57,6 +58,8 @@ export interface SkillsManagerConfig {
   readonly onViolation?: (count: number, detail: string) => void;
   /** Called when violation threshold triggers shutdown. */
   readonly onShutdown?: (reason: string) => void;
+  /** Injected DateTimeManager — sole time authority. Falls back to raw Date if omitted. */
+  readonly dateTimeManager?: DateTimeManager;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,6 +94,7 @@ const SAFETY_OVERRIDE_RE = /(?:disable|remove|lower|bypass|ignore)\s+(?:safety|s
 export class SkillsManager {
   private readonly quarantineDir: string;
   private readonly skillStore: SkillStore;
+  private readonly dateTimeManager: DateTimeManager | null;
   private readonly pendingSkills: Map<string, PendingSkill> = new Map();
   private readonly knownHashes: Map<string, string> = new Map(); // filePath → SHA-256
   private violationCount = 0;
@@ -100,8 +104,13 @@ export class SkillsManager {
   constructor(config: SkillsManagerConfig) {
     this.quarantineDir = config.quarantineDir;
     this.skillStore = config.skillStore;
+    this.dateTimeManager = config.dateTimeManager ?? null;
     this.onViolation = config.onViolation;
     this.onShutdown = config.onShutdown;
+  }
+
+  private now(): string {
+    return this.dateTimeManager?.now().iso ?? new Date().toISOString();
   }
 
   /**
@@ -136,7 +145,7 @@ export class SkillsManager {
             detail: `Cannot read file: ${err instanceof Error ? err.message : String(err)}`,
           },
         ],
-        scannedAt: new Date().toISOString(),
+        scannedAt: this.now(),
       };
     }
 
@@ -236,7 +245,7 @@ export class SkillsManager {
       hash: `sha256:${hash}`,
       encoding: hasNullBytes ? 'unknown' : 'utf8',
       checks,
-      scannedAt: new Date().toISOString(),
+      scannedAt: this.now(),
     };
   }
 
@@ -259,7 +268,7 @@ export class SkillsManager {
       filePath: quarantinePath,
       originalPath: sourcePath,
       scanResult,
-      detectedAt: new Date().toISOString(),
+      detectedAt: this.now(),
       status: 'pending',
     });
 

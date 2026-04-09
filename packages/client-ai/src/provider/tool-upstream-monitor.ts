@@ -13,6 +13,7 @@
  * rejected by then, the violation is escalated.
  */
 
+import type { DateTimeManager } from './datetime-manager.js';
 import type { McpClientAdapter } from './mcp-client-adapter.js';
 import type { ToolRegistryManager } from './tool-registry-manager.js';
 
@@ -46,13 +47,22 @@ export class ToolUpstreamMonitor {
   private pendingChanges: Map<string, UpstreamToolChange> = new Map(); // fullId → change
   private changeTimers: Map<string, ReturnType<typeof setTimeout>> = new Map(); // fullId → 2hr timer
   private periodicTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly dateTimeManager: DateTimeManager | null;
 
   constructor(
     private readonly registry: ToolRegistryManager,
     private readonly mcpAdapters: Map<string, McpClientAdapter>,
     private readonly onViolation: (change: UpstreamToolChange) => void,
     private readonly onNotice: (change: UpstreamToolChange) => void,
-  ) {}
+    dateTimeManager?: DateTimeManager,
+  ) {
+    this.dateTimeManager = dateTimeManager ?? null;
+  }
+
+  /** Get current ISO timestamp via DateTimeManager or fallback. */
+  private now(): string {
+    return this.dateTimeManager?.now().iso ?? new Date().toISOString();
+  }
 
   /**
    * Initialize known tools from current registry state.
@@ -72,7 +82,7 @@ export class ToolUpstreamMonitor {
   async checkProvider(providerId: string): Promise<UpstreamCheckResult> {
     const adapter = this.mcpAdapters.get(providerId);
     if (!adapter) {
-      return { providerId, changes: [], checkedAt: new Date().toISOString(), error: 'No adapter' };
+      return { providerId, changes: [], checkedAt: this.now(), error: 'No adapter' };
     }
 
     try {
@@ -89,7 +99,7 @@ export class ToolUpstreamMonitor {
             toolName: tool.name,
             fullId: `${providerId}:${tool.name}`,
             source: 'mcp',
-            detectedAt: new Date().toISOString(),
+            detectedAt: this.now(),
             details: tool.description,
           };
           changes.push(change);
@@ -113,17 +123,17 @@ export class ToolUpstreamMonitor {
             toolName: knownName,
             fullId: `${providerId}:${knownName}`,
             source: 'mcp',
-            detectedAt: new Date().toISOString(),
+            detectedAt: this.now(),
           };
           changes.push(change);
           this.onNotice(change);
         }
       }
 
-      return { providerId, changes, checkedAt: new Date().toISOString() };
+      return { providerId, changes, checkedAt: this.now() };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return { providerId, changes: [], checkedAt: new Date().toISOString(), error: message };
+      return { providerId, changes: [], checkedAt: this.now(), error: message };
     }
   }
 

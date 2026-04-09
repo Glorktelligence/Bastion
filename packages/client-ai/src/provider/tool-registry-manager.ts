@@ -17,6 +17,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import type { DateTimeManager } from './datetime-manager.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,6 +75,16 @@ export class ToolRegistryManager {
   private locked = false;
   private lockedAt: string | null = null;
   private violationCount = 0;
+  private readonly dateTimeManager: DateTimeManager | null;
+
+  constructor(config?: { dateTimeManager?: DateTimeManager }) {
+    this.dateTimeManager = config?.dateTimeManager ?? null;
+  }
+
+  /** Get current ISO timestamp via DateTimeManager or fallback. */
+  private now(): string {
+    return this.dateTimeManager?.now().iso ?? new Date().toISOString();
+  }
 
   /** Current registry hash (SHA-256 of serialised registry). */
   get registryHash(): string {
@@ -106,7 +117,7 @@ export class ToolRegistryManager {
    */
   lock(): void {
     this.locked = true;
-    this.lockedAt = new Date().toISOString();
+    this.lockedAt = this.now();
   }
 
   /**
@@ -163,7 +174,7 @@ export class ToolRegistryManager {
       action: attemptedAction,
       source,
       count: this.violationCount,
-      timestamp: new Date().toISOString(),
+      timestamp: this.now(),
       escalation: this.violationCount >= 3 ? 'shutdown' : this.violationCount >= 2 ? 'alert' : 'warn',
     };
   }
@@ -337,7 +348,7 @@ export class ToolRegistryManager {
       trustLevel,
       scope,
       readOnly: tool?.readOnly ?? false,
-      grantedAt: new Date().toISOString(),
+      grantedAt: this.now(),
     });
   }
 

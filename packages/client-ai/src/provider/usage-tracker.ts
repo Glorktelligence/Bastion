@@ -12,6 +12,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import type { DateTimeManager } from './datetime-manager.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,6 +56,8 @@ export interface AdapterUsageSummary {
 
 export interface UsageTrackerConfig {
   readonly path?: string;
+  /** Injected DateTimeManager — sole time authority. Falls back to raw Date if omitted. */
+  readonly dateTimeManager?: DateTimeManager;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,8 +68,10 @@ const EMPTY_SUMMARY: UsageSummary = { calls: 0, inputTokens: 0, outputTokens: 0,
 
 export class UsageTracker {
   private readonly db: DatabaseSync;
+  private readonly dateTimeManager: DateTimeManager | null;
 
   constructor(config: UsageTrackerConfig = {}) {
+    this.dateTimeManager = config.dateTimeManager ?? null;
     const dbPath = config.path ?? '/var/lib/bastion/usage.db';
     this.db = new DatabaseSync(dbPath);
     this.db.exec('PRAGMA journal_mode = WAL');
@@ -96,7 +101,7 @@ export class UsageTracker {
 
   record(record: Omit<UsageRecord, 'id'>): string {
     const id = randomUUID();
-    const ts = record.timestamp || new Date().toISOString();
+    const ts = record.timestamp || this.now();
     const date = ts.slice(0, 10); // YYYY-MM-DD
     const month = ts.slice(0, 7); // YYYY-MM
 
@@ -108,18 +113,18 @@ export class UsageTracker {
   }
 
   getUsageToday(): UsageSummary {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = this.now().slice(0, 10);
     return this.querySummary(`date = '${today}'`);
   }
 
   getUsageThisWeek(): UsageSummary {
-    const now = new Date();
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const nowMs = this.nowMs();
+    const weekAgo = new Date(nowMs - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     return this.querySummary(`date >= '${weekAgo}'`);
   }
 
   getUsageThisMonth(): UsageSummary {
-    const month = new Date().toISOString().slice(0, 7);
+    const month = this.now().slice(0, 7);
     return this.querySummary(`month = '${month}'`);
   }
 
@@ -128,7 +133,7 @@ export class UsageTracker {
   }
 
   getUsageByAdapter(): AdapterUsageSummary[] {
-    const month = new Date().toISOString().slice(0, 7);
+    const month = this.now().slice(0, 7);
     const stmt = this.db.prepare(`
 			SELECT adapter_id, COUNT(*) as calls, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens, SUM(cost_usd) as cost_usd
 			FROM usage_records WHERE month = ?
@@ -155,7 +160,7 @@ export class UsageTracker {
   }
 
   getUsageByPurpose(): Map<string, UsageSummary> {
-    const month = new Date().toISOString().slice(0, 7);
+    const month = this.now().slice(0, 7);
     const stmt = this.db.prepare(`
 			SELECT purpose, COUNT(*) as calls, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens, SUM(cost_usd) as cost_usd
 			FROM usage_records WHERE month = ?
@@ -182,7 +187,7 @@ export class UsageTracker {
   }
 
   getDailyBreakdown(days: number): DailyUsage[] {
-    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const cutoff = new Date(this.nowMs() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const stmt = this.db.prepare(`
 			SELECT date, COUNT(*) as calls, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens, SUM(cost_usd) as cost_usd
 			FROM usage_records WHERE date >= ?
@@ -211,6 +216,14 @@ export class UsageTracker {
 
   close(): void {
     this.db.close();
+  }
+
+  private now(): string {
+    return this.dateTimeManager?.now().iso ?? new Date().toISOString();
+  }
+
+  private nowMs(): number {
+    return this.dateTimeManager?.now().unix ?? Date.now();
   }
 
   private querySummary(whereClause: string): UsageSummary {

@@ -268,11 +268,19 @@ if (skillLoadResult.errors.length > 0) {
 skillStore.lock();
 console.log(`[✓] Skill registry locked (${skillStore.skillCount} skills, ${skillStore.triggerCount} triggers)`);
 
+// ---------------------------------------------------------------------------
+// DateTimeManager — sole DateTime authority (created early — no dependencies)
+// ---------------------------------------------------------------------------
+
+const dateTimeManager = new DateTimeManager({ timezone: process.env.BASTION_TIMEZONE });
+console.log(`[✓] DateTimeManager initialised (${dateTimeManager.now().timezone}, source: ${dateTimeManager.now().source})`);
+
 // Skills Manager — sole authority for skill registry edits post-startup
 const QUARANTINE_DIR = process.env.BASTION_SKILLS_QUARANTINE || './skills-quarantine';
 const skillsManager = new SkillsManager({
   quarantineDir: QUARANTINE_DIR,
   skillStore,
+  dateTimeManager,
   onViolation: (count, detail) => {
     console.error(`[!] Skill violation #${count}: ${detail}`);
   },
@@ -289,15 +297,8 @@ console.log(`[✓] Skills manager initialised (quarantine: ${QUARANTINE_DIR})`);
 // ---------------------------------------------------------------------------
 
 const CHALLENGE_CONFIG_PATH = process.env.BASTION_CHALLENGE_CONFIG || '/var/lib/bastion/challenge-config.json';
-const challengeManager = new ChallengeManager(CHALLENGE_CONFIG_PATH);
+const challengeManager = new ChallengeManager({ configPath: CHALLENGE_CONFIG_PATH, dateTimeManager });
 console.log(`[✓] Challenge manager: ${challengeManager.enabled ? 'ENABLED' : 'disabled'} (tz: ${challengeManager.timezone}, active: ${challengeManager.isActive()})`);
-
-// ---------------------------------------------------------------------------
-// DateTimeManager — sole DateTime authority
-// ---------------------------------------------------------------------------
-
-const dateTimeManager = new DateTimeManager({ timezone: process.env.BASTION_TIMEZONE });
-console.log(`[✓] DateTimeManager initialised (${dateTimeManager.now().timezone}, source: ${dateTimeManager.now().source})`);
 
 // ---------------------------------------------------------------------------
 // Conversation manager — session context + user context + memories + project
@@ -338,7 +339,7 @@ if (conversationManager.getUserContext()) {
 // ---------------------------------------------------------------------------
 
 const CONVERSATIONS_DB = process.env.BASTION_CONVERSATIONS_DB || '/var/lib/bastion/conversations.db';
-const conversationStore = new ConversationStore({ path: CONVERSATIONS_DB });
+const conversationStore = new ConversationStore({ path: CONVERSATIONS_DB, dateTimeManager });
 
 // Migration: if no conversations exist, create default + migrate buffer
 if (conversationStore.conversationCount === 0) {
@@ -401,7 +402,7 @@ if (activeConversationId) {
 // Recall handler — AI-initiated conversation history search
 // ---------------------------------------------------------------------------
 
-const recallHandler = new RecallHandler(conversationStore);
+const recallHandler = new RecallHandler(conversationStore, dateTimeManager);
 console.log('[✓] Recall handler initialised');
 
 // ---------------------------------------------------------------------------
@@ -414,6 +415,7 @@ const dreamCycleManager = new DreamCycleManager({
   enabled: true,
   maxTranscriptTokens: DREAM_MAX_TRANSCRIPT_TOKENS,
   configPath: DREAM_CONFIG_PATH,
+  dateTimeManager,
 });
 console.log(`[✓] Dream cycle manager initialised (max tokens: ${DREAM_MAX_TRANSCRIPT_TOKENS})`);
 
@@ -512,6 +514,7 @@ const FILE_PURGE_TIMEOUT_MS = parseIntEnv('BASTION_FILE_PURGE_TIMEOUT_MS', 36000
 const filePurgeManager = new FilePurgeManager(intakeDirectory, outboundStaging, {
   defaultTimeoutMs: FILE_PURGE_TIMEOUT_MS,
   checkIntervalMs: 30_000,     // 30 seconds
+  dateTimeManager,
   onPurge: (result) => {
     console.log(`[~] File purge: task ${result.taskId.slice(0, 8)} — ${result.totalPurged} files (${result.reason})`);
   },
@@ -549,6 +552,7 @@ const bastionBash = new BastionBash(
   },
   filePurgeManager,
   null, // audit logger — logged inline in action handler
+  dateTimeManager,
 );
 console.log('[✓] Bastion Bash initialised (governed execution environment)');
 console.log(`    workspace: ${BASH_WORKSPACE}`);
@@ -588,7 +592,7 @@ let pendingImportAdapter = null;
 // ---------------------------------------------------------------------------
 
 const safetyConfig = defaultSafetyConfig();
-const patternHistory = createPatternHistory();
+const patternHistory = createPatternHistory(dateTimeManager);
 /** Pending challenges — correlationId → { issuedAt, waitSeconds } for wait timer enforcement. */
 const pendingChallenges = new Map();
 /** Pending AI-initiated challenges — challengeId → { issuedAt, reason, severity } for response tracking. */
@@ -605,6 +609,7 @@ const budgetGuard = new BudgetGuard({
   dbPath: BUDGET_DB,
   configPath: BUDGET_CONFIG_PATH,
   timezone: challengeManager.timezone,
+  dateTimeManager,
 });
 const budgetStatus = budgetGuard.getStatus();
 console.log(`[✓] Budget Guard armed (${budgetStatus.searchesThisMonth}/${budgetGuard.getLimits().maxPerMonth} searches, $${budgetStatus.costThisMonth}/$${budgetStatus.monthlyCapUsd} cost, alert: ${budgetStatus.alertLevel})`);
@@ -627,7 +632,7 @@ function sendBudgetStatus() {
 // ---------------------------------------------------------------------------
 
 const USAGE_DB = process.env.BASTION_USAGE_DB || '/var/lib/bastion/usage.db';
-const usageTracker = new UsageTracker({ path: USAGE_DB });
+const usageTracker = new UsageTracker({ path: USAGE_DB, dateTimeManager });
 console.log(`[✓] Usage tracker initialised (db: ${USAGE_DB}, ${usageTracker.totalRecords} records)`);
 
 // ---------------------------------------------------------------------------
@@ -642,6 +647,7 @@ const dataEraser = new DataEraser({
   challengeConfigPath: CHALLENGE_CONFIG_PATH,
   userContextPath: process.env.BASTION_USER_CONTEXT_PATH || '/var/lib/bastion/user-context.md',
   purgeManager: filePurgeManager,
+  dateTimeManager,
 });
 
 // Check for expired soft deletes on startup (30-day window passed)
@@ -998,7 +1004,7 @@ async function sendSecure(envelope) {
 // Tool registry + MCP adapters
 // ---------------------------------------------------------------------------
 
-const toolRegistry = new ToolRegistryManager();
+const toolRegistry = new ToolRegistryManager({ dateTimeManager });
 // Sync tool trust scope to the active conversation
 toolRegistry.setActiveConversation(activeConversationId);
 const mcpAdapters = new Map(); // providerId → McpClientAdapter
@@ -1080,7 +1086,8 @@ const toolUpstreamMonitor = new ToolUpstreamMonitor(
   // On Provider notice (informational — removed tools, etc.)
   (change) => {
     console.log(`[i] Provider tool notice: "${change.fullId}" (${change.type})`);
-  }
+  },
+  dateTimeManager,
 );
 
 // ---------------------------------------------------------------------------
@@ -2110,7 +2117,7 @@ client.on('message', async (data) => {
     console.log(`[←] Task: ${payload.action} → ${payload.target} (priority: ${payload.priority})`);
 
     // Safety evaluation — challengeActive unifies Layer 2 time_of_day with ChallengeManager
-    const safetyResult = evaluateSafety(payload, { config: safetyConfig, history: patternHistory, challengeActive: challengeManager.isActive() });
+    const safetyResult = evaluateSafety(payload, { config: safetyConfig, history: patternHistory, challengeActive: challengeManager.isActive(), dateTimeManager });
     const safetyResponse = generateSafetyResponse(payload, safetyResult);
 
     if (safetyResponse.type === 'denial') {

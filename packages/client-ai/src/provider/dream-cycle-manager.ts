@@ -15,6 +15,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import type { ProviderAdapter } from '@bastion/protocol';
+import type { DateTimeManager } from './datetime-manager.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,6 +26,8 @@ export interface DreamCycleConfig {
   readonly adapterId?: string;
   readonly maxTranscriptTokens: number;
   readonly configPath: string;
+  /** Injected DateTimeManager — sole time authority. Falls back to raw Date if omitted. */
+  readonly dateTimeManager?: DateTimeManager;
 }
 
 export interface DreamCycleResult {
@@ -117,11 +120,17 @@ function parseMemoryBlocks(text: string): ParsedMemory[] {
 
 export class DreamCycleManager {
   private readonly config: DreamCycleConfig;
+  private readonly dateTimeManager: DateTimeManager | null;
   private readonly lastDreamAt: Map<string, string> = new Map();
 
   constructor(config: DreamCycleConfig) {
     this.config = config;
+    this.dateTimeManager = config.dateTimeManager ?? null;
     this.loadState();
+  }
+
+  private now(): string {
+    return this.dateTimeManager?.now().iso ?? new Date().toISOString();
   }
 
   // -------------------------------------------------------------------------
@@ -177,8 +186,8 @@ export class DreamCycleManager {
     const candidates = this.parseDreamResponse(responseText, existingMemories);
 
     // Record last dream time
-    const now = new Date().toISOString();
-    this.lastDreamAt.set(conversationId, now);
+    const dreamTimestamp = this.now();
+    this.lastDreamAt.set(conversationId, dreamTimestamp);
     this.saveState();
 
     return {
