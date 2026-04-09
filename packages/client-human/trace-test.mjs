@@ -28,6 +28,7 @@ import {
   createDreamCyclesStore,
   ConversationRendererRegistry,
   conversationRendererRegistry,
+  ExtensionBridgeManager,
 } from './dist/index.js';
 
 let pass = 0, fail = 0;
@@ -1863,6 +1864,129 @@ async function run() {
     dc.reset();
     const dcState = dc.store.get();
     check('dreamCycles reset (idle)', dcState.status === 'idle');
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: H14 — ExtensionBridgeManager pending message queue
+  // -------------------------------------------------------------------
+  console.log('--- H14: Bridge message queue for iframe registration race ---');
+  {
+    const mgr = new ExtensionBridgeManager();
+    const sentMessages = [];
+    mgr.configure({
+      sendMessage: (type, payload) => sentMessages.push({ type, payload }),
+      getConversationId: () => 'conv-1',
+      isChallengeActive: () => false,
+    });
+
+    // Create a mock iframe
+    const mockContentWindow = {
+      postMessage: () => {},
+    };
+    const iframe = { contentWindow: mockContentWindow };
+
+    // Send a message BEFORE registering the component
+    const earlyEvent = {
+      data: { bridge: 'bastion', action: 'send', type: 'games:chess-move', payload: { from: 'e2', to: 'e4' } },
+      source: mockContentWindow,
+    };
+    mgr.handleMessage(earlyEvent);
+    check('H14: early message not forwarded (no component registered)', sentMessages.length === 0);
+
+    // Send a second early message
+    const earlyEvent2 = {
+      data: { bridge: 'bastion', action: 'send', type: 'games:chess-move', payload: { from: 'd2', to: 'd4' } },
+      source: mockContentWindow,
+    };
+    mgr.handleMessage(earlyEvent2);
+    check('H14: second early message buffered', sentMessages.length === 0);
+
+    // Now register the component — pending messages should flush
+    mgr.registerComponent('board', 'games', ['games:chess-move'], iframe);
+    check('H14: first buffered message flushed after register', sentMessages.length === 2);
+    check('H14: first flushed message has correct payload', sentMessages[0]?.payload?.from === 'e2');
+    check('H14: second flushed message has correct payload', sentMessages[1]?.payload?.from === 'd2');
+
+    // Messages after registration work normally
+    sentMessages.length = 0;
+    const normalEvent = {
+      data: { bridge: 'bastion', action: 'send', type: 'games:chess-move', payload: { from: 'g1', to: 'f3' } },
+      source: mockContentWindow,
+    };
+    mgr.handleMessage(normalEvent);
+    check('H14: normal message forwarded after registration', sentMessages.length === 1);
+
+    mgr.destroy();
+
+    // Pending message queue has a size limit (50)
+    const mgr2 = new ExtensionBridgeManager();
+    mgr2.configure({
+      sendMessage: () => {},
+      getConversationId: () => null,
+      isChallengeActive: () => false,
+    });
+    const mockCw2 = { postMessage: () => {} };
+    for (let i = 0; i < 55; i++) {
+      mgr2.handleMessage({
+        data: { bridge: 'bastion', action: 'send', type: 'games:test', payload: { i } },
+        source: mockCw2,
+      });
+    }
+    // Register and count how many flushed
+    const flushed = [];
+    mgr2.configure({
+      sendMessage: (type, payload) => flushed.push({ type, payload }),
+      getConversationId: () => null,
+      isChallengeActive: () => false,
+    });
+    mgr2.registerComponent('test', 'games', ['games:test'], { contentWindow: mockCw2 });
+    check('H14: pending queue capped at 50', flushed.length === 50);
+    check('H14: first 50 messages preserved (FIFO)', flushed[0]?.payload?.i === 0);
+    check('H14: 50th message preserved', flushed[49]?.payload?.i === 49);
+
+    mgr2.destroy();
+
+    // Destroy clears pending queue
+    const mgr3 = new ExtensionBridgeManager();
+    mgr3.configure({
+      sendMessage: () => {},
+      getConversationId: () => null,
+      isChallengeActive: () => false,
+    });
+    mgr3.handleMessage({
+      data: { bridge: 'bastion', action: 'send', type: 'test:msg', payload: {} },
+      source: { postMessage: () => {} },
+    });
+    mgr3.destroy();
+    // After destroy, registering a component shouldn't flush anything
+    const postDestroy = [];
+    mgr3.configure({
+      sendMessage: (t, p) => postDestroy.push({ t, p }),
+      getConversationId: () => null,
+      isChallengeActive: () => false,
+    });
+    mgr3.registerComponent('t', 'test', ['test:msg'], { contentWindow: { postMessage: () => {} } });
+    check('H14: destroy clears pending queue', postDestroy.length === 0);
+    mgr3.destroy();
+
+    // Messages from different sources don't cross-flush
+    const mgr4 = new ExtensionBridgeManager();
+    const results4 = [];
+    mgr4.configure({
+      sendMessage: (t, p) => results4.push({ t, p }),
+      getConversationId: () => null,
+      isChallengeActive: () => false,
+    });
+    const src1 = { postMessage: () => {} };
+    const src2 = { postMessage: () => {} };
+    mgr4.handleMessage({ data: { bridge: 'bastion', action: 'send', type: 'ns:a', payload: { from: 'src1' } }, source: src1 });
+    mgr4.handleMessage({ data: { bridge: 'bastion', action: 'send', type: 'ns:b', payload: { from: 'src2' } }, source: src2 });
+    // Register only src1's component
+    mgr4.registerComponent('c1', 'ns', ['ns:a'], { contentWindow: src1 });
+    check('H14: only src1 messages flushed', results4.length === 1);
+    check('H14: flushed message is from src1', results4[0]?.p?.from === 'src1');
+    mgr4.destroy();
   }
   console.log();
 

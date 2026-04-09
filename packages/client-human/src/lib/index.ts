@@ -138,3 +138,12 @@ export {
   conversationRendererRegistry,
 } from './extensions/conversation-renderer-registry.js';
 export type { RendererConfig } from './extensions/conversation-renderer-registry.js';
+
+// Extension bridge
+export {
+  ExtensionBridgeManager,
+  scanExtensionHTML,
+  BRIDGE_SCRIPT,
+  BLOCKED_UI_PATTERNS,
+} from './extensions/bridge.js';
+export type { BridgeComponent, BridgeMessage } from './extensions/bridge.js';

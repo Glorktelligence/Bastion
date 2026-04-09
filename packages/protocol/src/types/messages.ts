@@ -553,6 +553,12 @@ export interface ReconnectPayload {
   readonly jwt?: string;
 }
 
+/** Relay → Client: Session restored after reconnection within grace period. */
+export interface SessionRestoredPayload {
+  readonly sessionId: SessionId;
+  readonly queuedMessageCount: number;
+}
+
 export type ConfigUpdateType = 'api_key_rotation' | 'tool_registry' | 'safety_config';
 
 /** AI → Admin (via Relay): Configuration change applied. */

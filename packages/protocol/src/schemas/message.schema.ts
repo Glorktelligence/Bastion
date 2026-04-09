@@ -497,6 +497,11 @@ export const ReconnectPayloadSchema = z.object({
   jwt: z.string().optional(),
 });
 
+export const SessionRestoredPayloadSchema = z.object({
+  sessionId: SessionIdSchema,
+  queuedMessageCount: z.number().int().nonnegative(),
+});
+
 export const ConfigUpdateTypeSchema = z.enum(['api_key_rotation', 'tool_registry', 'safety_config']);
 
 export const ConfigAckPayloadSchema = z.object({
@@ -894,6 +899,7 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.SESSION_CONFLICT]: SessionConflictPayloadSchema,
   [MESSAGE_TYPES.SESSION_SUPERSEDED]: SessionSupersededPayloadSchema,
   [MESSAGE_TYPES.RECONNECT]: ReconnectPayloadSchema,
+  [MESSAGE_TYPES.SESSION_RESTORED]: SessionRestoredPayloadSchema,
   [MESSAGE_TYPES.CONFIG_ACK]: ConfigAckPayloadSchema,
   [MESSAGE_TYPES.CONFIG_NACK]: ConfigNackPayloadSchema,
   [MESSAGE_TYPES.TOKEN_REFRESH]: TokenRefreshPayloadSchema,

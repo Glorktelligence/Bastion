@@ -207,8 +207,12 @@ export function scanExtensionHTML(html: string): { safe: boolean; violations: st
 // Bridge Manager
 // ---------------------------------------------------------------------------
 
+const MAX_PENDING_MESSAGES = 50;
+
 export class ExtensionBridgeManager {
   private components = new Map<string, BridgeComponent>();
+  /** Messages received from iframes before their component was registered. */
+  private pendingMessages: Array<{ source: unknown; data: BridgeMessage }> = [];
   private sendMessage: ((type: string, payload: unknown) => void) | null = null;
   private getConversationId: (() => string | null) | null = null;
   private isChallengeActive: (() => boolean) | null = null;
@@ -240,6 +244,13 @@ export class ExtensionBridgeManager {
       iframe,
       violationCount: 0,
     });
+
+    // Flush any messages that arrived before this component was registered
+    const matched = this.pendingMessages.filter((p) => p.source === iframe.contentWindow);
+    this.pendingMessages = this.pendingMessages.filter((p) => p.source !== iframe.contentWindow);
+    for (const msg of matched) {
+      this.handleMessage({ data: msg.data, source: msg.source });
+    }
   }
 
   unregisterComponent(componentId: string): void {
@@ -269,7 +280,13 @@ export class ExtensionBridgeManager {
 
     // Find which component sent this — validates source is a registered iframe
     const component = this.findComponentBySource(event.source);
-    if (!component) return;
+    if (!component) {
+      // Component not registered yet — buffer for later flush on registerComponent
+      if (this.pendingMessages.length < MAX_PENDING_MESSAGES) {
+        this.pendingMessages.push({ source: event.source, data });
+      }
+      return;
+    }
 
     switch (data.action) {
       case 'send':
@@ -328,6 +345,7 @@ export class ExtensionBridgeManager {
 
   destroy(): void {
     this.components.clear();
+    this.pendingMessages = [];
   }
 
   // -----------------------------------------------------------------------

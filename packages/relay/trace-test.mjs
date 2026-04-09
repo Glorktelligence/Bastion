@@ -21,6 +21,7 @@ import {
   AuditStoreError,
   ChainIntegrityMonitor,
   AUDIT_EVENT_TYPES,
+  ReconnectionManager,
 } from './dist/index.js';
 import { verifyChain, verifyRange, verifySingleEntry, GENESIS_SEED } from '@bastion/crypto';
 import { PROTOCOL_VERSION, MESSAGE_TYPES } from '@bastion/protocol';
@@ -1554,6 +1555,121 @@ async function run() {
     check('full chain still valid', verifyChain(logger1.getChain()).valid);
 
     logger1.close();
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: H13 — ReconnectionManager
+  // -------------------------------------------------------------------
+  console.log('--- H13: ReconnectionManager —  grace period + message queue ---');
+  {
+    const humanId = { id: 'human-1', type: 'human', displayName: 'Harry' };
+    const aiId = { id: 'ai-1', type: 'ai', displayName: 'Bastion AI' };
+
+    // Basic grace period lifecycle
+    const rm1 = new ReconnectionManager({ gracePeriodMs: 500 });
+    const sid1 = randomUUID();
+    const started = rm1.startGracePeriod(sid1, humanId, 'human');
+    check('H13: grace period started', started);
+    check('H13: has grace session', rm1.hasGraceSession(sid1));
+    check('H13: active count is 1', rm1.activeCount === 1);
+
+    // Duplicate start returns false
+    check('H13: duplicate start returns false', !rm1.startGracePeriod(sid1, humanId, 'human'));
+
+    // Queue messages
+    const msg1 = JSON.stringify({ type: 'conversation', payload: { text: 'Hello' } });
+    const msg2 = JSON.stringify({ type: 'result', payload: { text: 'World' } });
+    check('H13: message 1 queued', rm1.queueMessage(sid1, msg1));
+    check('H13: message 2 queued', rm1.queueMessage(sid1, msg2));
+
+    // Reconnection restores session with queued messages
+    const restored = rm1.tryRestore(sid1, humanId);
+    check('H13: session restored', restored !== null);
+    check('H13: restored has 2 queued messages', restored?.queue.length === 2);
+    check('H13: first queued message correct', restored?.queue[0] === msg1);
+    check('H13: second queued message correct', restored?.queue[1] === msg2);
+    check('H13: session removed after restore', !rm1.hasGraceSession(sid1));
+    check('H13: active count back to 0', rm1.activeCount === 0);
+    rm1.destroy();
+
+    // Identity mismatch prevents restoration
+    const rm2 = new ReconnectionManager({ gracePeriodMs: 5000 });
+    const sid2 = randomUUID();
+    rm2.startGracePeriod(sid2, humanId, 'human');
+    const wrongRestore = rm2.tryRestore(sid2, aiId);
+    check('H13: identity mismatch returns null', wrongRestore === null);
+    check('H13: session still exists after failed restore', rm2.hasGraceSession(sid2));
+    rm2.destroy();
+
+    // Non-existent session returns null
+    const rm3 = new ReconnectionManager();
+    check('H13: restore non-existent returns null', rm3.tryRestore(randomUUID(), humanId) === null);
+    rm3.destroy();
+
+    // Grace period expiry — use short timeout
+    const rm4 = new ReconnectionManager({ gracePeriodMs: 50 });
+    const sid4 = randomUUID();
+    let expiredSession = null;
+    rm4.setExpiryCallback((session) => { expiredSession = session; });
+    rm4.startGracePeriod(sid4, humanId, 'human');
+    rm4.queueMessage(sid4, '{"type":"test"}');
+    await delay(150);
+    check('H13: grace period expired', expiredSession !== null);
+    check('H13: expired session has correct id', expiredSession?.sessionId === sid4);
+    check('H13: expired session had 1 queued message', expiredSession?.queue.length === 1);
+    check('H13: session removed after expiry', !rm4.hasGraceSession(sid4));
+    rm4.destroy();
+
+    // Message queue respects count limit
+    const rm5 = new ReconnectionManager({ gracePeriodMs: 5000, maxQueuedMessages: 3 });
+    const sid5 = randomUUID();
+    rm5.startGracePeriod(sid5, aiId, 'ai');
+    check('H13: queue msg 1', rm5.queueMessage(sid5, '{"n":1}'));
+    check('H13: queue msg 2', rm5.queueMessage(sid5, '{"n":2}'));
+    check('H13: queue msg 3', rm5.queueMessage(sid5, '{"n":3}'));
+    check('H13: queue msg 4 rejected (count limit)', !rm5.queueMessage(sid5, '{"n":4}'));
+    rm5.destroy();
+
+    // Message queue respects byte limit
+    const rm6 = new ReconnectionManager({ gracePeriodMs: 5000, maxQueuedBytes: 50 });
+    const sid6 = randomUUID();
+    rm6.startGracePeriod(sid6, humanId, 'human');
+    const smallMsg = '{"t":"x"}'; // ~9 bytes
+    check('H13: queue small msg 1', rm6.queueMessage(sid6, smallMsg));
+    check('H13: queue small msg 2', rm6.queueMessage(sid6, smallMsg));
+    check('H13: queue small msg 3', rm6.queueMessage(sid6, smallMsg));
+    check('H13: queue small msg 4', rm6.queueMessage(sid6, smallMsg));
+    check('H13: queue small msg 5', rm6.queueMessage(sid6, smallMsg));
+    // 5 * 9 = 45, one more should push past 50
+    check('H13: queue msg rejected (byte limit)', !rm6.queueMessage(sid6, smallMsg));
+    rm6.destroy();
+
+    // findByClientType
+    const rm7 = new ReconnectionManager({ gracePeriodMs: 5000 });
+    const sid7 = randomUUID();
+    rm7.startGracePeriod(sid7, aiId, 'ai');
+    const found = rm7.findByClientType('ai');
+    check('H13: findByClientType finds ai session', found?.sessionId === sid7);
+    check('H13: findByClientType returns undefined for human', rm7.findByClientType('human') === undefined);
+    rm7.destroy();
+
+    // Provider snapshot preserved for AI clients
+    const rm8 = new ReconnectionManager({ gracePeriodMs: 5000 });
+    const sid8 = randomUUID();
+    const providerSnap = { providerId: 'test', providerName: 'TestAI', model: 'claude-sonnet-4-6' };
+    rm8.startGracePeriod(sid8, aiId, 'ai', providerSnap);
+    const restoredAi = rm8.tryRestore(sid8, aiId);
+    check('H13: provider snapshot preserved', JSON.stringify(restoredAi?.providerSnapshot) === JSON.stringify(providerSnap));
+    rm8.destroy();
+
+    // destroy cleans up everything
+    const rm9 = new ReconnectionManager({ gracePeriodMs: 60000 });
+    rm9.startGracePeriod(randomUUID(), humanId, 'human');
+    rm9.startGracePeriod(randomUUID(), aiId, 'ai');
+    check('H13: 2 sessions before destroy', rm9.activeCount === 2);
+    rm9.destroy();
+    check('H13: 0 sessions after destroy', rm9.activeCount === 0);
   }
   console.log();
 

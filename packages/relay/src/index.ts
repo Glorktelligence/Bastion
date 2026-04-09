@@ -215,7 +215,17 @@ export { AdminServer, AdminServerError } from './admin/admin-server.js';
 export type { AdminServerConfig } from './admin/admin-server.js';
 
 // ---------------------------------------------------------------------------
-// Extensions
+// Session: Reconnection manager (grace period + message queue)
+// ---------------------------------------------------------------------------
+export { ReconnectionManager } from './session/reconnection-manager.js';
+export type {
+  ReconnectionConfig,
+  GraceSession,
+  GraceExpiryCallback,
+} from './session/reconnection-manager.js';
+
+// ---------------------------------------------------------------------------
+// Extensions (types re-exported from @bastion/protocol — Protocol First)
 // ---------------------------------------------------------------------------
 export { ExtensionRegistry } from './extensions/extension-registry.js';
 export type {

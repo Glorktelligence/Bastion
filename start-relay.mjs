@@ -16,6 +16,7 @@ import {
   PurgeScheduler,
   FileTransferRouter,
   Allowlist,
+  ReconnectionManager,
 } from './packages/relay/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -511,8 +512,49 @@ let aiConnectionId = null;
 /** Session IDs keyed by connection ID (for audit logging). */
 const sessionIds = new Map();
 
+/** Identity keyed by connection ID (for reconnection lookup). */
+const connectionIdentities = new Map();
+
 /** Last registered provider info — sent to human client on pairing and registration. */
 let registeredProvider = null;
+
+// ---------------------------------------------------------------------------
+// Reconnection manager — grace period + message queue for brief disconnects
+// ---------------------------------------------------------------------------
+
+const RECONNECT_GRACE_MS = parseIntEnv('BASTION_RECONNECT_GRACE_MS', 30000, 5000, 120000);
+const reconnectionManager = new ReconnectionManager({
+  gracePeriodMs: RECONNECT_GRACE_MS,
+  maxQueuedMessages: 100,
+  maxQueuedBytes: 1_048_576,
+});
+
+reconnectionManager.setExpiryCallback((expired) => {
+  console.log(`[×] Grace period expired for session ${expired.sessionId.slice(0, 8)} (${expired.clientType})`);
+  auditLogger.logEvent('grace_period_expired', expired.sessionId, {
+    clientType: expired.clientType,
+    clientId: expired.identity.id,
+    queuedMessages: expired.queue.length,
+  });
+});
+
+/**
+ * Try to queue a message for a peer that is in a grace period.
+ * Returns true if the message was queued, false otherwise.
+ */
+function tryQueueForGracePeer(senderIdentity, data, msgType) {
+  // Determine what client type the peer would be
+  const peerType = senderIdentity.type === 'human' ? 'ai' : 'human';
+  // Look up grace sessions — the disconnected peer's identity is stored there
+  const graceSession = reconnectionManager.findByClientType(peerType);
+  if (!graceSession) return false;
+
+  const queued = reconnectionManager.queueMessage(graceSession.sessionId, data);
+  if (queued) {
+    console.log(`[⏳] Message queued for ${peerType} in grace period (type: ${msgType})`);
+  }
+  return queued;
+}
 
 /** Send provider_status to a connection. */
 function sendProviderStatus(targetConnectionId) {
@@ -696,6 +738,86 @@ relay.on('message', async (data, info) => {
 
     console.log(`[→] session_init from ${identity.displayName} (${identity.type}:${identity.id})`);
 
+    // Reconnection attempt — check if this client has a grace-period session
+    const previousSessionId = msg.previousSessionId;
+    if (previousSessionId && typeof previousSessionId === 'string') {
+      const restored = reconnectionManager.tryRestore(previousSessionId, identity);
+      if (restored) {
+        // Restore session: reuse the original sessionId
+        const sessionId = restored.sessionId;
+        sessionIds.set(connId, sessionId);
+        connectionIdentities.set(connId, identity);
+
+        // Issue a fresh JWT for the restored session
+        let tokenResult;
+        try {
+          tokenResult = await jwtService.issueToken({
+            sub: identity.id,
+            clientType: identity.type,
+            sessionId,
+            capabilities: ['message', 'file_transfer'],
+          });
+        } catch (err) {
+          console.error(`[!] JWT issuance failed during reconnection: ${err.message}`);
+          relay.send(connId, JSON.stringify({
+            type: 'error',
+            message: 'Reconnection failed — could not issue token',
+            timestamp: new Date().toISOString(),
+          }));
+          return;
+        }
+
+        // Send session_established with original sessionId
+        relay.send(connId, JSON.stringify({
+          type: 'session_established',
+          jwt: tokenResult.jwt,
+          expiresAt: tokenResult.expiresAt,
+          sessionId,
+          timestamp: new Date().toISOString(),
+        }));
+
+        // Re-register with router
+        router.registerClient(connId, identity);
+
+        // Restore tracking
+        if (identity.type === 'human') {
+          humanConnectionId = connId;
+        } else if (identity.type === 'ai') {
+          aiConnectionId = connId;
+          if (restored.providerSnapshot) registeredProvider = restored.providerSnapshot;
+        }
+
+        // Re-pair if both sides are connected
+        tryPairClients();
+
+        // Send session_restored acknowledgement
+        relay.send(connId, JSON.stringify({
+          type: 'session_restored',
+          id: randomUUID(),
+          timestamp: new Date().toISOString(),
+          sender: { id: 'relay', type: 'relay', displayName: 'Bastion Relay' },
+          payload: { sessionId, queuedMessageCount: restored.queue.length },
+        }));
+
+        // Flush queued messages in order
+        for (const queuedMsg of restored.queue) {
+          relay.send(connId, queuedMsg);
+        }
+
+        console.log(`[★] Session restored: ${sessionId.slice(0, 8)} — flushed ${restored.queue.length} queued messages`);
+        auditLogger.logEvent('session_restored', sessionId, {
+          clientId: identity.id,
+          clientType: identity.type,
+          queuedMessages: restored.queue.length,
+          graceDurationMs: Date.now() - restored.disconnectedAt,
+        });
+
+        return;
+      }
+      // No matching grace session — fall through to normal session creation
+      console.log(`[→] No grace session found for ${previousSessionId.slice(0, 8)} — creating new session`);
+    }
+
     // MaliClaw Clause — check BEFORE issuing JWT (hardcoded, non-negotiable)
     if (Allowlist.isMaliClawMatch(identity.id) || Allowlist.isMaliClawMatch(identity.displayName)) {
       const matchDetail = Allowlist.getMaliClawMatchDetail(identity.id) || Allowlist.getMaliClawMatchDetail(identity.displayName);
@@ -757,6 +879,7 @@ relay.on('message', async (data, info) => {
 
     // Register with router
     router.registerClient(connId, identity);
+    connectionIdentities.set(connId, identity);
 
     // Track human/AI/updater connection — handle session conflicts
     if (identity.type === 'human') {
@@ -1472,6 +1595,11 @@ relay.on('message', async (data, info) => {
   // ----- Regular message: forward to paired peer -----
   const peerId = router.getPeer(connId);
   if (!peerId) {
+    // Check if the peer is in a grace period — queue the message instead of dropping
+    const senderIdentity = connectionIdentities.get(connId);
+    if (senderIdentity && tryQueueForGracePeer(senderIdentity, data, msg.type)) {
+      return;
+    }
     console.log(`[!] No peer for ${connId.slice(0, 8)} — message dropped (type: ${msg.type})`);
     relay.send(connId, JSON.stringify({
       type: 'error',
@@ -1510,13 +1638,32 @@ relay.on('disconnection', (info, code, reason) => {
   const connId = info.id;
   console.log(`[-] Client disconnected: ${connId.slice(0, 8)} (${code}: ${reason})`);
 
-  // Audit
   const sid = sessionIds.get(connId);
-  if (sid) {
+  const identity = connectionIdentities.get(connId);
+
+  // Determine if this is an unexpected disconnect eligible for grace period.
+  // Clean shutdowns (code 1000, 1001) and superseded sessions (4001) do NOT get grace.
+  const isUnexpected = sid && identity && code !== 1000 && code !== 1001 && code !== 4001;
+
+  if (isUnexpected) {
+    // Start grace period — keep session alive for reconnection
+    const clientType = identity.type === 'human' ? 'human' : 'ai';
+    const providerSnap = clientType === 'ai' ? registeredProvider : undefined;
+    const started = reconnectionManager.startGracePeriod(sid, identity, clientType, providerSnap);
+
+    if (started) {
+      console.log(`[⏳] Grace period started for session ${sid.slice(0, 8)} (${clientType}, ${RECONNECT_GRACE_MS}ms)`);
+      auditLogger.logEvent('grace_period_started', sid, {
+        clientType,
+        clientId: identity.id,
+        gracePeriodMs: RECONNECT_GRACE_MS,
+        disconnectCode: code,
+        disconnectReason: reason,
+      });
+    }
+  } else if (sid) {
     auditLogger.logEvent('session_ended', sid, { code, reason });
-    sessionIds.delete(connId);
   } else {
-    // Connection closed before authentication — still log it
     auditLogger.logEvent('connection_closed', connId, {
       code,
       reason,
@@ -1524,7 +1671,9 @@ relay.on('disconnection', (info, code, reason) => {
     });
   }
 
-  // Unregister from router (also unpairs)
+  // Clean up connection-level state (but session survives in grace manager)
+  sessionIds.delete(connId);
+  connectionIdentities.delete(connId);
   router.unregisterClient(connId);
   connectionMessageCounts.delete(connId);
 
@@ -1540,7 +1689,7 @@ relay.on('disconnection', (info, code, reason) => {
     }
   } else if (connId === aiConnectionId) {
     aiConnectionId = null;
-    registeredProvider = null;
+    if (!isUnexpected) registeredProvider = null; // Only clear provider if not in grace period
     if (humanConnectionId) {
       relay.send(humanConnectionId, JSON.stringify({
         type: 'peer_status',

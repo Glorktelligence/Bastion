@@ -45,6 +45,8 @@ export interface SessionInitiation {
   readonly providerId?: string;
   /** Public key for the E2E key exchange. */
   readonly publicKey: string;
+  /** For reconnection: the session ID from a previous connection within the grace period. */
+  readonly previousSessionId?: string;
 }
 
 /** Result of a session establishment handshake. */

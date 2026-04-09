@@ -19,89 +19,28 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import type {
+  ExtensionDefinition,
+  ExtensionLoadResult,
+  ExtensionMessageType,
+  ExtensionSafetyLevel,
+  ExtensionUI,
+  ExtensionUIComponent,
+  ExtensionUIPage,
+} from '@bastion/protocol';
+import { RESERVED_NAMESPACES } from '@bastion/protocol';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-/** Safety evaluation level for an extension message type. */
-export type ExtensionSafetyLevel = 'passthrough' | 'task' | 'admin' | 'blocked';
-
-/** Extension message type definition. */
-export interface ExtensionMessageType {
-  readonly name: string;
-  readonly description: string;
-  readonly fields: Record<string, { type: string; required: boolean; description: string }>;
-  readonly safety: ExtensionSafetyLevel;
-  /** Adapter selection hint: 'cheapest' | 'fastest' | 'smartest' | 'default' | adapter ID. */
-  readonly adapterHint?: string;
-  /** Whether this message type can be compacted (summarised). Default: true.
-   *  Set to false for structural data (game state, tension updates) that must be preserved verbatim.
-   *  When false, messages of this type are stored with pinned=true in the ConversationStore,
-   *  which excludes them from compaction via the existing getCompactableMessages() filter. */
-  readonly compactable?: boolean;
-  readonly audit: {
-    readonly logEvent: string;
-    readonly logContent: boolean;
-  };
-}
-
-/** UI component size constraints. */
-export interface ExtensionUISize {
-  readonly minHeight: string;
-  readonly maxHeight: string;
-}
-
-/** Audit configuration for a UI component. */
-export interface ExtensionUIAudit {
-  readonly logRender: boolean;
-  readonly logInteractions: boolean;
-  readonly logEvent: string;
-}
-
-/** A UI component definition within an extension page. */
-export interface ExtensionUIComponent {
-  readonly id: string;
-  readonly name: string;
-  readonly file: string;
-  readonly description: string;
-  readonly function: string;
-  readonly messageTypes: readonly string[];
-  readonly size: ExtensionUISize;
-  readonly placement: 'main' | 'full-page' | 'sidebar' | 'settings-tab';
-  readonly dangerous: boolean;
-  readonly audit: ExtensionUIAudit;
-}
-
-/** A UI page grouping components. */
-export interface ExtensionUIPage {
-  readonly id: string;
-  readonly name: string;
-  readonly icon: string;
-  readonly components: readonly ExtensionUIComponent[];
-}
-
-/** UI manifest for an extension. */
-export interface ExtensionUI {
-  readonly pages: readonly ExtensionUIPage[];
-}
-
-/** A loaded and validated extension definition. */
-export interface ExtensionDefinition {
-  readonly namespace: string;
-  readonly name: string;
-  readonly version: string;
-  readonly description: string;
-  readonly author: string;
-  readonly messageTypes: readonly ExtensionMessageType[];
-  readonly dependencies?: readonly string[];
-  readonly ui?: ExtensionUI;
-}
-
-/** Result of loading an extension. */
-export type ExtensionLoadResult =
-  | { readonly ok: true; readonly extension: ExtensionDefinition }
-  | { readonly ok: false; readonly error: string };
+// Re-export protocol types so existing relay consumers don't break
+export type {
+  ExtensionSafetyLevel,
+  ExtensionMessageType,
+  ExtensionUIComponent,
+  ExtensionUIPage,
+  ExtensionUI,
+  ExtensionDefinition,
+  ExtensionLoadResult,
+} from '@bastion/protocol';
+export type { ExtensionUISize, ExtensionUIAudit } from '@bastion/protocol';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -111,20 +50,7 @@ const NAMESPACE_PATTERN = /^[a-z0-9-]+$/;
 
 const VALID_SAFETY_LEVELS = new Set<string>(['passthrough', 'task', 'admin', 'blocked']);
 
-const RESERVED_NAMESPACES = new Set([
-  'bastion',
-  'admin',
-  'system',
-  'internal',
-  'core',
-  'protocol',
-  'relay',
-  'auth',
-  'safety',
-  'audit',
-  'debug',
-  'test',
-]);
+// RESERVED_NAMESPACES imported from @bastion/protocol (Protocol First)
 
 const SOFT_LIMIT_EXTENSIONS = 10;
 const SOFT_LIMIT_TYPES = 100;

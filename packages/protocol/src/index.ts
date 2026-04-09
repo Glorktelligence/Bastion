@@ -52,6 +52,7 @@ export type {
   SessionConflictPayload,
   SessionSupersededPayload,
   ReconnectPayload,
+  SessionRestoredPayload,
   ConfigUpdateType,
   ConfigAckPayload,
   ConfigNackPayload,
@@ -176,6 +177,21 @@ export type {
   QuarantineEntry,
 } from './types/file-transfer.js';
 
+export type {
+  ExtensionSafetyLevel,
+  ExtensionMessageType,
+  ExtensionUISize,
+  ExtensionUIAudit,
+  ExtensionUIComponent,
+  ExtensionUIPage,
+  ExtensionUI,
+  ExtensionManifest,
+  ExtensionDefinition,
+  ExtensionLoadResult,
+} from './types/extension-manifest.js';
+
+export { RESERVED_NAMESPACES } from './types/extension-manifest.js';
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -240,6 +256,7 @@ export {
   SessionConflictPayloadSchema,
   SessionSupersededPayloadSchema,
   ReconnectPayloadSchema,
+  SessionRestoredPayloadSchema,
   ConfigUpdateTypeSchema,
   ConfigAckPayloadSchema,
   ConfigNackPayloadSchema,
@@ -332,6 +349,19 @@ export {
   FileChainOfCustodySchema,
   QuarantineEntrySchema,
 } from './schemas/file.schema.js';
+
+export {
+  ExtensionSafetyLevelSchema,
+  ExtensionMessageTypeFieldSchema as ExtensionManifestMessageTypeFieldSchema,
+  ExtensionMessageTypeAuditSchema,
+  ExtensionMessageTypeSchema,
+  ExtensionUISizeSchema,
+  ExtensionUIAuditSchema,
+  ExtensionUIComponentSchema,
+  ExtensionUIPageSchema,
+  ExtensionUISchema,
+  ExtensionManifestSchema,
+} from './schemas/extension-manifest.schema.js';
 
 // ---------------------------------------------------------------------------
 // Utilities

@@ -3,7 +3,7 @@
 // See LICENSE file for full terms
 
 /**
- * All 89 message types in the Bastion protocol.
+ * All 90 message types in the Bastion protocol.
  *
  * Core spec (11): task, conversation, challenge, confirmation, denial,
  *   status, result, error, file_manifest, file_offer, file_request, heartbeat
@@ -36,6 +36,7 @@ export const MESSAGE_TYPES = {
   SESSION_CONFLICT: 'session_conflict',
   SESSION_SUPERSEDED: 'session_superseded',
   RECONNECT: 'reconnect',
+  SESSION_RESTORED: 'session_restored',
   CONFIG_ACK: 'config_ack',
   CONFIG_NACK: 'config_nack',
   TOKEN_REFRESH: 'token_refresh',

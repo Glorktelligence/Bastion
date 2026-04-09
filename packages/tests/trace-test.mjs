@@ -67,6 +67,17 @@ import {
   // Schemas — payload lookup
   PAYLOAD_SCHEMAS,
 
+  // Schemas — extension manifest
+  ExtensionSafetyLevelSchema,
+  ExtensionMessageTypeSchema,
+  ExtensionUIComponentSchema,
+  ExtensionUIPageSchema,
+  ExtensionUISchema,
+  ExtensionManifestSchema,
+
+  // Constants
+  RESERVED_NAMESPACES,
+
   // Utilities
   validateMessage,
   validatePayload,
@@ -173,6 +184,7 @@ function validPayloads() {
     session_conflict: { existingSessionId: sessionId, newDeviceInfo: 'MacBook Pro M3' },
     session_superseded: { sessionId, supersededBy: uuid() },
     reconnect: { sessionId, lastReceivedMessageId: messageId, jwt: 'eyJhbGciOiJIUzI1NiJ9.test.sig' },
+    session_restored: { sessionId, queuedMessageCount: 3 },
     config_ack: { configType: 'api_key_rotation', appliedAt: ts() },
     config_nack: { configType: 'tool_registry', reason: 'Invalid schema', errorDetail: 'Missing tool name' },
     token_refresh: { currentJwt: 'eyJhbGciOiJIUzI1NiJ9.refresh.sig' },
@@ -417,7 +429,7 @@ async function run() {
       }
     }
     check('all 88 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 87 entries', ALL_MESSAGE_TYPES.length === 89);
+    check('ALL_MESSAGE_TYPES has 87 entries', ALL_MESSAGE_TYPES.length === 90);
   }
   console.log();
 
@@ -453,8 +465,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 87 entries', typeKeys.length === 89);
-    check('PAYLOAD_SCHEMAS has 87 entries', Object.keys(PAYLOAD_SCHEMAS).length === 89);
+    check('MESSAGE_TYPES has 87 entries', typeKeys.length === 90);
+    check('PAYLOAD_SCHEMAS has 87 entries', Object.keys(PAYLOAD_SCHEMAS).length === 90);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -943,6 +955,116 @@ async function run() {
   }
   console.log();
 
+  // =========================================================================
+  // Test: H18 — Extension manifest types importable from @bastion/protocol
+  // =========================================================================
+  console.log('--- H18: Extension manifest types & Zod schemas ---');
+  {
+    // ExtensionSafetyLevelSchema validates correct levels
+    check('H18: safety level "passthrough" valid', ExtensionSafetyLevelSchema.safeParse('passthrough').success);
+    check('H18: safety level "task" valid', ExtensionSafetyLevelSchema.safeParse('task').success);
+    check('H18: safety level "admin" valid', ExtensionSafetyLevelSchema.safeParse('admin').success);
+    check('H18: safety level "blocked" valid', ExtensionSafetyLevelSchema.safeParse('blocked').success);
+    check('H18: safety level "invalid" rejected', !ExtensionSafetyLevelSchema.safeParse('invalid').success);
+
+    // ExtensionMessageTypeSchema
+    const validMsgType = {
+      name: 'chess-move',
+      description: 'A chess move',
+      fields: { from: { type: 'string', required: true, description: 'Source square' } },
+      safety: 'passthrough',
+      audit: { logEvent: 'chess_move', logContent: false },
+    };
+    check('H18: valid message type passes', ExtensionMessageTypeSchema.safeParse(validMsgType).success);
+
+    const invalidMsgType = { ...validMsgType, safety: 'invalid' };
+    check('H18: invalid safety rejects message type', !ExtensionMessageTypeSchema.safeParse(invalidMsgType).success);
+
+    const missingAudit = { name: 'test', description: '', fields: {}, safety: 'task' };
+    check('H18: missing audit rejects message type', !ExtensionMessageTypeSchema.safeParse(missingAudit).success);
+
+    // ExtensionUIComponentSchema
+    const validComp = {
+      id: 'board',
+      name: 'Game Board',
+      file: 'ui/board.html',
+      description: 'The game board',
+      function: 'display',
+      messageTypes: ['games:chess-move'],
+      size: { minHeight: '200px', maxHeight: '600px' },
+      placement: 'main',
+      dangerous: false,
+      audit: { logRender: true, logInteractions: false, logEvent: 'board_render' },
+    };
+    check('H18: valid UI component passes', ExtensionUIComponentSchema.safeParse(validComp).success);
+
+    const invalidPlacement = { ...validComp, placement: 'invalid' };
+    check('H18: invalid placement rejects component', !ExtensionUIComponentSchema.safeParse(invalidPlacement).success);
+
+    // ExtensionManifestSchema — full manifest validation
+    const validManifest = {
+      namespace: 'chess',
+      name: 'Chess Extension',
+      version: '1.0.0',
+      description: 'A chess game extension',
+      author: 'Test',
+      messageTypes: [validMsgType],
+      ui: {
+        pages: [{
+          id: 'game',
+          name: 'Game',
+          icon: '♟',
+          components: [validComp],
+        }],
+      },
+    };
+    check('H18: valid manifest passes', ExtensionManifestSchema.safeParse(validManifest).success);
+
+    // Invalid namespace format
+    const badNs = { ...validManifest, namespace: 'INVALID_NS' };
+    check('H18: invalid namespace format rejected', !ExtensionManifestSchema.safeParse(badNs).success);
+
+    // Missing required fields
+    const missingName = { namespace: 'test', version: '1.0.0', messageTypes: [] };
+    check('H18: missing name rejected', !ExtensionManifestSchema.safeParse(missingName).success);
+
+    // RESERVED_NAMESPACES constant is importable and contains expected values
+    check('H18: RESERVED_NAMESPACES is a Set', RESERVED_NAMESPACES instanceof Set);
+    check('H18: "bastion" is reserved', RESERVED_NAMESPACES.has('bastion'));
+    check('H18: "admin" is reserved', RESERVED_NAMESPACES.has('admin'));
+    check('H18: "protocol" is reserved', RESERVED_NAMESPACES.has('protocol'));
+    check('H18: "chess" is not reserved', !RESERVED_NAMESPACES.has('chess'));
+
+    // Manifest with conversationRenderers
+    const withRenderers = {
+      ...validManifest,
+      conversationRenderers: {
+        'chess-move': { html: '<div>move</div>', style: 'compact' },
+      },
+    };
+    check('H18: manifest with conversationRenderers passes', ExtensionManifestSchema.safeParse(withRenderers).success);
+
+    // Invalid renderer style
+    const badRenderer = {
+      ...validManifest,
+      conversationRenderers: {
+        'chess-move': { html: '<div></div>', style: 'invalid' },
+      },
+    };
+    check('H18: invalid renderer style rejected', !ExtensionManifestSchema.safeParse(badRenderer).success);
+
+    // Optional fields
+    const minimal = {
+      namespace: 'mini',
+      name: 'Mini',
+      version: '0.1.0',
+      messageTypes: [],
+    };
+    check('H18: minimal manifest (no description/author) passes', ExtensionManifestSchema.safeParse(minimal).success);
+    const parsed = ExtensionManifestSchema.parse(minimal);
+    check('H18: default description is empty string', parsed.description === '');
+    check('H18: default author is "unknown"', parsed.author === 'unknown');
+  }
   console.log();
 
   // =========================================================================
