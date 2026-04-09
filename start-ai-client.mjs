@@ -388,6 +388,15 @@ const compactionManager = new CompactionManager(conversationStore, {
 });
 console.log(`[✓] Compaction manager initialised (budget: ${CONVERSATION_BUDGET}, trigger: ${COMPACTION_TRIGGER_PERCENT}%, keep: ${COMPACTION_KEEP_RECENT})`);
 
+// Load compaction summary for the active conversation (so AI retains pre-compaction context on startup)
+if (activeConversationId) {
+  const startupCompaction = compactionManager.getCompactionSummary(activeConversationId);
+  if (startupCompaction) {
+    conversationManager.setCompactionSummary(startupCompaction.summary);
+    console.log(`[✓] Compaction summary loaded (${startupCompaction.messagesCovered} messages covered, ${startupCompaction.tokensSaved} tokens saved)`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Recall handler — AI-initiated conversation history search
 // ---------------------------------------------------------------------------
@@ -461,6 +470,8 @@ function persistMessage(role, type, content) {
           compactionInProgress = false;
           if (result.success && result.messagesCovered > 0) {
             console.log(`[✓] Auto-compacted: ${result.messagesCovered} messages, ~${result.tokensSaved} tokens saved`);
+            // Inject compaction summary into conversation context so AI retains pre-compaction knowledge
+            conversationManager.setCompactionSummary(result.summary || null);
             // Notify human client
             if (client) {
               client.send(JSON.stringify({
@@ -1105,16 +1116,22 @@ client.on('authenticated', async (jwt, expiresAt) => {
   // Connect to MCP providers
   await connectMcpProviders();
 
-  // Lock registry after initial sync + MCP discovery
-  if (!toolRegistry.isLocked) {
-    toolRegistry.lock();
-    console.log(`[✓] Tool registry locked (${toolRegistry.toolCount} tools, ${toolRegistry.providerCount} providers)`);
-  }
+  // NOTE: Tool registry is NOT locked here — it locks after tool_registry_sync
+  // is received from the relay (which populates the registry with authorised tools).
+  // Locking before sync would result in an empty, useless registry.
 
-  // Initialize upstream monitor from current registry state
+  // Initialize upstream monitor (will start periodic checks after registry is locked)
   toolUpstreamMonitor.initializeFromRegistry();
-  toolUpstreamMonitor.startPeriodicChecks();
-  console.log('[✓] Tool upstream monitor initialised');
+  console.log('[✓] Tool upstream monitor initialised (awaiting tool_registry_sync to lock registry)');
+
+  // Fallback: if no tool_registry_sync arrives within 30s, lock with whatever we have
+  setTimeout(() => {
+    if (!toolRegistry.isLocked) {
+      toolRegistry.lock();
+      toolUpstreamMonitor.startPeriodicChecks();
+      console.log(`[!] Tool registry lock timeout — locked with ${toolRegistry.toolCount} tools (no sync received)`);
+    }
+  }, 30_000);
 
   // Send challenge status to human
   const challengeStatus = challengeManager.getStatus();
@@ -1435,6 +1452,20 @@ client.on('message', async (data) => {
     return;
   }
 
+  // Handle tool_registry_sync — relay sends authorised tool registry on connect
+  if (msg.type === 'tool_registry_sync') {
+    const p = msg.payload || msg;
+    if (!toolRegistry.isLocked && p && p.providers) {
+      toolRegistry.loadFromSync(p);
+      toolRegistry.lock();
+      toolUpstreamMonitor.startPeriodicChecks();
+      console.log(`[✓] Tool registry locked (${toolRegistry.toolCount} tools, ${toolRegistry.providerCount} providers)`);
+    } else if (toolRegistry.isLocked) {
+      console.log(`[~] tool_registry_sync received but registry already locked — ignoring`);
+    }
+    return;
+  }
+
   // Handle tool_approved — human approved a tool call
   if (msg.type === 'tool_approved') {
     const p = msg.payload || msg;
@@ -1737,6 +1768,9 @@ client.on('message', async (data) => {
       if (m.role === 'user') conversationManager.addUserMessage(m.content);
       else conversationManager.addAssistantMessage(m.content);
     }
+    // Load compaction summary for the switched-to conversation
+    const latestCompaction = compactionManager.getCompactionSummary(targetId);
+    conversationManager.setCompactionSummary(latestCompaction?.summary ?? null);
     // Get scoped memories (all memories — future: per-conversation filtering)
     const memories = memoryStore.getMemories().slice(0, 20).map(m => ({ id: m.id, content: m.content, category: m.category }));
     client.send(JSON.stringify({

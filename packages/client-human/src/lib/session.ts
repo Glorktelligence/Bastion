@@ -421,7 +421,6 @@ export async function connect(): Promise<void> {
 export async function disconnect(): Promise<void> {
   if (!client) return;
   console.log('[Bastion] disconnect() called — closing WebSocket');
-  console.trace('[Bastion] disconnect() call stack');
   await client.disconnect();
   if (connSub) connSub();
   connSub = null;
@@ -434,6 +433,26 @@ export async function disconnect(): Promise<void> {
     sessionCipher = null;
   }
   e2eStatus.set({ available: e2eAvailable, active: false });
+
+  // Clear all domain stores to prevent stale data on reconnection or identity switch
+  messages.clear();
+  challenges.clear();
+  tasks.clear();
+  auditLog.clear();
+  settings.clear();
+  memories.clear();
+  tools.clear();
+  budget.clear();
+  projects.clear();
+  provider.clear();
+  extensions.clear();
+  conversations.clear();
+  aiDisclosure.clear();
+  fileTransfers.clear();
+  dreamCycles.reset();
+  // Clear session-level writables
+  activeAiChallenge.set(null);
+  activeAiMemoryProposal.set(null);
 }
 
 // ---------------------------------------------------------------------------

@@ -4384,6 +4384,49 @@ async function run() {
   console.log();
 
   // -------------------------------------------------------------------
+  // C1: Compaction summary appears in assembled system prompt
+  // -------------------------------------------------------------------
+  console.log('--- C1: Compaction summary injection ---');
+  {
+    const cm = new ConversationManager({ userContextPath: '/dev/null', operatorContextPath: '/dev/null' });
+    // Before setting summary, prompt should NOT contain summary marker
+    const before = cm.getSystemPrompt();
+    check('no summary before set', !before.includes('Conversation History Summary'));
+    // Set a compaction summary
+    cm.setCompactionSummary('The user discussed project architecture and decided to use TypeScript.');
+    check('hasCompactionSummary returns true', cm.hasCompactionSummary());
+    const after = cm.getSystemPrompt();
+    check('summary appears in prompt', after.includes('Conversation History Summary'));
+    check('summary content present', after.includes('decided to use TypeScript'));
+    // Clear summary
+    cm.setCompactionSummary(null);
+    check('hasCompactionSummary false after clear', !cm.hasCompactionSummary());
+    const cleared = cm.getSystemPrompt();
+    check('summary gone after clear', !cleared.includes('Conversation History Summary'));
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // C2: Tool registry does not lock before sync
+  // -------------------------------------------------------------------
+  console.log('--- C2: Tool registry lock timing ---');
+  {
+    const reg = new ToolRegistryManager();
+    check('registry starts unlocked', !reg.isLocked);
+    check('registry starts with 0 tools', reg.toolCount === 0);
+    // Simulate: loadFromSync with tool data, then lock
+    reg.loadFromSync({
+      providers: [{ id: 'test-provider', name: 'Test', endpoint: 'ws://localhost', authType: 'no_auth', tools: [{ name: 'test-tool', description: 'A test tool', category: 'read', readOnly: true, dangerous: false, modes: ['conversation'] }] }],
+      registryHash: 'abc123',
+    });
+    check('tools loaded before lock', reg.toolCount === 1);
+    reg.lock();
+    check('registry locked after sync', reg.isLocked);
+    check('tools available after lock', reg.toolCount === 1);
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
   // Summary
   // -------------------------------------------------------------------
   console.log('=================================================');

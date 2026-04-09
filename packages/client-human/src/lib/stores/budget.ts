@@ -58,6 +58,7 @@ export interface BudgetStore {
   setStatus(status: BudgetStatusData): void;
   addAlert(alert: Omit<BudgetAlert, 'receivedAt'>): void;
   clearLastAlert(): void;
+  clear(): void;
 }
 
 export function createBudgetStore(): BudgetStore {
@@ -78,6 +79,9 @@ export function createBudgetStore(): BudgetStore {
     },
     clearLastAlert(): void {
       store.update((s) => ({ ...s, lastAlert: null }));
+    },
+    clear(): void {
+      store.set({ ...INITIAL_STATE });
     },
   };
 }

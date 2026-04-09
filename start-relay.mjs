@@ -5,6 +5,7 @@ import {
   MessageRouter,
   JwtService,
   AuditLogger,
+  ChainIntegrityMonitor,
   AdminServer,
   AdminAuth,
   AdminRoutes,
@@ -150,6 +151,23 @@ console.log('');
 
 const auditLogger = new AuditLogger({ store: { path: AUDIT_DB } });
 console.log('[✓] Audit logger initialised with hash chain');
+
+// Chain integrity monitor — periodic tamper-evident verification
+const chainIntegrityMonitor = new ChainIntegrityMonitor(auditLogger, (result) => {
+  if (!result.verification.valid) {
+    console.error(`[!!!] CHAIN INTEGRITY VIOLATION — ${result.mode} check failed at entry ${result.verification.brokenAtIndex ?? 'unknown'}`);
+    // Log the violation into the chain itself (this entry becomes part of the chain)
+    auditLogger.logEvent('chain_integrity_violation', null, {
+      mode: result.mode,
+      entriesChecked: result.entriesChecked,
+      brokenAtIndex: result.verification.brokenAtIndex ?? null,
+      detectedAt: result.checkedAt,
+      durationMs: result.durationMs,
+    });
+  }
+}, { intervalMs: 5 * 60 * 1000, verifyOnStart: true });
+chainIntegrityMonitor.start();
+console.log('[✓] Chain integrity monitor started (full check on startup, incremental every 5 min)');
 
 const JWT_ISSUER = process.env.BASTION_JWT_ISSUER || 'bastion-relay';
 const jwtService = new JwtService({
@@ -736,11 +754,45 @@ relay.on('message', async (data, info) => {
     // Register with router
     router.registerClient(connId, identity);
 
-    // Track human/AI/updater connection
+    // Track human/AI/updater connection — handle session conflicts
     if (identity.type === 'human') {
+      if (humanConnectionId && humanConnectionId !== connId) {
+        // Existing human client is being superseded — notify and disconnect
+        const oldConnId = humanConnectionId;
+        console.log(`[!] Session conflict: new human client supersedes ${oldConnId.slice(0, 8)}`);
+        relay.send(oldConnId, JSON.stringify({
+          type: 'session_superseded',
+          id: randomUUID(),
+          timestamp: new Date().toISOString(),
+          sender: { id: 'relay', type: 'relay', displayName: 'Bastion Relay' },
+          payload: { reason: 'Another human client connected with the same identity' },
+        }));
+        auditLogger.logEvent('session_conflict', sessionId, {
+          newConnectionId: connId, oldConnectionId: oldConnId,
+          clientType: 'human', resolution: 'superseded',
+        });
+        // Brief delay so the old client can process the message, then close
+        setTimeout(() => relay.close(oldConnId, 4001, 'session_superseded'), 100);
+      }
       humanConnectionId = connId;
       console.log(`[✓] Human client registered: ${identity.displayName}`);
     } else if (identity.type === 'ai') {
+      if (aiConnectionId && aiConnectionId !== connId) {
+        const oldConnId = aiConnectionId;
+        console.log(`[!] Session conflict: new AI client supersedes ${oldConnId.slice(0, 8)}`);
+        relay.send(oldConnId, JSON.stringify({
+          type: 'session_superseded',
+          id: randomUUID(),
+          timestamp: new Date().toISOString(),
+          sender: { id: 'relay', type: 'relay', displayName: 'Bastion Relay' },
+          payload: { reason: 'Another AI client connected with the same identity' },
+        }));
+        auditLogger.logEvent('session_conflict', sessionId, {
+          newConnectionId: connId, oldConnectionId: oldConnId,
+          clientType: 'ai', resolution: 'superseded',
+        });
+        setTimeout(() => relay.close(oldConnId, 4001, 'session_superseded'), 100);
+      }
       aiConnectionId = connId;
       console.log(`[✓] AI client registered: ${identity.displayName}`);
     }

@@ -1801,6 +1801,72 @@ async function run() {
   console.log();
 
   // -------------------------------------------------------------------
+  // C7: All stores have clear() and reset to initial state
+  // -------------------------------------------------------------------
+  console.log('--- C7: Store clear() on disconnect ---');
+  {
+    // Messages store
+    const msgs = createMessagesStore();
+    msgs.addIncoming('conversation', { content: 'hello' }, { id: 'ai', type: 'ai', displayName: 'AI' }, 'msg-1', new Date().toISOString());
+    let msgState = msgs.store.get();
+    check('messages has data before clear', msgState.messages.length > 0);
+    msgs.clear();
+    msgState = msgs.store.get();
+    check('messages empty after clear', msgState.messages.length === 0);
+
+    // Challenges store — clear() was added by C7 fix
+    const ch = createChallengesStore();
+    ch.receiveChallenge('ch-1', 'task-1', { message: 'test', factors: [], layer: 1 });
+    let chState = ch.store.get();
+    check('challenges has data before clear', chState.active !== null);
+    check('challenges.clear exists', typeof ch.clear === 'function');
+    ch.clear();
+    chState = ch.store.get();
+    check('challenges cleared (active null)', chState.active === null);
+    check('challenges cleared (history empty)', chState.history.length === 0);
+
+    // Budget store — clear() was added by C7 fix
+    const { createBudgetStore: createBudget } = await import('./dist/index.js');
+    const bg = createBudget();
+    bg.setStatus({ searchesThisSession: 1, searchesThisDay: 1, searchesThisMonth: 5, costThisMonth: 0.5, budgetRemaining: 9.5, percentUsed: 5, monthlyCapUsd: 10, alertLevel: 'none' });
+    let bgState = bg.store.get();
+    check('budget has data before clear', bgState.status !== null);
+    check('budget.clear exists', typeof bg.clear === 'function');
+    bg.clear();
+    bgState = bg.store.get();
+    check('budget cleared (status null)', bgState.status === null);
+    check('budget cleared (alerts empty)', bgState.alerts.length === 0);
+
+    // Settings store — clear() was added by C7 fix
+    const st = createSettingsStore();
+    st.tryUpdate('timeOfDayWeight', 2.0);
+    let stState = st.store.get();
+    check('settings dirty before clear', stState.dirty === true);
+    check('settings.clear exists', typeof st.clear === 'function');
+    st.clear();
+    stState = st.store.get();
+    check('settings cleared (not dirty)', stState.dirty === false);
+    check('settings cleared (no error)', stState.error === null);
+
+    // Tasks store
+    const tk = createTasksStore();
+    tk.submitTask('task-1', 'test', 'target', 'normal');
+    let tkState = tk.store.get();
+    check('tasks has data before clear', tkState.tasks.length > 0);
+    tk.clear();
+    tkState = tk.store.get();
+    check('tasks cleared', tkState.tasks.length === 0);
+
+    // DreamCycles store — has reset()
+    const dc = createDreamCyclesStore();
+    check('dreamCycles.reset exists', typeof dc.reset === 'function');
+    dc.reset();
+    const dcState = dc.store.get();
+    check('dreamCycles reset (idle)', dcState.status === 'idle');
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
   // Summary
   // -------------------------------------------------------------------
   console.log();

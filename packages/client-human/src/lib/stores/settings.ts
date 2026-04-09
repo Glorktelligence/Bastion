@@ -213,6 +213,7 @@ export function createSettingsStore(initial?: Partial<SafetySettings>): {
   setUserContext(content: string): void;
   resetToDefaults(): void;
   markSaved(): void;
+  clear(): void;
 } {
   // Merge initial settings with floor validation — no below-floor values allowed
   const rawMerged = { ...DEFAULT_SETTINGS, ...initial };
@@ -302,6 +303,16 @@ export function createSettingsStore(initial?: Partial<SafetySettings>): {
     store.update((s) => ({ ...s, userContext: content }));
   }
 
+  function clear(): void {
+    store.set({
+      settings: { ...DEFAULT_SETTINGS },
+      dirty: false,
+      lastSaved: null,
+      error: null,
+      userContext: '',
+    });
+  }
+
   return {
     store,
     floorValues,
@@ -311,5 +322,6 @@ export function createSettingsStore(initial?: Partial<SafetySettings>): {
     setUserContext,
     resetToDefaults,
     markSaved,
+    clear,
   };
 }

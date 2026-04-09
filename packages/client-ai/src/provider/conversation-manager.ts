@@ -232,6 +232,9 @@ export class ConversationManager {
   // Exec results buffer — accumulates within a single response, clears after injection
   private execResults: string | null = null;
 
+  // Compaction summary — injected into dynamic zone so the AI retains pre-compaction context
+  private compactionSummary: string | null = null;
+
   constructor(config?: ConversationManagerConfig) {
     this.tokenBudget = config?.tokenBudget ?? DEFAULT_TOKEN_BUDGET;
     this.userContextPath = config?.userContextPath ?? DEFAULT_USER_CONTEXT_PATH;
@@ -406,6 +409,20 @@ export class ConversationManager {
   /** Check if exec results are pending injection. */
   hasExecResults(): boolean {
     return this.execResults !== null;
+  }
+
+  /**
+   * Set the compaction summary for inclusion in prompt assembly.
+   * Called after compaction runs or when loading a conversation that has a compaction summary.
+   * Unlike recall (one-shot), the compaction summary is persistent until replaced or cleared.
+   */
+  setCompactionSummary(summary: string | null): void {
+    this.compactionSummary = summary;
+  }
+
+  /** Check if a compaction summary is set. */
+  hasCompactionSummary(): boolean {
+    return this.compactionSummary !== null;
   }
 
   static getRoleContext(): string {
@@ -686,6 +703,12 @@ export class ConversationManager {
 
       parts.push(actionParts.join('\n'));
       components.push('Available Actions');
+    }
+
+    // Compaction summary — persistent context from prior conversation segments
+    if (this.compactionSummary) {
+      parts.push(`--- Conversation History Summary (compacted) ---\n${this.compactionSummary}\n--- End Summary ---`);
+      components.push('Compaction Summary');
     }
 
     // Recalled context — one-shot injection from bastion_recall

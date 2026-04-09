@@ -29,6 +29,7 @@ export function createChallengesStore(): {
   store: Writable<ChallengesStoreState>;
   receiveChallenge(messageId: string, taskId: string, payload: ChallengePayload): void;
   resolve(decision: 'approve' | 'modify' | 'cancel'): ActiveChallenge | null;
+  clear(): void;
 } {
   const store = writable<ChallengesStoreState>({
     active: null,
@@ -62,5 +63,9 @@ export function createChallengesStore(): {
     return resolved ? { ...resolved, decision, resolvedAt } : null;
   }
 
-  return { store, receiveChallenge, resolve };
+  function clear(): void {
+    store.set({ active: null, history: [] });
+  }
+
+  return { store, receiveChallenge, resolve, clear };
 }

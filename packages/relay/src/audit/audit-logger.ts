@@ -140,6 +140,14 @@ export class AuditLogger {
    * @param detail — structured detail about the event
    * @returns the stored HashedAuditEntry
    */
+  /** Whether audit storage is degraded (write failure detected). */
+  private degraded = false;
+
+  /** Whether audit storage is in a degraded state. */
+  get isDegraded(): boolean {
+    return this.degraded;
+  }
+
   logEvent(eventType: string, sessionId: string, detail: Record<string, unknown> = {}): HashedAuditEntry {
     if (this.closed) throw new AuditLoggerError('Logger is closed');
 
@@ -154,8 +162,18 @@ export class AuditLogger {
     // Compute chain hash using @bastion/crypto's appendEntry
     const hashed = appendEntry(entry, this.chain);
 
-    // Persist to SQLite
-    this.store.insert(hashed);
+    // Persist to SQLite — catch storage failures so relay doesn't crash
+    try {
+      this.store.insert(hashed);
+    } catch (err) {
+      this.degraded = true;
+      const msg = err instanceof Error ? err.message : String(err);
+      // Last-resort logging: stderr is always available even when DB is full
+      console.error(
+        `[!!!] AUDIT STORAGE FAILURE — event ${eventType} at index ${this.nextIndex} NOT persisted: ${msg}`,
+      );
+      // Still update in-memory state so the chain remains consistent for this session
+    }
 
     // Update in-memory state
     this.chain.push(hashed);

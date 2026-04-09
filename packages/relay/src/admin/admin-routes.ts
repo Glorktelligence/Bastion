@@ -24,6 +24,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { type HashedAuditEntry, verifyChain } from '@bastion/crypto';
 import type { AuditLogger } from '../audit/audit-logger.js';
 import { AUDIT_EVENT_TYPES } from '../audit/audit-logger.js';
 import { Allowlist } from '../auth/allowlist.js';
@@ -524,25 +525,20 @@ export class AdminRoutes {
     };
   }
 
-  /** Get chain integrity status. */
+  /** Get chain integrity status — recomputes hashes to detect tampering. */
   getChainIntegrity(): ApiResponse {
     const chain = this.audit.getChain();
     const totalEntries = chain.length;
 
-    // Verify chain by checking hash linkage
-    let chainValid = true;
-    for (let i = 1; i < chain.length; i++) {
-      if (!chain[i]!.chainHash || chain[i]!.chainHash.length === 0) {
-        chainValid = false;
-        break;
-      }
-    }
+    // Cryptographic verification: recompute every hash and compare against stored values
+    const verification = chain.length > 0 ? verifyChain(chain as HashedAuditEntry[]) : { valid: true };
 
     return {
       status: 200,
       body: {
         totalEntries,
-        chainValid,
+        chainValid: verification.valid,
+        brokenAtIndex: 'brokenAtIndex' in verification ? verification.brokenAtIndex : null,
         lastVerifiedAt: new Date().toISOString(),
         lastHash: chain.length > 0 ? chain[chain.length - 1]!.chainHash : null,
         genesisHash: chain.length > 0 ? chain[0]!.chainHash : null,
