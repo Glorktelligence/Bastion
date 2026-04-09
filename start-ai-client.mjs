@@ -591,6 +591,8 @@ const safetyConfig = defaultSafetyConfig();
 const patternHistory = createPatternHistory();
 /** Pending challenges — correlationId → { issuedAt, waitSeconds } for wait timer enforcement. */
 const pendingChallenges = new Map();
+/** Pending AI-initiated challenges — challengeId → { issuedAt, reason, severity } for response tracking. */
+const pendingAiChallenges = new Map();
 console.log('[✓] Safety engine armed (3-layer evaluation)');
 
 // ---------------------------------------------------------------------------
@@ -945,9 +947,13 @@ async function handleKeyExchange(peerPublicKeyB64) {
   }
 }
 
-/** Messages that must stay plaintext — relay or pre-key-exchange control messages. */
+/**
+ * Messages that must stay plaintext — relay or pre-key-exchange control messages.
+ * NOTE: token_refresh and audit_response are NOT in this set — they carry sensitive data
+ * (JWTs, audit history) and must be encrypted when sent through the E2E channel.
+ */
 const PLAINTEXT_TYPES = new Set([
-  'session_init', 'session_established', 'key_exchange', 'token_refresh',
+  'session_init', 'session_established', 'key_exchange',
   'provider_register', 'ping', 'pong', 'peer_status', 'error',
   'config_ack', 'config_nack',
   'file_manifest', 'file_offer', 'file_request', 'file_data',
@@ -1370,14 +1376,36 @@ client.on('message', async (data) => {
     const challengeId = msg.payload?.challengeId;
     console.log(`[←] AI challenge response: decision=${decision}, challengeId=${challengeId}`);
 
+    // Look up the pending AI challenge
+    const pending = challengeId ? pendingAiChallenges.get(challengeId) : null;
+    if (challengeId && !pending) {
+      console.log(`[!] AI challenge response for unknown challengeId: ${challengeId}`);
+    }
+
     if (decision === 'accept') {
       console.log('[✓] Human accepted AI safety recommendation');
+      if (pending) {
+        console.log(`[✓] AI challenge ${challengeId} resolved: accepted (${pending.severity}, ${Date.now() - pending.issuedAt}ms)`);
+      }
     } else if (decision === 'override') {
-      // Significant: user overrode AI safety recommendation — conversation continues
+      // Significant: user overrode AI safety recommendation — inform AI in next prompt
       console.log('[!] Human OVERRODE AI safety recommendation — proceeding with user choice');
+      if (pending) {
+        console.log(`[!] AI challenge ${challengeId} resolved: OVERRIDDEN (${pending.severity}, ${Date.now() - pending.issuedAt}ms)`);
+        // Inform AI of override in conversation context for transparency
+        conversationManager.addUserMessage(
+          `[System: Human overrode AI safety challenge (${pending.severity}): "${pending.reason}". Proceeding with user's choice.]`
+        );
+      }
     } else if (decision === 'cancel') {
       console.log('[~] Human cancelled action after AI challenge');
+      if (pending) {
+        console.log(`[~] AI challenge ${challengeId} resolved: cancelled (${pending.severity}, ${Date.now() - pending.issuedAt}ms)`);
+      }
     }
+
+    // Clean up the pending challenge
+    if (challengeId) pendingAiChallenges.delete(challengeId);
     return;
   }
 
@@ -2208,13 +2236,19 @@ client.on('message', async (data) => {
           if (action.type === 'CHALLENGE' && aiActionLimits.canChallenge()) {
             aiActionLimits.recordChallenge();
             const payload = action.data;
+            const aiChallengeId = randomUUID();
+            pendingAiChallenges.set(aiChallengeId, {
+              issuedAt: Date.now(),
+              reason: String(payload.reason || ''),
+              severity: ['info', 'warning', 'critical'].includes(payload.severity) ? payload.severity : 'warning',
+            });
             sendSecure({
               type: 'ai_challenge',
               id: randomUUID(),
               timestamp: new Date().toISOString(),
               sender: IDENTITY,
               payload: {
-                challengeId: randomUUID(),
+                challengeId: aiChallengeId,
                 reason: String(payload.reason || ''),
                 severity: ['info', 'warning', 'critical'].includes(payload.severity) ? payload.severity : 'warning',
                 suggestedAction: String(payload.suggestedAction || ''),
@@ -2834,6 +2868,9 @@ client.on('message', async (data) => {
           usageTracker,
           budgetGuard,
           dateTimeManager,
+          filePurgeManager,
+          recallHandler,
+          bastionBash,
           send: (responseType, payload) => {
             sendSecure({
               type: responseType,

@@ -246,12 +246,28 @@ export class ExtensionBridgeManager {
     this.components.delete(componentId);
   }
 
-  /** Handle a postMessage from any extension iframe. */
-  handleMessage(event: { data: unknown; source: unknown }): void {
+  /**
+   * Handle a postMessage from any extension iframe.
+   *
+   * Origin validation: srcdoc sandboxed iframes have origin 'null' (string),
+   * so we cannot use targeted postMessage origins for SENDING. Instead we
+   * validate on the RECEIVING side: only accept messages whose `source`
+   * matches a registered component's iframe contentWindow.
+   */
+  handleMessage(event: { data: unknown; source: unknown; origin?: string }): void {
     const data = event.data as BridgeMessage;
     if (!data || data.bridge !== 'bastion') return;
 
-    // Find which component sent this
+    // Origin validation: only accept messages from sandboxed srcdoc iframes ('null')
+    // or from our own window origin. Reject all other origins.
+    const windowOrigin =
+      typeof globalThis !== 'undefined' &&
+      (globalThis as unknown as { location?: { origin?: string } }).location?.origin;
+    if (event.origin !== undefined && event.origin !== 'null' && windowOrigin && event.origin !== windowOrigin) {
+      return;
+    }
+
+    // Find which component sent this — validates source is a registered iframe
     const component = this.findComponentBySource(event.source);
     if (!component) return;
 
@@ -296,7 +312,12 @@ export class ExtensionBridgeManager {
     }
   }
 
-  /** Forward an incoming protocol message to matching extension iframes. */
+  /**
+   * Forward an incoming protocol message to matching extension iframes.
+   * Uses '*' as target origin because srcdoc iframes have origin 'null' (string),
+   * which makes targeted postMessage impossible. Security is enforced on the
+   * receiving side via source validation in handleMessage().
+   */
   forwardToExtensions(type: string, payload: unknown): void {
     for (const comp of this.components.values()) {
       if (comp.allowedTypes.has(type)) {
@@ -347,6 +368,7 @@ export class ExtensionBridgeManager {
     return undefined;
   }
 
+  // Uses '*' because srcdoc iframes have origin 'null' — see forwardToExtensions() comment
   private reply(iframe: IFrameRef, requestId: string | undefined, value: unknown): void {
     iframe.contentWindow?.postMessage({ bridge: 'bastion-reply', requestId, value }, '*');
   }

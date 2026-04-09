@@ -251,7 +251,7 @@ export class AdminRoutes {
           style: ['info', 'legal', 'warning'].includes(data.style) ? data.style : 'info',
           position: ['banner', 'footer'].includes(data.position) ? data.position : 'banner',
           dismissible: typeof data.dismissible === 'boolean' ? data.dismissible : true,
-          link: typeof data.link === 'string' ? data.link : undefined,
+          link: typeof data.link === 'string' && /^https?:\/\//i.test(data.link) ? data.link : undefined,
           linkText: typeof data.linkText === 'string' ? data.linkText : undefined,
           jurisdiction: typeof data.jurisdiction === 'string' ? data.jurisdiction : undefined,
         };
@@ -812,7 +812,14 @@ export class AdminRoutes {
           position: ['banner', 'footer'].includes(body.position) ? body.position : this.disclosureConfig.position,
           dismissible: typeof body.dismissible === 'boolean' ? body.dismissible : this.disclosureConfig.dismissible,
         };
-        if (typeof body.link === 'string') updated.link = body.link || undefined;
+        if (typeof body.link === 'string') {
+          const link = body.link.trim();
+          if (link && !/^https?:\/\//i.test(link)) {
+            sendJson(res, 400, { error: 'Disclosure link must use https:// or http:// protocol' });
+            return;
+          }
+          updated.link = link || undefined;
+        }
         if (typeof body.linkText === 'string') updated.linkText = body.linkText || undefined;
         if (typeof body.jurisdiction === 'string') updated.jurisdiction = body.jurisdiction || undefined;
         this.disclosureConfig = updated;

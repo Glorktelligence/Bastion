@@ -425,15 +425,7 @@ export class AdminServer {
       if (handled) return;
     }
 
-    // GET requests are unauthenticated — read-only monitoring.
-    const isReadOnly = method === 'GET' || method === 'HEAD';
-
-    if (isReadOnly) {
-      await this.routes.handleRequest(req, res, '_readonly');
-      return;
-    }
-
-    // Authenticate mutations — try Bearer token first, then Basic+TOTP
+    // All requests require authentication — try Bearer token first, then Basic+TOTP
     const bearer = this.extractBearer(req);
     if (bearer) {
       const verified = this.verifySessionJwt(bearer);
@@ -458,7 +450,7 @@ export class AdminServer {
       return;
     }
 
-    // Route authenticated mutation
+    // Route authenticated request
     await this.routes.handleRequest(req, res, authResult.username);
   }
 

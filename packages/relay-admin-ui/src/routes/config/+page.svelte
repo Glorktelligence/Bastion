@@ -160,11 +160,22 @@ onMount(() => {
 	});
 });
 
+/** Validate URL protocol — only https:// and http:// allowed. */
+function isValidLinkUrl(url) {
+	if (!url) return true;
+	return /^https?:\/\//i.test(url.trim());
+}
+
 async function saveDisclosure() {
 	discSaving = true;
 	discError = '';
 	discSaved = false;
 	try {
+		if (discLink && !isValidLinkUrl(discLink)) {
+			discError = 'Disclosure link must use https:// or http:// protocol';
+			discSaving = false;
+			return;
+		}
 		const body = {
 			enabled: discEnabled, text: discText, style: discStyle,
 			position: discPosition, dismissible: discDismissible,
@@ -412,7 +423,7 @@ const DISC_STYLE_ICONS = { info: 'ℹ️', legal: '🤖', warning: '⚠️' };
 					<div class="disc-preview" style="background: color-mix(in srgb, {DISC_STYLE_COLORS[discStyle] ?? '#3b82f6'} 12%, transparent); border-left: 3px solid {DISC_STYLE_COLORS[discStyle] ?? '#3b82f6'};">
 						<span>{DISC_STYLE_ICONS[discStyle] ?? 'ℹ️'}</span>
 						<span>{discText.replace(/\{provider\}/g, 'Anthropic').replace(/\{model\}/g, 'Claude Sonnet 4.6')}</span>
-						{#if discLink && discLinkText}
+						{#if discLink && discLinkText && isValidLinkUrl(discLink)}
 							<a href={discLink} target="_blank" rel="noopener noreferrer" style="color: {DISC_STYLE_COLORS[discStyle] ?? '#3b82f6'}; margin-left: 0.5rem;">{discLinkText}</a>
 						{/if}
 						{#if discDismissible}

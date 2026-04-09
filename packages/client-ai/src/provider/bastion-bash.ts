@@ -17,7 +17,7 @@
  */
 
 import { execSync } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { normalize, resolve } from 'node:path';
 import type { FilePurgeManager } from '../files/purge.js';
 
@@ -424,12 +424,12 @@ export class BastionBash {
       }
     }
 
-    // Check for output redirection to paths outside workspace
-    const redirectMatch = commandString.match(/>\s*(\S+)/);
-    if (redirectMatch) {
-      const target = redirectMatch[1] ?? '';
+    // Check ALL output redirect operators (>, >>, 2>, 2>>, &>, &>>) for out-of-scope targets
+    const redirectMatches = commandString.matchAll(/(?:&>>|&>|2>>|2>|>>|>)\s*(\S+)/g);
+    for (const match of redirectMatches) {
+      const target = match[1] ?? '';
       if (!this.isWithinAllowedPaths(target)) {
-        return 'bash: access denied — cannot write outside managed workspace';
+        return 'bash: access denied — cannot redirect output outside managed workspace';
       }
     }
 
@@ -440,7 +440,16 @@ export class BastionBash {
     // Relative paths are resolved against current working directory
     const resolved = rawPath.startsWith('/') ? normalize(rawPath) : normalize(resolve(this.currentDir, rawPath));
 
-    return this.allowedPaths.some((base) => resolved.startsWith(base));
+    // Resolve symlinks to prevent traversal via symlink pointing outside workspace
+    let realPath: string;
+    try {
+      realPath = realpathSync(resolved);
+    } catch {
+      // Path doesn't exist yet (e.g., new file) — use the resolved path
+      realPath = resolved;
+    }
+
+    return this.allowedPaths.some((base) => realPath.startsWith(base));
   }
 
   private handleCd(commandString: string, startMs: number): CommandResult {
@@ -449,7 +458,15 @@ export class BastionBash {
 
     const resolved = target.startsWith('/') ? normalize(target) : normalize(resolve(this.currentDir, target));
 
-    if (!this.allowedPaths.some((base) => resolved.startsWith(base))) {
+    // Resolve symlinks to prevent traversal via symlink pointing outside workspace
+    let realResolved: string;
+    try {
+      realResolved = realpathSync(resolved);
+    } catch {
+      realResolved = resolved;
+    }
+
+    if (!this.allowedPaths.some((base) => realResolved.startsWith(base))) {
       return {
         command: commandString,
         tier: 1,
@@ -460,7 +477,7 @@ export class BastionBash {
       };
     }
 
-    if (!existsSync(resolved)) {
+    if (!existsSync(realResolved)) {
       return {
         command: commandString,
         tier: 1,
@@ -471,7 +488,7 @@ export class BastionBash {
       };
     }
 
-    this.currentDir = resolved;
+    this.currentDir = realResolved;
 
     this.auditLogger?.logEvent('BASH_COMMAND', null, {
       command: commandString.substring(0, 200),
@@ -485,7 +502,7 @@ export class BastionBash {
       command: commandString,
       tier: 1,
       success: true,
-      output: resolved,
+      output: realResolved,
       exitCode: 0,
       executionTimeMs: Date.now() - startMs,
     };

@@ -3339,6 +3339,34 @@ async function run() {
       delete globalThis.__bastionTestCtx;
     }
 
+    // Test 7b: H4 — Extension dispatch context includes filePurgeManager, recallHandler, bastionBash
+    {
+      const dir = join(testBase, 'context-h4');
+      const nsDir = join(dir, 'h4test');
+      mkdirSync(nsDir, { recursive: true });
+      writeFileSync(join(nsDir, 'handlers.js'), `
+        export function registerHandlers(dispatcher, context) {
+          globalThis.__bastionH4Ctx = context;
+          dispatcher.registerHandler('h4test:ping', async (ctx) => {
+            globalThis.__bastionH4DispatchCtx = ctx;
+          });
+        }
+      `);
+      const h4Ctx = {
+        filePurgeManager: { id: 'purge-mgr' },
+        recallHandler: { id: 'recall-handler' },
+        bastionBash: { id: 'bastion-bash' },
+        conversationManager: { id: 'conv-mgr' },
+      };
+      const d = new ExtensionDispatcher();
+      await loadExtensionHandlers(d, h4Ctx, dir);
+      check('H4: context includes filePurgeManager', globalThis.__bastionH4Ctx?.filePurgeManager?.id === 'purge-mgr');
+      check('H4: context includes recallHandler', globalThis.__bastionH4Ctx?.recallHandler?.id === 'recall-handler');
+      check('H4: context includes bastionBash', globalThis.__bastionH4Ctx?.bastionBash?.id === 'bastion-bash');
+      delete globalThis.__bastionH4Ctx;
+      delete globalThis.__bastionH4DispatchCtx;
+    }
+
     // Test 8: Multiple extensions load in one scan
     {
       const dir = join(testBase, 'multi');
@@ -4274,6 +4302,44 @@ async function run() {
       {
         const result = await bash.execute('');
         check('Empty command returns gracefully', result.exitCode === 0);
+      }
+
+      // --- H1: Symlink traversal rejected ---
+      {
+        const { symlinkSync, existsSync: existsCheck } = await import('node:fs');
+        const symlinkPath = join(bashWorkspace, 'sneaky-link');
+        try {
+          symlinkSync('/etc', symlinkPath);
+          if (existsCheck(symlinkPath)) {
+            const result = await bash.execute(`cat ${symlinkPath}/hostname`);
+            check('H1: symlink to /etc is rejected by scope check', result.success === false);
+            check('H1: symlink rejection mentions access denied', result.output.includes('access denied') || result.output.includes('outside managed workspace'));
+          } else {
+            // Symlink creation may fail on some platforms (e.g., Windows without privileges)
+            check('H1: symlink test skipped (creation failed)', true);
+          }
+        } catch {
+          // Symlink creation requires privileges on some OSes
+          check('H1: symlink test skipped (OS restriction)', true);
+        }
+      }
+
+      // --- H2: Output redirect to forbidden path is rejected ---
+      {
+        const r1 = await bash.execute('ls 2>/etc/shadow');
+        check('H2: stderr redirect to /etc rejected', r1.success === false);
+        check('H2: stderr redirect mentions access denied', r1.output.includes('access denied'));
+
+        const r2 = await bash.execute('ls &>/etc/passwd');
+        check('H2: combined redirect to /etc rejected', r2.success === false);
+
+        const r3 = await bash.execute('ls >>/etc/crontab');
+        check('H2: append redirect to /etc rejected', r3.success === false);
+
+        // Valid redirect within workspace should still work
+        const validTarget = join(bashWorkspace, 'redirect-test.txt');
+        const r4 = await bash.execute(`echo "ok" > ${validTarget}`);
+        check('H2: redirect within workspace allowed', r4.tier === 1);
       }
 
     } finally {

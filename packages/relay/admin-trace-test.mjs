@@ -386,10 +386,10 @@ async function run() {
     const port = server.boundPort;
     check('bound to a port', port > 0);
 
-    // GET requests are unauthenticated (read-only monitoring)
+    // GET requests now require authentication (H9 fix)
     const unauth = await adminRequest(port, 'GET', '/api/health', null, null);
-    check('unauthenticated GET → 200', unauth.status === 200);
-    check('health ok without auth', unauth.body.status === 'ok');
+    check('unauthenticated GET → 401', unauth.status === 401);
+    check('unauth GET reason', unauth.body.reason === 'missing_credentials');
 
     // POST without credentials → 401
     const unauthPost = await adminRequest(port, 'POST', '/api/providers', { id: 'test', name: 'Test' }, null);
@@ -1930,6 +1930,179 @@ async function run() {
     // After close, logEvent throws AuditLoggerError — but that's the "closed" check, not storage failure
     // To truly test storage failure, we'd need to corrupt the DB — instead verify the isDegraded flag exists
     check('isDegraded getter exists', typeof logger.isDegraded === 'boolean');
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: H8 — JWT replay detection (jti tracking)
+  // -------------------------------------------------------------------
+  console.log('--- H8: JWT jti replay detection ---');
+  {
+    const jwtSvc = new JwtService({ secret: randomBytes(32), issuer: 'bastion-relay' });
+
+    // Issue a token
+    const token1 = await jwtSvc.issueToken({
+      sub: 'test-client',
+      clientType: 'human',
+      sessionId: 'sess-1',
+      capabilities: ['send'],
+    });
+
+    // First validation should succeed
+    const v1 = await jwtSvc.validateToken(token1.jwt);
+    check('H8: first validation succeeds', v1.valid);
+
+    // Second validation of SAME token should fail (replay)
+    const v2 = await jwtSvc.validateToken(token1.jwt);
+    check('H8: duplicate jti rejected (replay detected)', !v2.valid);
+    check('H8: replay error message', !v2.valid && v2.message.includes('replay'));
+
+    // Different token with different jti should succeed
+    const token2 = await jwtSvc.issueToken({
+      sub: 'test-client',
+      clientType: 'human',
+      sessionId: 'sess-1',
+      capabilities: ['send'],
+    });
+    const v3 = await jwtSvc.validateToken(token2.jwt);
+    check('H8: different token validates', v3.valid);
+
+    jwtSvc.destroy();
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: H9 — Admin GET endpoints require authentication
+  // -------------------------------------------------------------------
+  console.log('--- H9: Admin GET endpoints require auth ---');
+  {
+    const { generateSelfSigned } = await import('./dist/index.js');
+    const tls = generateSelfSigned();
+    const testDb = join(process.env.TMPDIR || '/tmp', `bastion-h9-test-${randomUUID()}.db`);
+    const auditLogger = new AuditLogger({ store: { path: testDb } });
+    const providerRegistry = new ProviderRegistry();
+    const routes = new AdminRoutes({ providerRegistry, auditLogger });
+    const totpSecret = AdminAuth.generateTotpSecret();
+    const passwordHash = AdminAuth.hashPassword('H9-Test-Pass-123');
+    const auth = new AdminAuth({
+      accounts: [{ username: 'admin', passwordHash, totpSecret, active: true }],
+    });
+
+    const server = new AdminServer({
+      port: 0, host: '127.0.0.1', tls, auth, routes, auditLogger,
+    });
+    await server.start();
+    const port = server.boundPort;
+
+    try {
+      // GET /api/providers without auth should return 401
+      const r1 = await adminRequest(port, 'GET', '/api/providers');
+      check('H9: GET /api/providers without auth returns 401', r1.status === 401);
+
+      // GET /api/audit without auth should return 401
+      const r2 = await adminRequest(port, 'GET', '/api/audit');
+      check('H9: GET /api/audit without auth returns 401', r2.status === 401);
+
+      // GET /api/status without auth should return 401
+      const r3 = await adminRequest(port, 'GET', '/api/status');
+      check('H9: GET /api/status without auth returns 401', r3.status === 401);
+
+      // GET /api/connections without auth should return 401
+      const r4 = await adminRequest(port, 'GET', '/api/connections');
+      check('H9: GET /api/connections without auth returns 401', r4.status === 401);
+
+      // Now login to get a token and verify GET works with auth
+      const loginResult = await adminRequest(port, 'POST', '/api/admin/login', {
+        username: 'admin',
+        password: 'H9-Test-Pass-123',
+        totpCode: AdminAuth.generateTotpCode(totpSecret),
+      });
+      check('H9: login succeeds', loginResult.status === 200);
+      const token = loginResult.body.token;
+
+      // GET /api/providers with Bearer token should succeed
+      const r5 = await adminRequest(port, 'GET', '/api/providers', null, null, {
+        'Authorization': `Bearer ${token}`,
+      });
+      check('H9: GET /api/providers with auth returns 200', r5.status === 200);
+    } finally {
+      await server.shutdown();
+    }
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: H19 — Disclosure link XSS prevention
+  // -------------------------------------------------------------------
+  console.log('--- H19: Disclosure link XSS prevention ---');
+  {
+    const testDb = join(process.env.TMPDIR || '/tmp', `bastion-h19-test-${randomUUID()}.db`);
+    const auditLogger = new AuditLogger({ store: { path: testDb } });
+    const providerRegistry = new ProviderRegistry();
+    const routes = new AdminRoutes({ providerRegistry, auditLogger });
+
+    // Create a mock req/res for handleRequest
+    function mockReq(method, url, body) {
+      const bodyStr = body ? JSON.stringify(body) : '';
+      const req = {
+        method,
+        url,
+        headers: { host: 'localhost:9444', 'content-type': 'application/json' },
+        on(event, cb) {
+          if (event === 'data' && bodyStr) setTimeout(() => cb(Buffer.from(bodyStr)), 0);
+          if (event === 'end') setTimeout(cb, 10);
+        },
+      };
+      return req;
+    }
+
+    function mockRes() {
+      const res = { statusCode: 0, headers: {}, body: '' };
+      res.writeHead = (status, hdrs) => { res.statusCode = status; res.headers = hdrs; };
+      res.end = (data) => { res.body = data; };
+      return res;
+    }
+
+    // Test: javascript: URI in disclosure link should be rejected
+    const req1 = mockReq('PUT', '/api/disclosure', {
+      enabled: true,
+      text: 'Test disclosure',
+      link: 'javascript:alert("xss")',
+    });
+    const res1 = mockRes();
+    await routes.handleRequest(req1, res1, 'admin');
+    check('H19: javascript: URI rejected', res1.statusCode === 400);
+    check('H19: error mentions protocol', res1.body.includes('https://') || res1.body.includes('protocol'));
+
+    // Test: data: URI should also be rejected
+    const req2 = mockReq('PUT', '/api/disclosure', {
+      enabled: true,
+      text: 'Test',
+      link: 'data:text/html,<script>alert(1)</script>',
+    });
+    const res2 = mockRes();
+    await routes.handleRequest(req2, res2, 'admin');
+    check('H19: data: URI rejected', res2.statusCode === 400);
+
+    // Test: valid https:// link should be accepted
+    const req3 = mockReq('PUT', '/api/disclosure', {
+      enabled: true,
+      text: 'Test disclosure',
+      link: 'https://example.com/ai-policy',
+    });
+    const res3 = mockRes();
+    await routes.handleRequest(req3, res3, 'admin');
+    check('H19: https:// link accepted', res3.statusCode === 200);
+
+    // Test: empty link is fine (optional)
+    const req4 = mockReq('PUT', '/api/disclosure', {
+      enabled: true,
+      text: 'Test',
+      link: '',
+    });
+    const res4 = mockRes();
+    await routes.handleRequest(req4, res4, 'admin');
+    check('H19: empty link accepted', res4.statusCode === 200);
   }
   console.log();
 

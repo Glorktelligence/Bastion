@@ -469,12 +469,17 @@ export const e2eStatus: Writable<{ available: boolean; active: boolean }> = writ
   active: false,
 });
 
-/** Messages that must stay plaintext — relay control, pre-key-exchange, or relay-routed file transfers. */
+/**
+ * Messages that must stay plaintext — relay control, pre-key-exchange, or relay-routed file transfers.
+ * NOTE: audit_response and token_refresh are NOT in this set — they carry sensitive data
+ * (audit history, JWTs) and must be encrypted when sent through the E2E channel.
+ * Relay-generated responses (audit_response, session_established) travel over TLS only
+ * since the relay is zero-knowledge about E2E keys — this is a known architectural limitation.
+ */
 const PLAINTEXT_TYPES = new Set([
   'session_init',
   'session_established',
   'key_exchange',
-  'token_refresh',
   'ping',
   'pong',
   'peer_status',

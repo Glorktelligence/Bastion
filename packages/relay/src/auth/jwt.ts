@@ -66,7 +66,7 @@ export type JwtRefreshResult =
   | { readonly refreshed: false; readonly error: JwtErrorCode; readonly message: string };
 
 /** Error codes for JWT operations. */
-export type JwtErrorCode = 'expired' | 'invalid' | 'malformed' | 'secret_too_short';
+export type JwtErrorCode = 'expired' | 'invalid' | 'malformed' | 'secret_too_short' | 'replay';
 
 // ---------------------------------------------------------------------------
 // Defaults
@@ -95,6 +95,10 @@ export class JwtService {
   private readonly issuer: string;
   private readonly expiryMs: number;
   private readonly secret: Uint8Array;
+  /** Seen JTI values — prevents replay within the token's validity window. */
+  private readonly seenJtis: Map<string, number> = new Map();
+  /** Cleanup interval handle for expired JTI entries. */
+  private readonly jtiCleanupTimer: ReturnType<typeof setInterval>;
 
   constructor(config: JwtConfig) {
     if (config.secret.length < MIN_SECRET_LENGTH) {
@@ -106,6 +110,10 @@ export class JwtService {
     this.issuer = config.issuer;
     this.expiryMs = config.expiryMs ?? DEFAULT_EXPIRY_MS;
     this.secret = config.secret;
+
+    // Clean up expired JTI entries every 5 minutes
+    this.jtiCleanupTimer = setInterval(() => this.cleanupExpiredJtis(), 5 * 60 * 1000);
+    this.jtiCleanupTimer.unref();
   }
 
   /**
@@ -163,6 +171,17 @@ export class JwtService {
         issuer: this.issuer,
       });
 
+      // Check for JTI replay — reject tokens with previously seen jti values
+      const jti = payload.jti as string | undefined;
+      if (jti) {
+        if (this.seenJtis.has(jti)) {
+          return { valid: false, error: 'invalid', message: 'JWT replay detected — jti already used' };
+        }
+        // Track this jti with its expiry time for cleanup
+        const expTime = typeof payload.exp === 'number' ? payload.exp * 1000 : Date.now() + this.expiryMs;
+        this.seenJtis.set(jti, expTime);
+      }
+
       const claims: BastionJwtClaims = {
         sub: payload.sub ?? '',
         iss: payload.iss ?? '',
@@ -217,6 +236,22 @@ export class JwtService {
     });
 
     return { refreshed: true, token: newToken };
+  }
+
+  /** Remove expired JTI entries from the tracking set. */
+  private cleanupExpiredJtis(): void {
+    const now = Date.now();
+    for (const [jti, expiresAt] of this.seenJtis) {
+      if (expiresAt <= now) {
+        this.seenJtis.delete(jti);
+      }
+    }
+  }
+
+  /** Stop the cleanup timer (for graceful shutdown). */
+  destroy(): void {
+    clearInterval(this.jtiCleanupTimer);
+    this.seenJtis.clear();
   }
 }
 
