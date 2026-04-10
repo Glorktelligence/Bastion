@@ -392,10 +392,13 @@ export class ConversationStore {
     return { id, conversationId, fromMessageId, toMessageId, summary, messagesCovered, tokensSaved, createdAt: ts };
   }
 
-  /** Get the most recent compaction summary for a conversation. */
+  /**
+   * Get the most recent compaction summary for a conversation.
+   * Uses rowid ordering for deterministic results when timestamps collide.
+   */
   getLatestCompaction(conversationId: string): CompactionSummary | null {
     const row = this.db
-      .prepare('SELECT * FROM compaction_summaries WHERE conversationId = ? ORDER BY createdAt DESC LIMIT 1')
+      .prepare('SELECT * FROM compaction_summaries WHERE conversationId = ? ORDER BY rowid DESC LIMIT 1')
       .get(conversationId) as Record<string, unknown> | undefined;
     if (!row) return null;
     return {
@@ -410,13 +413,17 @@ export class ConversationStore {
     };
   }
 
-  /** Get non-pinned messages older than the most recent N, for compaction. */
+  /**
+   * Get non-pinned messages older than the most recent N, for compaction.
+   * Uses rowid ordering to reliably identify older messages even when
+   * timestamps collide (messages inserted in the same millisecond).
+   */
   getCompactableMessages(conversationId: string, keepRecent = 50): MessageRecord[] {
     const rows = this.db
       .prepare(
         `SELECT * FROM messages WHERE conversationId = ? AND pinned = 0
-         AND timestamp < (SELECT timestamp FROM messages WHERE conversationId = ? ORDER BY timestamp DESC LIMIT 1 OFFSET ?)
-         ORDER BY timestamp ASC`,
+         AND rowid < (SELECT rowid FROM messages WHERE conversationId = ? ORDER BY rowid DESC LIMIT 1 OFFSET ?)
+         ORDER BY rowid ASC`,
       )
       .all(conversationId, conversationId, keepRecent - 1) as Record<string, unknown>[];
     return rows.map((r) => this.mapMessage(r));
