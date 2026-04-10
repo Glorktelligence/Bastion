@@ -1,3 +1,9 @@
+---
+name: security-patterns
+description: Security patterns for Bastion — E2E encryption, authentication, file airlock, MaliClaw Clause, content scanning, tool governance. Read before implementing any security-sensitive code.
+user-invocable: false
+---
+
 # Security Patterns - Encryption, Auth, File Airlock
 
 **Read this before implementing any security-sensitive code.**

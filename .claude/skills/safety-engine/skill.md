@@ -1,3 +1,9 @@
+---
+name: safety-engine
+description: Three-layer safety evaluation engine — immutable boundaries, contextual challenges, completeness checks. Read before implementing or modifying any safety-related code.
+user-invocable: false
+---
+
 # Safety Engine - Three-Layer Evaluation
 
 **Read this before implementing or modifying any safety-related code.**

@@ -1,3 +1,10 @@
+---
+name: checkpoint
+description: Save work progress with commit, checkpoint note, and resume instructions. Use when context is filling up or before complex work.
+disable-model-invocation: true
+allowed-tools: Bash(git add *) Bash(git commit *) Bash(git push *) Bash(git status *) Bash(git log *)
+---
+
 # Checkpoint - Context Management
 
 **Read this when context is filling up or before starting complex work.**

@@ -1,3 +1,9 @@
+---
+name: project-context
+description: Bastion project architecture, package structure, protocol types, immutable boundaries, and infrastructure layout. Background knowledge for all Bastion work.
+user-invocable: false
+---
+
 # Project Context - Bastion Architecture
 
 **Quick reference for project structure, capabilities, and patterns.**

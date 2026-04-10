@@ -1,3 +1,10 @@
+---
+name: plan-mode
+description: Plan implementation before writing code — break tasks into subtasks, identify packages, check dependencies. Use before complex multi-package work.
+disable-model-invocation: true
+allowed-tools: Bash(git status *) Bash(git log *) Bash(git diff *) Read Glob Grep
+---
+
 # Plan Mode - Implementation Planning
 
 **Read this BEFORE any implementation work.**

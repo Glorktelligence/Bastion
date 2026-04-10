@@ -1,3 +1,9 @@
+---
+name: protocol-design
+description: Protocol design patterns for Bastion — message types, Zod schemas, Protocol First principle. Read before creating or modifying any message types.
+user-invocable: false
+---
+
 # Protocol Design - Message Types & Schemas
 
 **Read this before creating or modifying any message types.**

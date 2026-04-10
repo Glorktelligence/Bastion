@@ -1,3 +1,9 @@
+---
+name: implementation
+description: Implementation standards for Bastion — code quality, naming conventions, wiring patterns, completion checklists. Read before writing any code.
+allowed-tools: Bash(pnpm build *) Bash(pnpm lint *) Bash(pnpm test *) Bash(git status *) Bash(git diff *)
+---
+
 # Implementation Standards
 
 **Read this before writing any code.**

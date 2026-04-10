@@ -1,3 +1,9 @@
+---
+name: git-workflow
+description: Git workflow for Bastion — commit conventions, attribution, version bumps, doc updates. Read before completing any task that results in a commit.
+allowed-tools: Bash(git add *) Bash(git commit *) Bash(git push *) Bash(git status *) Bash(git log *) Bash(git diff *) Bash(pnpm lint *) Bash(pnpm test *) Bash(pnpm build *) Bash(pnpm run version:sync *)
+---
+
 # Git Workflow
 
 **Read this before completing any task.**
