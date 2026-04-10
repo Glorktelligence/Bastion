@@ -1,6 +1,6 @@
 <script>
-/** @type {{ provider: import('../types.js').ProviderWithCapabilities }} */
-const { provider } = $props();
+/** @type {{ provider: import('../types.js').ProviderWithCapabilities, onRevoke?: (id: string, name: string) => void, onActivate?: (id: string, name: string) => void }} */
+const { provider, onRevoke, onActivate } = $props();
 </script>
 
 <div class="provider-card" class:inactive={!provider.active}>
@@ -30,6 +30,14 @@ const { provider } = $props();
 			<span class="label">Max Tasks</span>
 			<span class="value">{provider.capabilityMatrix.maxConcurrentTasks}</span>
 		</div>
+	</div>
+	<div class="actions">
+		{#if provider.active && onRevoke}
+			<button class="btn-revoke" onclick={() => onRevoke(provider.id, provider.name)}>Revoke</button>
+		{/if}
+		{#if !provider.active && onActivate}
+			<button class="btn-activate" onclick={() => onActivate(provider.id, provider.name)}>Activate</button>
+		{/if}
 	</div>
 </div>
 
@@ -101,5 +109,43 @@ const { provider } = $props();
 
 	.detail-row .value {
 		color: var(--text-secondary);
+	}
+
+	.actions {
+		margin-top: 0.75rem;
+		padding-top: 0.5rem;
+		border-top: 1px solid var(--border-default);
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.btn-revoke {
+		padding: 0.25rem 0.625rem;
+		border-radius: 0.25rem;
+		border: 1px solid var(--status-error, #ef4444);
+		background: transparent;
+		color: var(--status-error, #ef4444);
+		font-size: 0.75rem;
+		font-weight: 500;
+		cursor: pointer;
+	}
+
+	.btn-revoke:hover {
+		background: color-mix(in srgb, var(--status-error) 15%, transparent);
+	}
+
+	.btn-activate {
+		padding: 0.25rem 0.625rem;
+		border-radius: 0.25rem;
+		border: 1px solid var(--status-success, #22c55e);
+		background: transparent;
+		color: var(--status-success, #22c55e);
+		font-size: 0.75rem;
+		font-weight: 500;
+		cursor: pointer;
+	}
+
+	.btn-activate:hover {
+		background: color-mix(in srgb, var(--status-success) 15%, transparent);
 	}
 </style>

@@ -4,6 +4,7 @@
 
 import { onMount } from 'svelte';
 import ConfigPanel from '$lib/components/ConfigPanel.svelte';
+import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 import { createConfigStore } from '$lib/stores/config.js';
 import { createSharedService } from '$lib/api/service-instance.js';
 
@@ -198,6 +199,32 @@ async function saveDisclosure() {
 
 const DISC_STYLE_COLORS = { info: '#3b82f6', legal: '#6b7280', warning: '#f59e0b' };
 const DISC_STYLE_ICONS = { info: 'ℹ️', legal: '🤖', warning: '⚠️' };
+
+// --- Confirmation dialog state ---
+let confirmOpen = $state(false);
+let confirmTitle = $state('');
+let confirmMessage = $state('');
+let confirmLabel = $state('');
+let confirmDestructive = $state(false);
+let confirmAction = $state(() => {});
+
+function requestSaveChallengeConfig() {
+	confirmTitle = 'Update Challenge Configuration';
+	confirmMessage = 'Update challenge hours and budget configuration? Changes take effect immediately.';
+	confirmLabel = 'Update';
+	confirmDestructive = false;
+	confirmAction = () => { confirmOpen = false; saveChallengeConfig(); };
+	confirmOpen = true;
+}
+
+function requestSaveDisclosure() {
+	confirmTitle = 'Update Disclosure Configuration';
+	confirmMessage = 'Update AI disclosure banner configuration? Changes take effect immediately for all connected clients.';
+	confirmLabel = 'Update';
+	confirmDestructive = false;
+	confirmAction = () => { confirmOpen = false; saveDisclosure(); };
+	confirmOpen = true;
+}
 </script>
 
 <div class="config-page">
@@ -353,7 +380,7 @@ const DISC_STYLE_ICONS = { info: 'ℹ️', legal: '🤖', warning: '⚠️' };
 					<p class="error">{chalError}</p>
 				{/if}
 
-				<button class="disc-save" onclick={saveChallengeConfig} disabled={chalSaving || chalActive}>
+				<button class="disc-save" onclick={requestSaveChallengeConfig} disabled={chalSaving || chalActive}>
 					{chalSaving ? 'Saving...' : chalSaved ? 'Saved!' : chalActive ? 'Blocked — Challenge Hours Active' : 'Save Challenge Config'}
 				</button>
 			</div>
@@ -436,13 +463,23 @@ const DISC_STYLE_ICONS = { info: 'ℹ️', legal: '🤖', warning: '⚠️' };
 					<p class="error">{discError}</p>
 				{/if}
 
-				<button class="disc-save" onclick={saveDisclosure} disabled={discSaving}>
+				<button class="disc-save" onclick={requestSaveDisclosure} disabled={discSaving}>
 					{discSaving ? 'Saving...' : discSaved ? 'Saved!' : 'Save Disclosure Config'}
 				</button>
 			</div>
 		</div>
 	{/if}
 </div>
+
+<ConfirmDialog
+	open={confirmOpen}
+	title={confirmTitle}
+	message={confirmMessage}
+	confirmLabel={confirmLabel}
+	destructive={confirmDestructive}
+	onConfirm={confirmAction}
+	onCancel={() => { confirmOpen = false; }}
+/>
 
 <style>
 	.config-page h2 {

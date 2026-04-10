@@ -3,6 +3,7 @@
 // List, approve, revoke, view/edit capability matrix
 
 import ProviderCard from '$lib/components/ProviderCard.svelte';
+import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 import { createProvidersStore } from '$lib/stores/providers.js';
 import { createSharedService } from '$lib/api/service-instance.js';
 
@@ -13,6 +14,38 @@ let showApproveForm = $state(false);
 let approveId = $state('');
 let approveName = $state('');
 let approving = $state(false);
+
+// Confirmation dialog state
+let confirmOpen = $state(false);
+let confirmTitle = $state('');
+let confirmMessage = $state('');
+let confirmLabel = $state('');
+let confirmDestructive = $state(false);
+let confirmAction = $state(() => {});
+
+function requestRevoke(id, name) {
+	confirmTitle = 'Revoke Provider';
+	confirmMessage = `Revoke provider '${name}'? This will disconnect all active sessions for this provider.`;
+	confirmLabel = 'Revoke';
+	confirmDestructive = true;
+	confirmAction = async () => {
+		confirmOpen = false;
+		await service.revokeProvider(providers, id);
+	};
+	confirmOpen = true;
+}
+
+function requestActivate(id, name) {
+	confirmTitle = 'Activate Provider';
+	confirmMessage = `Reactivate provider '${name}'? This will allow new connections from this provider.`;
+	confirmLabel = 'Activate';
+	confirmDestructive = false;
+	confirmAction = async () => {
+		confirmOpen = false;
+		await service.activateProvider(providers, id);
+	};
+	confirmOpen = true;
+}
 
 async function handleApprove() {
 	if (!approveId.trim() || !approveName.trim()) return;
@@ -90,7 +123,7 @@ $effect(() => {
 	{#if state.providers.length > 0}
 		<div class="provider-grid">
 			{#each state.providers as provider}
-				<ProviderCard {provider} />
+				<ProviderCard {provider} onRevoke={requestRevoke} onActivate={requestActivate} />
 			{/each}
 		</div>
 	{:else}
@@ -99,6 +132,16 @@ $effect(() => {
 		</div>
 	{/if}
 </div>
+
+<ConfirmDialog
+	open={confirmOpen}
+	title={confirmTitle}
+	message={confirmMessage}
+	confirmLabel={confirmLabel}
+	destructive={confirmDestructive}
+	onConfirm={confirmAction}
+	onCancel={() => { confirmOpen = false; }}
+/>
 
 <style>
 	.providers-page h2 {

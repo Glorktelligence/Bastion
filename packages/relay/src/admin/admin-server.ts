@@ -390,6 +390,30 @@ export class AdminServer {
       return true;
     }
 
+    if (method === 'POST' && path === '/api/admin/refresh') {
+      const bearer = this.extractBearer(req);
+      if (!bearer) {
+        this.sendJson(res, 401, { error: 'No token provided' });
+        return true;
+      }
+      const verified = this.verifySessionJwt(bearer);
+      if (!verified.valid) {
+        this.sendJson(res, 401, { error: 'Invalid or expired token', reason: verified.reason });
+        return true;
+      }
+      // Revoke old token and issue a fresh one
+      this.revokedSessions.add(verified.jti);
+      const session = this.issueSessionJwt(verified.username);
+      if (this.audit) {
+        this.audit.logEvent('auth_token_refresh', 'admin', {
+          username: verified.username,
+          method: 'admin_session_refresh',
+        });
+      }
+      this.sendJson(res, 200, { ok: true, token: session.token, expiresAt: session.expiresAt });
+      return true;
+    }
+
     return false;
   }
 

@@ -11,6 +11,10 @@ const { children } = $props();
 let authState = $state('loading'); // 'loading' | 'setup' | 'login' | 'authenticated'
 let authError = $state('');
 
+// Session expiry warning
+let sessionWarning = $state('');
+let sessionTimerId = $state(null);
+
 const client = new AdminApiClient({
 	baseUrl: '',
 	credentials: { username: '', password: '', totpCode: '' },
@@ -25,6 +29,65 @@ $effect(() => {
 	}
 	return () => {};
 });
+
+// Session expiry monitoring — starts when authenticated, stops on logout
+$effect(() => {
+	if (authState === 'authenticated') {
+		startSessionMonitor();
+	} else {
+		stopSessionMonitor();
+	}
+	return () => { stopSessionMonitor(); };
+});
+
+function startSessionMonitor() {
+	stopSessionMonitor();
+	sessionTimerId = setInterval(checkSessionExpiry, 10_000); // Check every 10s
+}
+
+function stopSessionMonitor() {
+	if (sessionTimerId !== null) {
+		clearInterval(sessionTimerId);
+		sessionTimerId = null;
+	}
+	sessionWarning = '';
+}
+
+async function checkSessionExpiry() {
+	const remaining = client.getSessionRemainingMs();
+	if (remaining === null) return;
+
+	// Auto-refresh 1 minute before expiry
+	if (remaining <= 60_000 && remaining > 0) {
+		const result = await client.refresh();
+		if (result.ok) {
+			sessionWarning = '';
+			return;
+		}
+		// Refresh failed — redirect to login
+		stopSessionMonitor();
+		sessionWarning = '';
+		authState = 'login';
+		authError = 'Session expired — please log in again';
+		return;
+	}
+
+	// Show warning 2 minutes before expiry
+	if (remaining <= 120_000 && remaining > 60_000) {
+		const mins = Math.ceil(remaining / 60_000);
+		sessionWarning = `Session expiring in ${mins} minute${mins === 1 ? '' : 's'} — save your work`;
+	} else {
+		sessionWarning = '';
+	}
+
+	// Session already expired
+	if (remaining <= 0) {
+		stopSessionMonitor();
+		sessionWarning = '';
+		authState = 'login';
+		authError = 'Session expired — please log in again';
+	}
+}
 
 async function checkAdminStatus() {
 	try {
@@ -50,6 +113,7 @@ async function handleLogin(username, password, totpCode) {
 	const result = await client.login(username, password, totpCode);
 	if (result.ok) {
 		authState = 'authenticated';
+		authError = '';
 		return null;
 	}
 	const d = result.data;
@@ -69,6 +133,7 @@ async function handleSetupComplete(username, password, totpSecret, totpCode) {
 }
 
 async function handleLogout() {
+	stopSessionMonitor();
 	await client.logout();
 	authState = 'login';
 }
@@ -82,7 +147,13 @@ async function handleLogout() {
 	<SetupWizard onSetupComplete={handleSetupComplete} />
 {:else if authState === 'login'}
 	<LoginPage onLogin={handleLogin} />
+	{#if authError}
+		<div class="auth-error-banner">{authError}</div>
+	{/if}
 {:else}
+	{#if sessionWarning}
+		<div class="session-warning">{sessionWarning}</div>
+	{/if}
 	<div class="admin-layout">
 		<nav class="sidebar">
 			<div class="sidebar-header">
@@ -200,5 +271,35 @@ async function handleLogout() {
 		min-height: 100vh;
 		color: var(--text-muted, #666);
 		font-size: 0.9rem;
+	}
+
+	.session-warning {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		z-index: 900;
+		padding: 0.5rem 1rem;
+		background: color-mix(in srgb, var(--status-warning, #f59e0b) 20%, var(--bg-surface, #1a2740));
+		color: var(--status-warning, #f59e0b);
+		text-align: center;
+		font-size: 0.8rem;
+		font-weight: 500;
+		border-bottom: 1px solid var(--status-warning, #f59e0b);
+	}
+
+	.auth-error-banner {
+		position: fixed;
+		bottom: 2rem;
+		left: 50%;
+		transform: translateX(-50%);
+		padding: 0.625rem 1.25rem;
+		background: color-mix(in srgb, var(--status-error, #ef4444) 20%, var(--bg-surface, #1a2740));
+		color: var(--status-error, #ef4444);
+		border: 1px solid var(--status-error, #ef4444);
+		border-radius: 0.375rem;
+		font-size: 0.8rem;
+		font-weight: 500;
+		z-index: 900;
 	}
 </style>

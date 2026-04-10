@@ -976,6 +976,157 @@ await group('DataService: fetchConfig populates config store', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Test 22: Session token expiry tracking
+// ---------------------------------------------------------------------------
+await group('API client: session token expiry tracking', async () => {
+  const client = new AdminApiClient({
+    baseUrl: 'https://127.0.0.1:9444',
+    credentials: { username: 'admin', password: 'pass', totpCode: '123456' },
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({}) }),
+  });
+
+  // No session initially
+  check(client.getSessionExpiresAt() === null, 'no session → expiresAt null');
+  check(client.getSessionRemainingMs() === null, 'no session → remainingMs null');
+
+  // Set session expiring in 30 minutes
+  const future = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  client.setSessionToken('test-token', future);
+  check(client.hasSession === true, 'session set and valid');
+  check(client.getSessionExpiresAt() !== null, 'expiresAt set');
+
+  const remaining = client.getSessionRemainingMs();
+  check(remaining !== null && remaining > 0, 'remaining > 0 for future expiry');
+  check(remaining <= 30 * 60 * 1000, 'remaining <= 30 minutes');
+
+  // Set an already-expired session
+  const past = new Date(Date.now() - 1000).toISOString();
+  client.setSessionToken('expired-token', past);
+  check(client.hasSession === false, 'expired session → hasSession false');
+  check(client.getSessionRemainingMs() === 0, 'expired session → remainingMs 0');
+
+  // Clear session
+  client.clearSessionToken();
+  check(client.getSessionExpiresAt() === null, 'cleared → expiresAt null');
+  check(client.getSessionRemainingMs() === null, 'cleared → remainingMs null');
+});
+
+// ---------------------------------------------------------------------------
+// Test 23: Session token refresh via API
+// ---------------------------------------------------------------------------
+await group('API client: session refresh exchanges token', async () => {
+  const requests = [];
+  const mockFetch = async (url, opts) => {
+    requests.push({ url, opts });
+    if (url.includes('/api/admin/refresh')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ok: true,
+          token: 'new-fresh-token',
+          expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+        }),
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  const client = new AdminApiClient({
+    baseUrl: 'https://127.0.0.1:9444',
+    credentials: { username: 'admin', password: 'pass', totpCode: '123456' },
+    fetchImpl: mockFetch,
+  });
+
+  // Set initial session
+  const initial = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+  client.setSessionToken('old-token', initial);
+  check(client.hasSession === true, 'initial session valid');
+
+  // Refresh
+  const result = await client.refresh();
+  check(result.ok === true, 'refresh succeeded');
+  check(requests.some(r => r.url.includes('/api/admin/refresh')), 'refresh endpoint called');
+  check(requests.find(r => r.url.includes('/api/admin/refresh'))?.opts.method === 'POST', 'refresh uses POST');
+
+  // Verify new token was set
+  check(client.hasSession === true, 'session still valid after refresh');
+  const newRemaining = client.getSessionRemainingMs();
+  check(newRemaining !== null && newRemaining > 25 * 60 * 1000, 'new token has ~30 min remaining');
+});
+
+// ---------------------------------------------------------------------------
+// Test 24: Session refresh failure does not set token
+// ---------------------------------------------------------------------------
+await group('API client: failed refresh preserves state', async () => {
+  const failFetch = async (url) => {
+    if (url.includes('/api/admin/refresh')) {
+      return {
+        ok: false,
+        status: 401,
+        json: async () => ({ error: 'Invalid or expired token', reason: 'expired' }),
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  const client = new AdminApiClient({
+    baseUrl: 'https://127.0.0.1:9444',
+    credentials: { username: 'admin', password: 'pass', totpCode: '123456' },
+    fetchImpl: failFetch,
+  });
+
+  // Set a session that's about to expire
+  const nearFuture = new Date(Date.now() + 30 * 1000).toISOString();
+  client.setSessionToken('expiring-token', nearFuture);
+  const expiryBefore = client.getSessionExpiresAt();
+
+  const result = await client.refresh();
+  check(result.ok === false, 'refresh failed');
+  check(result.status === 401, 'status 401');
+
+  // Token should NOT have been updated (no new token in failed response)
+  check(client.getSessionExpiresAt() === expiryBefore, 'expiry unchanged after failed refresh');
+});
+
+// ---------------------------------------------------------------------------
+// Test 25: Login sets session and tracks expiry
+// ---------------------------------------------------------------------------
+await group('API client: login sets session with expiry tracking', async () => {
+  const loginExpiry = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  const mockFetch = async (url, opts) => {
+    if (url.includes('/api/admin/login')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ok: true,
+          token: 'login-session-token',
+          expiresAt: loginExpiry,
+        }),
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  const client = new AdminApiClient({
+    baseUrl: 'https://127.0.0.1:9444',
+    credentials: { username: 'admin', password: 'pass', totpCode: '123456' },
+    fetchImpl: mockFetch,
+  });
+
+  check(client.hasSession === false, 'no session before login');
+  check(client.getSessionExpiresAt() === null, 'no expiry before login');
+
+  await client.login('admin', 'securepass', '123456');
+  check(client.hasSession === true, 'session set after login');
+  check(client.getSessionExpiresAt() !== null, 'expiry tracked after login');
+
+  const remaining = client.getSessionRemainingMs();
+  check(remaining !== null && remaining > 0, 'remaining time positive after login');
+});
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 

@@ -85,6 +85,17 @@ export class AdminApiClient {
     return this.sessionToken !== null && (this.sessionExpiresAt === null || Date.now() < this.sessionExpiresAt);
   }
 
+  /** Get the session expiry timestamp in milliseconds, or null if no session. */
+  getSessionExpiresAt(): number | null {
+    return this.sessionExpiresAt;
+  }
+
+  /** Milliseconds remaining until the session expires, or null if no session. */
+  getSessionRemainingMs(): number | null {
+    if (this.sessionExpiresAt === null) return null;
+    return Math.max(0, this.sessionExpiresAt - Date.now());
+  }
+
   /** Restore session from sessionStorage if available and not expired. */
   private restoreSession(): void {
     try {
@@ -293,6 +304,16 @@ export class AdminApiClient {
   async logout(): Promise<ApiResult> {
     const result = await this.request('POST', '/api/admin/logout');
     this.clearSessionToken();
+    return result;
+  }
+
+  /** Refresh session token — exchanges current token for a fresh one. */
+  async refresh(): Promise<ApiResult> {
+    const result = await this.request('POST', '/api/admin/refresh');
+    if (result.ok) {
+      const d = result.data as { token: string; expiresAt: string };
+      if (d.token) this.setSessionToken(d.token, d.expiresAt);
+    }
     return result;
   }
 

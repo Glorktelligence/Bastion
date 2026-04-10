@@ -3,6 +3,7 @@
 // MaliClaw entries (immutable) + custom blocked identifiers
 
 import BlocklistTable from '$lib/components/BlocklistTable.svelte';
+import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 import { createBlocklistStore } from '$lib/stores/blocklist.js';
 
 const blocklist = createBlocklistStore();
@@ -19,6 +20,10 @@ let maliClawCount = $state(blocklist.maliClawCount.get());
 let newEntryId = $state('');
 let addError = $state('');
 
+// Confirmation dialog state
+let confirmOpen = $state(false);
+let pendingRemoveId = $state('');
+
 function handleAddEntry() {
 	const id = newEntryId.trim();
 	if (!id) return;
@@ -33,8 +38,15 @@ function handleAddEntry() {
 	}
 }
 
-function handleRemoveEntry(id) {
-	blocklist.removeCustomEntry(id);
+function requestRemoveEntry(id) {
+	pendingRemoveId = id;
+	confirmOpen = true;
+}
+
+function confirmRemoveEntry() {
+	confirmOpen = false;
+	blocklist.removeCustomEntry(pendingRemoveId);
+	pendingRemoveId = '';
 }
 
 $effect(() => {
@@ -68,9 +80,19 @@ $effect(() => {
 	<BlocklistTable
 		maliClawEntries={state.maliClawEntries}
 		customEntries={state.customEntries}
-		onRemove={handleRemoveEntry}
+		onRemove={requestRemoveEntry}
 	/>
 </div>
+
+<ConfirmDialog
+	open={confirmOpen}
+	title="Remove Blocklist Entry"
+	message={`Remove '${pendingRemoveId}' from blocklist? This provider will be able to connect again.`}
+	confirmLabel="Remove"
+	destructive={true}
+	onConfirm={confirmRemoveEntry}
+	onCancel={() => { confirmOpen = false; pendingRemoveId = ''; }}
+/>
 
 <style>
 	.blocklist-page h2 {
