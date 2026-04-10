@@ -676,6 +676,10 @@ console.log('[✓] Data eraser initialised (GDPR Article 17)');
 // Extension handler loading — all services now available for context
 // ---------------------------------------------------------------------------
 
+// ToolRegistryManager — must be created before extension context
+const toolRegistry = new ToolRegistryManager({ dateTimeManager });
+toolRegistry.setActiveConversation(activeConversationId);
+
 const extensionContext = {
   conversationStore,
   conversationManager,
@@ -1017,9 +1021,7 @@ async function sendSecure(envelope) {
 // Tool registry + MCP adapters
 // ---------------------------------------------------------------------------
 
-const toolRegistry = new ToolRegistryManager({ dateTimeManager });
-// Sync tool trust scope to the active conversation
-toolRegistry.setActiveConversation(activeConversationId);
+// toolRegistry — moved earlier, before extension context (was at line ~1020)
 const mcpAdapters = new Map(); // providerId → McpClientAdapter
 const pendingToolRequests = new Map(); // requestId → { toolId, params, resolve, reject }
 
