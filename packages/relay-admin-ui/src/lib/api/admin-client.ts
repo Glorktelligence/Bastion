@@ -318,6 +318,29 @@ export class AdminApiClient {
   }
 
   // -------------------------------------------------------------------------
+  // Extensions
+  // -------------------------------------------------------------------------
+
+  /** List all loaded extensions. */
+  async listExtensions(): Promise<ApiResult> {
+    return this.request('GET', '/api/extensions');
+  }
+
+  /** Get full detail for a specific extension by namespace. */
+  async getExtension(namespace: string): Promise<ApiResult> {
+    return this.request('GET', `/api/extensions/${encodeURIComponent(namespace)}`);
+  }
+
+  // -------------------------------------------------------------------------
+  // Tools
+  // -------------------------------------------------------------------------
+
+  /** List registered tools. */
+  async listTools(): Promise<ApiResult> {
+    return this.request('GET', '/api/tools');
+  }
+
+  // -------------------------------------------------------------------------
   // AI Disclosure
   // -------------------------------------------------------------------------
 

@@ -160,6 +160,85 @@ export interface ChainIntegritySummary {
 }
 
 // ---------------------------------------------------------------------------
+// Extension types
+// ---------------------------------------------------------------------------
+
+/** Extension summary from GET /api/extensions. */
+export interface ExtensionSummary {
+  readonly namespace: string;
+  readonly name: string;
+  readonly version: string;
+  readonly description: string;
+  readonly author: string;
+  readonly messageTypeCount: number;
+}
+
+/** Extension message type detail from GET /api/extensions/:namespace. */
+export interface ExtensionMessageTypeView {
+  readonly name: string;
+  readonly description: string;
+  readonly safety: string;
+  readonly direction?: string;
+}
+
+/** Extension UI component detail. */
+export interface ExtensionUIComponentView {
+  readonly id: string;
+  readonly name: string;
+  readonly placement: string;
+  readonly size: string;
+}
+
+/** Extension conversation renderer detail. */
+export interface ExtensionConversationRendererView {
+  readonly messageType: string;
+  readonly style: string;
+}
+
+/** Full extension detail from GET /api/extensions/:namespace. */
+export interface ExtensionDetail {
+  readonly namespace: string;
+  readonly name: string;
+  readonly version: string;
+  readonly description: string;
+  readonly author: string;
+  readonly messageTypes: readonly ExtensionMessageTypeView[];
+  readonly dependencies?: readonly string[];
+  readonly uiComponents: readonly ExtensionUIComponentView[];
+  readonly conversationRenderers: readonly ExtensionConversationRendererView[];
+}
+
+// ---------------------------------------------------------------------------
+// Tool types
+// ---------------------------------------------------------------------------
+
+/** Tool entry from GET /api/tools. */
+export interface ToolEntry {
+  readonly name: string;
+  readonly description: string;
+  readonly source: string;
+  readonly category: string;
+  readonly dangerous: boolean;
+  readonly trustLevel: string;
+}
+
+/** Tool provider from GET /api/tools. */
+export interface ToolProviderEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly endpoint: string;
+  readonly authType: string;
+  readonly tools: readonly ToolEntry[];
+}
+
+/** Tools API response. */
+export interface ToolsResponse {
+  readonly providers: readonly ToolProviderEntry[];
+  readonly totalTools: number;
+  readonly message: string;
+}
+
+// ---------------------------------------------------------------------------
 // API response wrapper
 // ---------------------------------------------------------------------------
 

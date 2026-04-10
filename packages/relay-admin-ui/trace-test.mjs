@@ -34,6 +34,8 @@ import {
   createQuarantineStore,
   createConnectionsStore,
   createConfigStore,
+  createExtensionsStore,
+  createToolsStore,
 } from './dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -1124,6 +1126,392 @@ await group('API client: login sets session with expiry tracking', async () => {
 
   const remaining = client.getSessionRemainingMs();
   check(remaining !== null && remaining > 0, 'remaining time positive after login');
+});
+
+// ---------------------------------------------------------------------------
+// Test 26: Extensions store
+// ---------------------------------------------------------------------------
+await group('Extensions store: state management and derived values', async () => {
+  const extensions = createExtensionsStore();
+  const state = extensions.store.get();
+
+  check(state.extensions.length === 0, 'initially empty');
+  check(state.selectedNamespace === null, 'no selection');
+  check(state.selectedDetail === null, 'no detail');
+  check(state.loading === false, 'not loading');
+  check(state.detailLoading === false, 'not detail loading');
+  check(extensions.totalCount.get() === 0, 'totalCount = 0');
+  check(extensions.totalMessageTypes.get() === 0, 'totalMessageTypes = 0');
+
+  const ext1 = {
+    namespace: 'games', name: 'Games Extension', version: '1.0.0',
+    description: 'Board games', author: 'bastion', messageTypeCount: 3,
+  };
+  const ext2 = {
+    namespace: 'analytics', name: 'Analytics', version: '2.1.0',
+    description: 'Usage tracking', author: 'community', messageTypeCount: 5,
+  };
+
+  extensions.setExtensions([ext1, ext2]);
+  check(extensions.totalCount.get() === 2, '2 extensions');
+  check(extensions.totalMessageTypes.get() === 8, '3+5 = 8 message types');
+  check(extensions.store.get().error === null, 'no error after set');
+
+  // Select namespace
+  extensions.selectNamespace('games');
+  check(extensions.store.get().selectedNamespace === 'games', 'games selected');
+
+  // Set detail
+  const detail = {
+    namespace: 'games', name: 'Games Extension', version: '1.0.0',
+    description: 'Board games', author: 'bastion',
+    messageTypes: [
+      { name: 'move', description: 'A game move', safety: 'passthrough', direction: 'bidirectional' },
+    ],
+    dependencies: [],
+    uiComponents: [{ id: 'board', name: 'Game Board', placement: 'main', size: 'medium' }],
+    conversationRenderers: [{ messageType: 'games:move', style: 'compact' }],
+  };
+  extensions.setSelectedDetail(detail);
+  check(extensions.store.get().selectedDetail !== null, 'detail set');
+  check(extensions.store.get().selectedDetail.messageTypes.length === 1, '1 message type in detail');
+  check(extensions.store.get().selectedDetail.uiComponents.length === 1, '1 UI component');
+  check(extensions.store.get().selectedDetail.conversationRenderers.length === 1, '1 renderer');
+
+  // Deselect clears detail
+  extensions.selectNamespace(null);
+  check(extensions.store.get().selectedNamespace === null, 'deselected');
+  check(extensions.store.get().selectedDetail === null, 'detail cleared');
+
+  // Loading states
+  extensions.setLoading(true);
+  check(extensions.store.get().loading === true, 'loading set');
+  extensions.setDetailLoading(true);
+  check(extensions.store.get().detailLoading === true, 'detail loading set');
+
+  // Error
+  extensions.setError('fetch failed');
+  check(extensions.store.get().error === 'fetch failed', 'error set');
+
+  // Reset
+  extensions.reset();
+  check(extensions.totalCount.get() === 0, 'reset clears all');
+  check(extensions.store.get().selectedNamespace === null, 'reset clears selection');
+});
+
+// ---------------------------------------------------------------------------
+// Test 27: Tools store
+// ---------------------------------------------------------------------------
+await group('Tools store: state management and derived values', async () => {
+  const tools = createToolsStore();
+  const state = tools.store.get();
+
+  check(state.providers.length === 0, 'initially empty');
+  check(state.totalTools === 0, 'totalTools = 0');
+  check(state.message === '', 'no message');
+  check(tools.providerCount.get() === 0, 'providerCount = 0');
+  check(tools.dangerousToolCount.get() === 0, 'dangerousToolCount = 0');
+
+  const response = {
+    providers: [
+      {
+        id: 'mcp-local', name: 'Local MCP', endpoint: 'ws://localhost:3001',
+        authType: 'no_auth',
+        tools: [
+          { name: 'read_file', description: 'Read a file', source: 'mcp', category: 'read', dangerous: false, trustLevel: 'trusted' },
+          { name: 'delete_file', description: 'Delete a file', source: 'mcp', category: 'destructive', dangerous: true, trustLevel: 'untrusted' },
+        ],
+      },
+    ],
+    totalTools: 2,
+    message: 'Tool registry configured via tools.json',
+  };
+
+  tools.setToolsResponse(response);
+  check(tools.providerCount.get() === 1, '1 provider');
+  check(tools.store.get().totalTools === 2, '2 tools');
+  check(tools.dangerousToolCount.get() === 1, '1 dangerous tool');
+  check(tools.store.get().message === 'Tool registry configured via tools.json', 'message set');
+  check(tools.store.get().error === null, 'no error');
+
+  // Loading
+  tools.setLoading(true);
+  check(tools.store.get().loading === true, 'loading set');
+
+  // Error
+  tools.setError('connection refused');
+  check(tools.store.get().error === 'connection refused', 'error set');
+
+  // Reset
+  tools.reset();
+  check(tools.providerCount.get() === 0, 'reset clears providers');
+  check(tools.store.get().totalTools === 0, 'reset clears totalTools');
+});
+
+// ---------------------------------------------------------------------------
+// Test 28: API client — extensions and tools endpoints
+// ---------------------------------------------------------------------------
+await group('API client: extensions and tools endpoint URLs', async () => {
+  const requests = [];
+  const mockFetch = async (url, opts) => {
+    requests.push({ url, opts });
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ extensions: [], totalCount: 0 }),
+    };
+  };
+
+  const client = new AdminApiClient({
+    baseUrl: 'https://127.0.0.1:9444',
+    credentials: { username: 'admin', password: 'secret', totpCode: '123456' },
+    fetchImpl: mockFetch,
+  });
+
+  await client.listExtensions();
+  check(requests[0].url === 'https://127.0.0.1:9444/api/extensions', 'listExtensions URL');
+  check(requests[0].opts.method === 'GET', 'listExtensions GET');
+
+  await client.getExtension('games');
+  check(requests[1].url === 'https://127.0.0.1:9444/api/extensions/games', 'getExtension URL');
+  check(requests[1].opts.method === 'GET', 'getExtension GET');
+
+  // Namespace with special characters
+  await client.getExtension('my/ext');
+  check(requests[2].url === 'https://127.0.0.1:9444/api/extensions/my%2Fext', 'getExtension encodes namespace');
+
+  await client.listTools();
+  check(requests[3].url === 'https://127.0.0.1:9444/api/tools', 'listTools URL');
+  check(requests[3].opts.method === 'GET', 'listTools GET');
+});
+
+// ---------------------------------------------------------------------------
+// Test 29: DataService — fetchExtensions populates store
+// ---------------------------------------------------------------------------
+await group('DataService: fetchExtensions populates extensions store', async () => {
+  const mockFetch = async (url) => {
+    if (url.includes('/api/extensions') && !url.includes('/api/extensions/')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          extensions: [
+            { namespace: 'games', name: 'Games', version: '1.0.0', description: 'Games ext', author: 'bastion', messageTypeCount: 4 },
+            { namespace: 'tools', name: 'Tools', version: '0.5.0', description: 'MCP tools', author: 'community', messageTypeCount: 2 },
+          ],
+          totalCount: 2,
+        }),
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  const client = new AdminApiClient({
+    baseUrl: 'https://127.0.0.1:9444',
+    credentials: { username: 'admin', password: 'pass', totpCode: '123456' },
+    fetchImpl: mockFetch,
+  });
+
+  const service = new DataService({ client });
+  const extensions = createExtensionsStore();
+
+  await service.fetchExtensions(extensions);
+  check(extensions.totalCount.get() === 2, '2 extensions populated');
+  check(extensions.totalMessageTypes.get() === 6, '4+2 = 6 message types');
+  check(extensions.store.get().loading === false, 'loading cleared');
+  check(extensions.store.get().error === null, 'no error');
+
+  service.destroy();
+});
+
+// ---------------------------------------------------------------------------
+// Test 30: DataService — fetchExtensionDetail populates detail
+// ---------------------------------------------------------------------------
+await group('DataService: fetchExtensionDetail populates detail', async () => {
+  const mockFetch = async (url) => {
+    if (url.includes('/api/extensions/games')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          namespace: 'games',
+          name: 'Games Extension',
+          version: '1.0.0',
+          description: 'Board games',
+          author: 'bastion',
+          messageTypes: [
+            { name: 'move', description: 'Game move', safety: 'passthrough', direction: 'bidirectional' },
+            { name: 'state', description: 'Game state', safety: 'task' },
+          ],
+          dependencies: ['core'],
+          ui: {
+            pages: [{
+              id: 'game-page',
+              name: 'Game',
+              icon: 'gamepad',
+              components: [
+                { id: 'board', name: 'Board', file: 'board.js', description: 'Game board', function: 'render', messageTypes: ['games:move'], size: 'large', placement: 'main', dangerous: false, audit: {} },
+              ],
+            }],
+          },
+          conversationRenderers: {
+            'games:move': { html: '<div>move</div>', style: 'compact' },
+            'games:state': { html: '<div>state</div>', style: 'full' },
+          },
+        }),
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  const client = new AdminApiClient({
+    baseUrl: 'https://127.0.0.1:9444',
+    credentials: { username: 'admin', password: 'pass', totpCode: '123456' },
+    fetchImpl: mockFetch,
+  });
+
+  const service = new DataService({ client });
+  const extensions = createExtensionsStore();
+
+  await service.fetchExtensionDetail(extensions, 'games');
+  const detail = extensions.store.get().selectedDetail;
+  check(detail !== null, 'detail populated');
+  check(detail.namespace === 'games', 'correct namespace');
+  check(detail.messageTypes.length === 2, '2 message types');
+  check(detail.messageTypes[0].name === 'move', 'first message type = move');
+  check(detail.messageTypes[0].safety === 'passthrough', 'move safety = passthrough');
+  check(detail.messageTypes[1].direction === undefined, 'state has no direction');
+  check(detail.uiComponents.length === 1, '1 UI component');
+  check(detail.uiComponents[0].name === 'Board', 'component name = Board');
+  check(detail.uiComponents[0].placement === 'main', 'placement = main');
+  check(detail.conversationRenderers.length === 2, '2 renderers');
+  check(detail.conversationRenderers[0].messageType === 'games:move', 'renderer for games:move');
+  check(detail.dependencies.length === 1, '1 dependency');
+  check(detail.dependencies[0] === 'core', 'dependency = core');
+  check(extensions.store.get().detailLoading === false, 'detail loading cleared');
+
+  service.destroy();
+});
+
+// ---------------------------------------------------------------------------
+// Test 31: DataService — fetchTools populates store
+// ---------------------------------------------------------------------------
+await group('DataService: fetchTools populates tools store', async () => {
+  const mockFetch = async (url) => {
+    if (url.includes('/api/tools')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          providers: [],
+          totalTools: 0,
+          message: 'Tool registry configured via tools.json',
+        }),
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  const client = new AdminApiClient({
+    baseUrl: 'https://127.0.0.1:9444',
+    credentials: { username: 'admin', password: 'pass', totpCode: '123456' },
+    fetchImpl: mockFetch,
+  });
+
+  const service = new DataService({ client });
+  const tools = createToolsStore();
+
+  await service.fetchTools(tools);
+  check(tools.providerCount.get() === 0, 'no providers');
+  check(tools.store.get().totalTools === 0, '0 tools');
+  check(tools.store.get().message === 'Tool registry configured via tools.json', 'message populated');
+  check(tools.store.get().loading === false, 'loading cleared');
+  check(tools.store.get().error === null, 'no error');
+
+  service.destroy();
+});
+
+// ---------------------------------------------------------------------------
+// Test 32: DataService — fetchExtensions error handling
+// ---------------------------------------------------------------------------
+await group('DataService: fetchExtensions error surfaces in store', async () => {
+  const failFetch = async () => ({
+    ok: false,
+    status: 500,
+    json: async () => ({ error: 'Extension registry unavailable' }),
+  });
+
+  const client = new AdminApiClient({
+    baseUrl: 'https://127.0.0.1:9444',
+    credentials: { username: 'admin', password: 'pass', totpCode: '123456' },
+    fetchImpl: failFetch,
+  });
+
+  const service = new DataService({ client });
+  const extensions = createExtensionsStore();
+
+  await service.fetchExtensions(extensions);
+  check(extensions.store.get().error !== null, 'error set on failure');
+  check(extensions.store.get().error.includes('Extension registry unavailable'), 'error message propagated');
+  check(extensions.store.get().loading === false, 'loading cleared on error');
+
+  service.destroy();
+});
+
+// ---------------------------------------------------------------------------
+// Test 33: DataService — fetchTools error handling
+// ---------------------------------------------------------------------------
+await group('DataService: fetchTools error surfaces in store', async () => {
+  const failFetch = async () => ({
+    ok: false,
+    status: 500,
+    json: async () => ({ error: 'Tool registry error' }),
+  });
+
+  const client = new AdminApiClient({
+    baseUrl: 'https://127.0.0.1:9444',
+    credentials: { username: 'admin', password: 'pass', totpCode: '123456' },
+    fetchImpl: failFetch,
+  });
+
+  const service = new DataService({ client });
+  const tools = createToolsStore();
+
+  await service.fetchTools(tools);
+  check(tools.store.get().error !== null, 'error set on failure');
+  check(tools.store.get().error.includes('Tool registry error'), 'error message propagated');
+  check(tools.store.get().loading === false, 'loading cleared on error');
+
+  service.destroy();
+});
+
+// ---------------------------------------------------------------------------
+// Test 34: Extensions store — setExtensions clears error
+// ---------------------------------------------------------------------------
+await group('Extensions store: setExtensions clears prior error', async () => {
+  const extensions = createExtensionsStore();
+
+  extensions.setError('previous error');
+  check(extensions.store.get().error === 'previous error', 'error set');
+
+  extensions.setExtensions([
+    { namespace: 'test', name: 'Test', version: '1.0.0', description: 'Test', author: 'test', messageTypeCount: 1 },
+  ]);
+  check(extensions.store.get().error === null, 'error cleared on setExtensions');
+  check(extensions.totalCount.get() === 1, '1 extension');
+});
+
+// ---------------------------------------------------------------------------
+// Test 35: Tools store — setToolsResponse clears error
+// ---------------------------------------------------------------------------
+await group('Tools store: setToolsResponse clears prior error', async () => {
+  const tools = createToolsStore();
+
+  tools.setError('previous error');
+  check(tools.store.get().error === 'previous error', 'error set');
+
+  tools.setToolsResponse({ providers: [], totalTools: 0, message: 'ok' });
+  check(tools.store.get().error === null, 'error cleared on setToolsResponse');
 });
 
 // ---------------------------------------------------------------------------

@@ -33,6 +33,14 @@ export type {
   SafetyFloorsSummary,
   TlsStatusSummary,
   ChainIntegritySummary,
+  ExtensionSummary,
+  ExtensionDetail,
+  ExtensionMessageTypeView,
+  ExtensionUIComponentView,
+  ExtensionConversationRendererView,
+  ToolEntry,
+  ToolProviderEntry,
+  ToolsResponse,
   ApiResult,
 } from './types.js';
 
@@ -78,3 +86,9 @@ export type { ConnectionsState, ConnectionsStore } from './stores/connections.js
 
 export { createConfigStore } from './stores/config.js';
 export type { ConfigState, ConfigStore } from './stores/config.js';
+
+export { createExtensionsStore } from './stores/extensions.js';
+export type { ExtensionsState, ExtensionsStore } from './stores/extensions.js';
+
+export { createToolsStore } from './stores/tools.js';
+export type { ToolsState, ToolsStore } from './stores/tools.js';

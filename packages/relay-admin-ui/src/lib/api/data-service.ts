@@ -12,9 +12,21 @@
 
 import type { ConfigStore } from '../stores/config.js';
 import type { ConnectionsStore } from '../stores/connections.js';
+import type { ExtensionsStore } from '../stores/extensions.js';
 import type { OverviewStore } from '../stores/overview.js';
 import type { ProvidersStore } from '../stores/providers.js';
-import type { AuditEventSummary, CapabilityMatrix, ConnectionEntry } from '../types.js';
+import type { ToolsStore } from '../stores/tools.js';
+import type {
+  AuditEventSummary,
+  CapabilityMatrix,
+  ConnectionEntry,
+  ExtensionConversationRendererView,
+  ExtensionDetail,
+  ExtensionMessageTypeView,
+  ExtensionSummary,
+  ExtensionUIComponentView,
+  ToolsResponse,
+} from '../types.js';
 import type { AdminApiClient } from './admin-client.js';
 
 // ---------------------------------------------------------------------------
@@ -228,6 +240,101 @@ export class DataService {
     }
     store.setError(result.error ?? 'Failed to activate provider');
     return false;
+  }
+
+  // -----------------------------------------------------------------------
+  // Extensions
+  // -----------------------------------------------------------------------
+
+  /** Fetch all extensions and populate the extensions store. */
+  async fetchExtensions(store: ExtensionsStore): Promise<void> {
+    store.setLoading(true);
+    const result = await this.client.listExtensions();
+    if (result.ok) {
+      const d = result.data as { extensions: ExtensionSummary[]; totalCount: number };
+      store.setExtensions(d.extensions ?? []);
+      store.setError(null);
+    } else {
+      store.setError(result.error ?? 'Failed to fetch extensions');
+    }
+    store.setLoading(false);
+  }
+
+  /** Fetch full detail for a specific extension. */
+  async fetchExtensionDetail(store: ExtensionsStore, namespace: string): Promise<void> {
+    store.setDetailLoading(true);
+    const result = await this.client.getExtension(namespace);
+    if (result.ok) {
+      const raw = result.data as Record<string, unknown>;
+      const messageTypes = ((raw.messageTypes as Array<Record<string, unknown>>) ?? []).map(
+        (mt): ExtensionMessageTypeView => ({
+          name: (mt.name as string) ?? '',
+          description: (mt.description as string) ?? '',
+          safety: (mt.safety as string) ?? 'unknown',
+          direction: mt.direction as string | undefined,
+        }),
+      );
+      const uiComponents: ExtensionUIComponentView[] = [];
+      const ui = raw.ui as { pages?: Array<{ components?: Array<Record<string, unknown>> }> } | undefined;
+      if (ui?.pages) {
+        for (const page of ui.pages) {
+          for (const comp of page.components ?? []) {
+            uiComponents.push({
+              id: (comp.id as string) ?? '',
+              name: (comp.name as string) ?? '',
+              placement: (comp.placement as string) ?? '',
+              size: (comp.size as string) ?? '',
+            });
+          }
+        }
+      }
+      const conversationRenderers: ExtensionConversationRendererView[] = [];
+      const renderers = raw.conversationRenderers as Record<string, { style?: string }> | undefined;
+      if (renderers) {
+        for (const [msgType, renderer] of Object.entries(renderers)) {
+          conversationRenderers.push({
+            messageType: msgType,
+            style: renderer.style ?? 'compact',
+          });
+        }
+      }
+      const detail: ExtensionDetail = {
+        namespace: (raw.namespace as string) ?? '',
+        name: (raw.name as string) ?? '',
+        version: (raw.version as string) ?? '',
+        description: (raw.description as string) ?? '',
+        author: (raw.author as string) ?? '',
+        messageTypes,
+        dependencies: (raw.dependencies as string[]) ?? [],
+        uiComponents,
+        conversationRenderers,
+      };
+      store.setSelectedDetail(detail);
+    } else {
+      store.setError(result.error ?? 'Failed to fetch extension detail');
+    }
+    store.setDetailLoading(false);
+  }
+
+  // -----------------------------------------------------------------------
+  // Tools
+  // -----------------------------------------------------------------------
+
+  /** Fetch tool registry and populate the tools store. */
+  async fetchTools(store: ToolsStore): Promise<void> {
+    store.setLoading(true);
+    const result = await this.client.listTools();
+    if (result.ok) {
+      const d = result.data as unknown as ToolsResponse;
+      store.setToolsResponse({
+        providers: d.providers ?? [],
+        totalTools: d.totalTools ?? 0,
+        message: d.message ?? '',
+      });
+    } else {
+      store.setError(result.error ?? 'Failed to fetch tools');
+    }
+    store.setLoading(false);
   }
 
   // -----------------------------------------------------------------------

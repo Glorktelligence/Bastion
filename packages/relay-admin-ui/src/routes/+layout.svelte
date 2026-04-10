@@ -168,6 +168,10 @@ async function handleLogout() {
 				<li><a href="/connections" class:active={page.url.pathname === '/connections'}>Connections</a></li>
 				<li><a href="/audit" class:active={page.url.pathname === '/audit'}>Audit Log</a></li>
 				<li><a href="/config" class:active={page.url.pathname === '/config'}>Configuration</a></li>
+				<li class="nav-divider"></li>
+				<li><a href="/extensions" class:active={page.url.pathname === '/extensions'}>Extensions</a></li>
+				<li><a href="/tools" class:active={page.url.pathname === '/tools'}>Tools</a></li>
+				<li><a href="/skills" class:active={page.url.pathname === '/skills'}>Skills</a></li>
 			</ul>
 			<div class="sidebar-footer">
 				<button class="logout-btn" onclick={handleLogout}>Logout</button>
@@ -228,6 +232,12 @@ async function handleLogout() {
 		color: var(--text-primary);
 		background-color: var(--accent-muted);
 		text-decoration: none;
+	}
+
+	.nav-items li.nav-divider {
+		height: 1px;
+		background-color: var(--border-default);
+		margin: 0.5rem 1.25rem;
 	}
 
 	.nav-items li a.active {
