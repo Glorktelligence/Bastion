@@ -406,6 +406,23 @@ export interface ToolRegisterPayload {
 // Skills System (Layer 5)
 // ---------------------------------------------------------------------------
 
+/** AI → Human: List of loaded skills and their metadata. */
+export interface SkillListResponsePayload {
+  readonly skills: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly description: string;
+    readonly version: string;
+    readonly author: string;
+    readonly triggers: readonly string[];
+    readonly modes: readonly string[];
+    readonly alwaysLoad?: boolean;
+    readonly estimatedTokens: number;
+  }[];
+  readonly totalCount: number;
+  readonly totalEstimatedTokens: number;
+}
+
 /** AI → Human: Skill scan result from quarantine pipeline. */
 export interface SkillScanResultPayload {
   readonly skillId: string;
@@ -1047,4 +1064,5 @@ export type MessagePayload =
   | { type: 'ai_memory_proposal'; payload: AiMemoryProposalPayload }
   | { type: 'dream_cycle_request'; payload: DreamCycleRequestPayload }
   | { type: 'dream_cycle_complete'; payload: DreamCycleCompletePayload }
-  | { type: 'skill_scan_result'; payload: SkillScanResultPayload };
+  | { type: 'skill_scan_result'; payload: SkillScanResultPayload }
+  | { type: 'skill_list_response'; payload: SkillListResponsePayload };

@@ -33,12 +33,20 @@ export const ExtensionMessageTypeAuditSchema = z.object({
 });
 
 export const ExtensionMessageTypeSchema = z.object({
-  name: z.string().min(1),
+  name: z
+    .string()
+    .min(1)
+    .regex(
+      /^[a-z][a-z0-9_-]*$/,
+      'Extension type name must start with a lowercase letter and contain only lowercase letters, digits, hyphens, and underscores',
+    ),
   description: z.string(),
   fields: z.record(z.string(), ExtensionMessageTypeFieldSchema).default({}),
   safety: ExtensionSafetyLevelSchema,
   adapterHint: z.string().optional(),
   compactable: z.boolean().optional(),
+  /** Sender-type restriction: which direction this message can flow. Default: bidirectional. */
+  direction: z.enum(['human_to_ai', 'ai_to_human', 'bidirectional']).default('bidirectional'),
   audit: ExtensionMessageTypeAuditSchema,
 });
 

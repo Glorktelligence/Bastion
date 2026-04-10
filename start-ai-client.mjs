@@ -250,7 +250,7 @@ const pendingProposals = new Map();
 // ---------------------------------------------------------------------------
 
 const PROJECT_DIR = process.env.BASTION_PROJECT_DIR || '/var/lib/bastion/project';
-const projectStore = new ProjectStore({ rootDir: PROJECT_DIR });
+const projectStore = new ProjectStore({ rootDir: PROJECT_DIR, purgeManager: null });
 console.log(`[✓] Project store initialised (${projectStore.fileCount} files, dir: ${PROJECT_DIR})`);
 
 // ---------------------------------------------------------------------------
@@ -688,6 +688,10 @@ const extensionContext = {
   recallHandler,
   bastionBash,
   extensionsDataDir: EXTENSIONS_DATA,
+  projectStore,
+  skillStore,
+  challengeManager,
+  toolRegistry,
 };
 
 const handlerCount = await loadExtensionHandlers(extensionDispatcher, extensionContext, EXTENSION_HANDLERS_DIR);
@@ -2381,6 +2385,20 @@ client.on('message', async (data) => {
             conversationManager.setExecResults(formatted);
 
             console.log(`[${execResult.success ? '✓' : '✗'}] Bash tier ${execResult.tier}: "${commandStr.substring(0, 60)}" (${execResult.executionTimeMs}ms)`);
+          } else if (action.type === 'EXEC' && !aiActionLimits.canExec()) {
+            // M3: Rate-limited exec — audit event + feedback to AI
+            const limitedCmd = typeof action.data === 'string'
+              ? action.data.substring(0, 50)
+              : String(action.data?.command ?? action.data).substring(0, 50);
+            console.log(`[!] Exec rate limited: "${limitedCmd}" (session: ${aiActionLimits.execCount}/${aiActionLimits.maxExecsPerSession}, response: ${aiActionLimits.execCountThisResponse}/${aiActionLimits.maxExecsPerResponse})`);
+            usageTracker.record({
+              timestamp: new Date().toISOString(),
+              adapterId: 'system', adapterRole: 'bash', purpose: `BASH_RATE_LIMITED:${limitedCmd}`,
+              conversationId: activeConversationId || null,
+              inputTokens: 0, outputTokens: 0, costUsd: 0,
+            });
+            auditLogger.logCommand(limitedCmd, 0, false, { reason: 'rate_limited', sessionCount: aiActionLimits.execCount, responseCount: aiActionLimits.execCountThisResponse });
+            conversationManager.setExecResults('Command rate limited — max 5/response or 20/session reached.');
           }
         }
 
@@ -2913,6 +2931,10 @@ client.on('message', async (data) => {
           filePurgeManager,
           recallHandler,
           bastionBash,
+          projectStore,
+          skillStore,
+          challengeManager,
+          toolRegistry,
           send: (responseType, payload) => {
             sendSecure({
               type: responseType,

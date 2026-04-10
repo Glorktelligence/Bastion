@@ -37,6 +37,8 @@ export interface ExtensionMessageType {
    *  When false, messages of this type are stored with pinned=true in the ConversationStore,
    *  which excludes them from compaction via the existing getCompactableMessages() filter. */
   readonly compactable?: boolean;
+  /** Sender-type restriction: which direction this message can flow. Default: 'bidirectional'. */
+  readonly direction?: 'human_to_ai' | 'ai_to_human' | 'bidirectional';
   readonly audit: {
     readonly logEvent: string;
     readonly logContent: boolean;

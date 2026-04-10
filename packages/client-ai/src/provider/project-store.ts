@@ -37,8 +37,8 @@ export interface ProjectStoreConfig {
   readonly maxFileSize?: number;
   /** Max total project size in bytes. Default: 50MB. */
   readonly maxTotalSize?: number;
-  /** Optional PurgeManager — sole deletion authority. */
-  readonly purgeManager?: FilePurgeManager;
+  /** PurgeManager — sole deletion authority. Pass null only in isolated unit tests. */
+  readonly purgeManager: FilePurgeManager | null;
 }
 
 export type ProjectSaveResult =

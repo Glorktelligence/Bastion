@@ -74,6 +74,7 @@ import {
   ExtensionUIPageSchema,
   ExtensionUISchema,
   ExtensionManifestSchema,
+  SkillListResponsePayloadSchema,
 
   // Constants
   RESERVED_NAMESPACES,
@@ -1064,6 +1065,52 @@ async function run() {
     const parsed = ExtensionManifestSchema.parse(minimal);
     check('H18: default description is empty string', parsed.description === '');
     check('H18: default author is "unknown"', parsed.author === 'unknown');
+
+    // M11: Extension type name format validation
+    const validNameType = { ...validMsgType, name: 'chess-move' };
+    check('M11: valid type name "chess-move" passes', ExtensionMessageTypeSchema.safeParse(validNameType).success);
+
+    const validNameType2 = { ...validMsgType, name: 'session_create' };
+    check('M11: valid type name "session_create" passes', ExtensionMessageTypeSchema.safeParse(validNameType2).success);
+
+    const uppercaseName = { ...validMsgType, name: 'Chess-Move' };
+    check('M11: uppercase type name rejected', !ExtensionMessageTypeSchema.safeParse(uppercaseName).success);
+
+    const spaceName = { ...validMsgType, name: 'chess move' };
+    check('M11: space in type name rejected', !ExtensionMessageTypeSchema.safeParse(spaceName).success);
+
+    const digitStartName = { ...validMsgType, name: '1chess' };
+    check('M11: digit-start type name rejected', !ExtensionMessageTypeSchema.safeParse(digitStartName).success);
+
+    // M12: Direction field in extension message types
+    const withDirection = { ...validMsgType, direction: 'human_to_ai' };
+    check('M12: direction "human_to_ai" passes', ExtensionMessageTypeSchema.safeParse(withDirection).success);
+
+    const withBidi = { ...validMsgType, direction: 'bidirectional' };
+    check('M12: direction "bidirectional" passes', ExtensionMessageTypeSchema.safeParse(withBidi).success);
+
+    const badDirection = { ...validMsgType, direction: 'invalid' };
+    check('M12: invalid direction rejected', !ExtensionMessageTypeSchema.safeParse(badDirection).success);
+
+    const noDirection = ExtensionMessageTypeSchema.parse(validMsgType);
+    check('M12: default direction is "bidirectional"', noDirection.direction === 'bidirectional');
+
+    // M10: SkillListResponsePayload schema exported
+    const skillListPayload = {
+      skills: [{
+        id: 'sk-1',
+        name: 'Test Skill',
+        description: 'A test skill',
+        version: '1.0.0',
+        author: 'test',
+        triggers: ['test'],
+        modes: ['conversation'],
+        estimatedTokens: 100,
+      }],
+      totalCount: 1,
+      totalEstimatedTokens: 100,
+    };
+    check('M10: SkillListResponsePayloadSchema validates', SkillListResponsePayloadSchema.safeParse(skillListPayload).success);
   }
   console.log();
 

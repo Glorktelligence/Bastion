@@ -904,6 +904,57 @@ async function run() {
   console.log();
 
   // -------------------------------------------------------------------
+  // Test 14b: M9 — JWT revoked JTI persistence to SQLite
+  // -------------------------------------------------------------------
+  console.log('--- Test 14b: M9 — JWT revoked JTI persistence ---');
+  {
+    const { mkdtempSync } = await import('node:fs');
+    const { join: pathJoin } = await import('node:path');
+    const tmpDir = mkdtempSync(pathJoin((await import('node:os')).tmpdir(), 'bastion-jwt-'));
+    const dbPath = pathJoin(tmpDir, 'revoked-jtis.db');
+    const secret = randomBytes(32);
+
+    // Create first JWT service with persistence
+    const jwt1 = new JwtService({
+      issuer: 'bastion-relay-test',
+      secret,
+      revokedJtiDbPath: dbPath,
+    });
+
+    // Issue and validate a token (marks its JTI as seen)
+    const token = await jwt1.issueToken({
+      sub: 'human-persist',
+      clientType: 'human',
+      sessionId: 'session-persist',
+      capabilities: ['send'],
+    });
+    const v1 = await jwt1.validateToken(token.jwt);
+    check('M9: first validation succeeds', v1.valid);
+
+    // Replay should fail (in-memory)
+    const v2 = await jwt1.validateToken(token.jwt);
+    check('M9: replay rejected in same instance', !v2.valid);
+
+    // Destroy and create a new instance (simulates restart)
+    jwt1.destroy();
+    const jwt2 = new JwtService({
+      issuer: 'bastion-relay-test',
+      secret,
+      revokedJtiDbPath: dbPath,
+    });
+
+    // Replay should still fail after "restart" — loaded from SQLite
+    const v3 = await jwt2.validateToken(token.jwt);
+    check('M9: replay rejected after restart (persisted)', !v3.valid);
+
+    jwt2.destroy();
+    // Cleanup
+    const { rmSync: rm } = await import('node:fs');
+    rm(tmpDir, { recursive: true, force: true });
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
   // Test 15: Provider registry
   // -------------------------------------------------------------------
   console.log('--- Test 15: Provider registry ---');

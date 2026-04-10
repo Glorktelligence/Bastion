@@ -16,6 +16,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 import type { BastionJwtClaims, ClientType } from '@bastion/protocol';
 import { SignJWT, errors as joseErrors, jwtVerify } from 'jose';
 
@@ -31,6 +32,8 @@ export interface JwtConfig {
   readonly expiryMs?: number;
   /** HMAC secret key (must be at least 256 bits / 32 bytes). */
   readonly secret: Uint8Array;
+  /** Optional path to SQLite database for persisting revoked JTIs across restarts. */
+  readonly revokedJtiDbPath?: string;
 }
 
 /** Claims used when issuing a new token. */
@@ -99,6 +102,8 @@ export class JwtService {
   private readonly seenJtis: Map<string, number> = new Map();
   /** Cleanup interval handle for expired JTI entries. */
   private readonly jtiCleanupTimer: ReturnType<typeof setInterval>;
+  /** Optional SQLite database for persisting revoked JTIs across restarts. */
+  private readonly jtiDb: DatabaseSync | null = null;
 
   constructor(config: JwtConfig) {
     if (config.secret.length < MIN_SECRET_LENGTH) {
@@ -110,6 +115,27 @@ export class JwtService {
     this.issuer = config.issuer;
     this.expiryMs = config.expiryMs ?? DEFAULT_EXPIRY_MS;
     this.secret = config.secret;
+
+    // M9: Initialize SQLite persistence for revoked JTIs
+    if (config.revokedJtiDbPath) {
+      this.jtiDb = new DatabaseSync(config.revokedJtiDbPath);
+      this.jtiDb.exec(`
+        CREATE TABLE IF NOT EXISTS revoked_jtis (
+          jti TEXT PRIMARY KEY,
+          expires_at INTEGER NOT NULL
+        )
+      `);
+      // Load unexpired revoked JTIs from persistent storage
+      const now = Date.now();
+      const rows = this.jtiDb
+        .prepare('SELECT jti, expires_at FROM revoked_jtis WHERE expires_at > ?')
+        .all(now) as Array<{ jti: string; expires_at: number }>;
+      for (const row of rows) {
+        this.seenJtis.set(row.jti, row.expires_at);
+      }
+      // Clean up expired entries
+      this.jtiDb.prepare('DELETE FROM revoked_jtis WHERE expires_at <= ?').run(now);
+    }
 
     // Clean up expired JTI entries every 5 minutes
     this.jtiCleanupTimer = setInterval(() => this.cleanupExpiredJtis(), 5 * 60 * 1000);
@@ -180,6 +206,14 @@ export class JwtService {
         // Track this jti with its expiry time for cleanup
         const expTime = typeof payload.exp === 'number' ? payload.exp * 1000 : Date.now() + this.expiryMs;
         this.seenJtis.set(jti, expTime);
+        // M9: Persist to SQLite for cross-restart replay protection
+        if (this.jtiDb) {
+          try {
+            this.jtiDb.prepare('INSERT OR IGNORE INTO revoked_jtis (jti, expires_at) VALUES (?, ?)').run(jti, expTime);
+          } catch {
+            // Non-fatal: in-memory tracking still works
+          }
+        }
       }
 
       const claims: BastionJwtClaims = {
@@ -238,12 +272,20 @@ export class JwtService {
     return { refreshed: true, token: newToken };
   }
 
-  /** Remove expired JTI entries from the tracking set. */
+  /** Remove expired JTI entries from the tracking set and persistent store. */
   private cleanupExpiredJtis(): void {
     const now = Date.now();
     for (const [jti, expiresAt] of this.seenJtis) {
       if (expiresAt <= now) {
         this.seenJtis.delete(jti);
+      }
+    }
+    // M9: Clean expired entries from persistent store
+    if (this.jtiDb) {
+      try {
+        this.jtiDb.prepare('DELETE FROM revoked_jtis WHERE expires_at <= ?').run(now);
+      } catch {
+        // Non-fatal
       }
     }
   }
@@ -252,6 +294,13 @@ export class JwtService {
   destroy(): void {
     clearInterval(this.jtiCleanupTimer);
     this.seenJtis.clear();
+    if (this.jtiDb) {
+      try {
+        this.jtiDb.close();
+      } catch {
+        /* already closed */
+      }
+    }
   }
 }
 

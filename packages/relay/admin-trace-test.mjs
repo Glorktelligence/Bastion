@@ -1712,6 +1712,36 @@ async function run() {
     // Cleanup temp dir
     const { rmSync } = await import('node:fs');
     rmSync(tempDir, { recursive: true, force: true });
+
+    // M8: Core type conflict warning (doesn't reject, just warns)
+    const regConflict = new ExtensionRegistry();
+    const conflictResult = regConflict.register({
+      namespace: 'conftest', name: 'ConflictTest', version: '1.0.0',
+      messageTypes: [{
+        name: 'conversation', // shadows core type
+        description: 'test', safety: 'passthrough',
+        audit: { logEvent: 'test', logContent: false },
+      }],
+    });
+    check('M8: core type shadow still accepted (warning only)', conflictResult.ok);
+
+    // M12: Direction field preserved in resolved message types
+    const regDirection = new ExtensionRegistry();
+    const dirResult2 = regDirection.register({
+      namespace: 'dirtest', name: 'DirTest', version: '1.0.0',
+      messageTypes: [
+        { name: 'human-cmd', description: 'test', safety: 'passthrough', direction: 'human_to_ai', audit: { logEvent: 'cmd', logContent: false } },
+        { name: 'ai-result', description: 'test', safety: 'passthrough', direction: 'ai_to_human', audit: { logEvent: 'result', logContent: false } },
+        { name: 'ping', description: 'test', safety: 'passthrough', audit: { logEvent: 'ping', logContent: false } },
+      ],
+    });
+    check('M12: direction extension accepted', dirResult2.ok);
+    const humanCmd = regDirection.resolveMessageType('dirtest:human-cmd');
+    check('M12: human_to_ai direction preserved', humanCmd?.messageType?.direction === 'human_to_ai');
+    const aiResult = regDirection.resolveMessageType('dirtest:ai-result');
+    check('M12: ai_to_human direction preserved', aiResult?.messageType?.direction === 'ai_to_human');
+    const pingType = regDirection.resolveMessageType('dirtest:ping');
+    check('M12: default direction is bidirectional', pingType?.messageType?.direction === 'bidirectional');
   }
   console.log();
 

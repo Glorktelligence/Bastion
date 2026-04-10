@@ -35,7 +35,8 @@ export interface DataEraserConfig {
   readonly usageTracker: UsageTracker;
   readonly challengeConfigPath: string;
   readonly userContextPath: string;
-  readonly purgeManager?: FilePurgeManager;
+  /** PurgeManager — sole deletion authority. Pass null only in isolated unit tests. */
+  readonly purgeManager: FilePurgeManager | null;
   /** Optional DateTimeManager — sole DateTime authority. */
   readonly dateTimeManager?: DateTimeManager;
 }

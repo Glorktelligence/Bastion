@@ -28,7 +28,7 @@ import type {
   ExtensionUIComponent,
   ExtensionUIPage,
 } from '@bastion/protocol';
-import { RESERVED_NAMESPACES } from '@bastion/protocol';
+import { ALL_MESSAGE_TYPES, RESERVED_NAMESPACES } from '@bastion/protocol';
 
 // Re-export protocol types so existing relay consumers don't break
 export type {
@@ -51,6 +51,9 @@ const NAMESPACE_PATTERN = /^[a-z0-9-]+$/;
 const VALID_SAFETY_LEVELS = new Set<string>(['passthrough', 'task', 'admin', 'blocked']);
 
 // RESERVED_NAMESPACES imported from @bastion/protocol (Protocol First)
+
+/** Core message type names — used to warn on extension type name shadows. */
+const CORE_TYPE_NAMES: ReadonlySet<string> = new Set(ALL_MESSAGE_TYPES);
 
 const SOFT_LIMIT_EXTENSIONS = 10;
 const SOFT_LIMIT_TYPES = 100;
@@ -198,6 +201,12 @@ export class ExtensionRegistry {
       if (!mt.name || typeof mt.name !== 'string') {
         return { ok: false, error: `Extension Violation Detected — Missing [messageTypes[].name] in ${namespace}` };
       }
+      // M8: Warn if extension type name shadows a core protocol type
+      if (CORE_TYPE_NAMES.has(mt.name as string)) {
+        console.warn(
+          `[!] Extension type name '${mt.name as string}' in ${namespace} shadows core type — consider renaming`,
+        );
+      }
       if (!mt.safety || typeof mt.safety !== 'string') {
         return {
           ok: false,
@@ -219,6 +228,13 @@ export class ExtensionRegistry {
 
       const audit = mt.audit as Record<string, unknown>;
 
+      // Validate direction if present
+      const validDirections = new Set(['human_to_ai', 'ai_to_human', 'bidirectional']);
+      const direction =
+        typeof mt.direction === 'string' && validDirections.has(mt.direction)
+          ? (mt.direction as 'human_to_ai' | 'ai_to_human' | 'bidirectional')
+          : 'bidirectional';
+
       validatedTypes.push({
         name: mt.name as string,
         description: (mt.description as string) ?? '',
@@ -226,6 +242,7 @@ export class ExtensionRegistry {
         safety: mt.safety as ExtensionSafetyLevel,
         adapterHint: typeof mt.adapterHint === 'string' ? (mt.adapterHint as string) : undefined,
         compactable: typeof mt.compactable === 'boolean' ? (mt.compactable as boolean) : undefined,
+        direction,
         audit: {
           logEvent: (audit.logEvent as string) ?? (mt.name as string),
           logContent: audit.logContent === true, // Forced false for E2E payloads at routing level

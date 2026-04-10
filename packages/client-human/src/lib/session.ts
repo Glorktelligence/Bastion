@@ -450,6 +450,12 @@ export async function disconnect(): Promise<void> {
   aiDisclosure.clear();
   fileTransfers.clear();
   dreamCycles.reset();
+  // M15: Clear dream cycle localStorage to prevent stale data across sessions
+  try {
+    localStorage.removeItem('bastion-dream-state');
+  } catch {
+    /* SSR or file:// */
+  }
   // Clear session-level writables
   activeAiChallenge.set(null);
   activeAiMemoryProposal.set(null);
@@ -569,7 +575,11 @@ export function sendSecure(envelope: Record<string, unknown>): boolean {
     return client.send(JSON.stringify(encrypted));
   } catch (err) {
     console.error('[Bastion] Encryption failed:', err instanceof Error ? err.message : String(err));
-    return client.send(JSON.stringify(envelope));
+    // M13: Notify user that message was sent without encryption
+    addNotification('Message sent without encryption — E2E session may need re-establishment.', 'warning');
+    // Mark the envelope so the UI can show an unencrypted indicator
+    const unencryptedEnvelope = { ...envelope, _unencrypted: true };
+    return client.send(JSON.stringify(unencryptedEnvelope));
   }
 }
 

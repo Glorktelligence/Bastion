@@ -171,11 +171,13 @@ chainIntegrityMonitor.start();
 console.log('[✓] Chain integrity monitor started (full check on startup, incremental every 5 min)');
 
 const JWT_ISSUER = process.env.BASTION_JWT_ISSUER || 'bastion-relay';
+const REVOKED_JTI_DB = process.env.BASTION_REVOKED_JTI_DB || '/var/lib/bastion/relay/revoked-jtis.db';
 const jwtService = new JwtService({
   secret: jwtSecret,
   issuer: JWT_ISSUER,
+  revokedJtiDbPath: REVOKED_JTI_DB,
 });
-console.log('[✓] JWT service ready');
+console.log(`[✓] JWT service ready (revoked JTI persistence: ${REVOKED_JTI_DB})`);
 
 // TLS
 const cert = readFileSync(TLS_CERT, 'utf-8');
@@ -517,6 +519,10 @@ const connectionIdentities = new Map();
 
 /** Last registered provider info — sent to human client on pairing and registration. */
 let registeredProvider = null;
+
+/** M5: Per-namespace rate limiting for extension messages. */
+const EXTENSION_RATE_LIMIT = parseInt(process.env.BASTION_EXT_RATE_LIMIT || '60', 10);
+const extensionRateLimits = new Map();
 
 // ---------------------------------------------------------------------------
 // Reconnection manager — grace period + message queue for brief disconnects
@@ -1578,15 +1584,62 @@ relay.on('message', async (data, info) => {
       return;
     }
 
-    // P2: Extension audit config
+    // M12: Sender-type direction enforcement for extension messages
+    const direction = extType.messageType.direction || 'bidirectional';
+    if (direction !== 'bidirectional') {
+      const senderIdentity = connectionIdentities.get(connId);
+      const senderType = senderIdentity?.type || 'unknown';
+      const allowed = (direction === 'human_to_ai' && senderType === 'human') ||
+                      (direction === 'ai_to_human' && senderType === 'ai');
+      if (!allowed) {
+        const sid = sessionIds.get(connId);
+        relay.send(connId, JSON.stringify({
+          type: 'error',
+          id: msg.id || randomUUID(),
+          timestamp: new Date().toISOString(),
+          payload: { code: 'BASTION-3005', message: `Extension message "${msg.type}" cannot be sent by ${senderType} (direction: ${direction})` },
+        }));
+        console.log(`[!] Extension direction violation: "${msg.type}" sent by ${senderType} but requires ${direction}`);
+        if (sid) auditLogger.logEvent('extension_direction_violation', sid, { messageType: msg.type, senderType, direction });
+        return;
+      }
+    }
+
+    // M5: Per-namespace rate limiting for extension messages
+    const extNamespace = extType.extension.namespace;
+    if (!extensionRateLimits.has(extNamespace)) {
+      extensionRateLimits.set(extNamespace, { count: 0, windowStart: Date.now() });
+    }
+    const nsLimit = extensionRateLimits.get(extNamespace);
+    const now = Date.now();
+    if (now - nsLimit.windowStart > 60000) {
+      nsLimit.count = 0;
+      nsLimit.windowStart = now;
+    }
+    nsLimit.count++;
+    if (nsLimit.count > EXTENSION_RATE_LIMIT) {
+      const sid = sessionIds.get(connId);
+      console.warn(`[!] Extension rate limit exceeded: ${extNamespace} (${nsLimit.count}/${EXTENSION_RATE_LIMIT}/min)`);
+      if (sid) auditLogger.logEvent('extension_rate_limited', sid, { namespace: extNamespace, count: nsLimit.count, limit: EXTENSION_RATE_LIMIT });
+      return; // Drop message silently
+    }
+
+    // M6 + P2: Extension audit — always log, use custom config if available
     const auditConfig = extType.messageType.audit;
+    const sid = sessionIds.get(connId);
     if (auditConfig && auditConfig.logEvent) {
       const detail = { messageType: msg.type, namespace: extType.extension.namespace, safety };
       if (auditConfig.logContent && msg.payload) {
         detail.payload = msg.payload;
       }
-      const sid = sessionIds.get(connId);
       if (sid) auditLogger.logEvent(auditConfig.logEvent, sid, detail);
+    } else {
+      // M6: Default audit trail for extension messages without audit config
+      if (sid) auditLogger.logEvent('extension_message_forwarded', sid, {
+        messageType: msg.type,
+        namespace: extType.extension.namespace,
+        sender: connectionIdentities.get(connId)?.id || 'unknown',
+      });
     }
 
     // Fall through to generic peer-forward below
@@ -1609,22 +1662,28 @@ relay.on('message', async (data, info) => {
     return;
   }
 
+  // M7: Audit FIRST, then forward — ensures audit trail exists before delivery
+  const senderClient = router.getClient(connId);
+  const peerClient = router.getClient(peerId);
+  const routeSid = sessionIds.get(connId);
+  if (routeSid) {
+    try {
+      auditLogger.logEvent('message_routed', routeSid, {
+        messageId: msg.id || 'unknown',
+        messageType: msg.type,
+        from: senderClient?.identity.id,
+        to: peerClient?.identity.id,
+      });
+    } catch (auditErr) {
+      // M7: If audit fails (degraded), log to stderr but still forward
+      console.error(`[!!!] Audit failed for message_routed (${msg.type}), forwarding anyway: ${auditErr.message}`);
+    }
+  }
+
   const sent = relay.send(peerId, data);
   if (sent) {
     recordMessage(connId);
-    const client = router.getClient(connId);
-    const peer = router.getClient(peerId);
-    console.log(`[→] ${client?.identity.displayName || connId.slice(0, 8)} → ${peer?.identity.displayName || peerId.slice(0, 8)}: ${msg.type}`);
-
-    const sid = sessionIds.get(connId);
-    if (sid) {
-      auditLogger.logEvent('message_routed', sid, {
-        messageId: msg.id || 'unknown',
-        messageType: msg.type,
-        from: client?.identity.id,
-        to: peer?.identity.id,
-      });
-    }
+    console.log(`[→] ${senderClient?.identity.displayName || connId.slice(0, 8)} → ${peerClient?.identity.displayName || peerId.slice(0, 8)}: ${msg.type}`);
   } else {
     console.log(`[!] Send to peer ${peerId.slice(0, 8)} failed`);
   }
