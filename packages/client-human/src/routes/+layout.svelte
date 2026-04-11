@@ -33,20 +33,39 @@ function handleSetupComplete() {
 	if (browser) session.tryAutoConnect();
 }
 
-/** Apply UserPreferences as CSS custom properties on the document root. */
+/** Convert hex colour to rgba string. Safe fallback for color-mix(). */
+function hexToRgba(hex: string, alpha: number): string {
+	const r = parseInt(hex.slice(1, 3), 16) || 0;
+	const g = parseInt(hex.slice(3, 5), 16) || 0;
+	const b = parseInt(hex.slice(5, 7), 16) || 0;
+	return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/** Lighten a hex colour by blending toward white. */
+function lightenHex(hex: string): string {
+	const blend = (ch: string, pct: number): number =>
+		Math.min(255, Math.round(parseInt(ch, 16) + (255 - parseInt(ch, 16)) * pct));
+	const r = blend(hex.slice(1, 3), 0.3);
+	const g = blend(hex.slice(3, 5), 0.3);
+	const b = blend(hex.slice(5, 7), 0.3);
+	return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
+/** Apply UserPreferences as CSS custom properties on the document root.
+ *  IMPORTANT: No color-mix() — Tauri WebView may not support it. Use
+ *  hexToRgba() and lightenHex() for all derived colours. */
 function applyPreferences(prefs: UserPreferences): void {
 	if (!browser) return;
 	const root = document.documentElement;
 	root.style.setProperty('--color-accent', prefs.accentColor);
-	// Derive accent-hover as a lighter variant
-	root.style.setProperty('--color-accent-hover', `color-mix(in srgb, ${prefs.accentColor} 70%, white)`);
+	root.style.setProperty('--color-accent-hover', lightenHex(prefs.accentColor));
 	root.style.setProperty(
 		'--color-user-bubble',
-		prefs.userBubbleColor || `color-mix(in srgb, ${prefs.accentColor} 15%, transparent)`,
+		prefs.userBubbleColor || prefs.accentColor,
 	);
 	root.style.setProperty(
 		'--color-ai-bubble',
-		prefs.aiBubbleColor || 'var(--color-surface)',
+		prefs.aiBubbleColor || '#1a1d27',
 	);
 	root.style.setProperty('--msg-font-size', `${prefs.messageFontSize}rem`);
 

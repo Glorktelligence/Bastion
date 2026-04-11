@@ -58,13 +58,23 @@ function savePreferences(): void {
 	applyPreferencesLive(prefs);
 }
 
+/** Lighten a hex colour by blending toward white. No color-mix() — WebView safe. */
+function lightenHex(hex: string): string {
+	const blend = (ch: string, pct: number): number =>
+		Math.min(255, Math.round(parseInt(ch, 16) + (255 - parseInt(ch, 16)) * pct));
+	const r = blend(hex.slice(1, 3), 0.3);
+	const g = blend(hex.slice(3, 5), 0.3);
+	const b = blend(hex.slice(5, 7), 0.3);
+	return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
 function applyPreferencesLive(p: UserPreferences): void {
 	if (typeof document === 'undefined') return;
 	const root = document.documentElement;
 	root.style.setProperty('--color-accent', p.accentColor);
-	root.style.setProperty('--color-accent-hover', `color-mix(in srgb, ${p.accentColor} 70%, white)`);
-	root.style.setProperty('--color-user-bubble', p.userBubbleColor || `color-mix(in srgb, ${p.accentColor} 15%, transparent)`);
-	root.style.setProperty('--color-ai-bubble', p.aiBubbleColor || 'var(--color-surface)');
+	root.style.setProperty('--color-accent-hover', lightenHex(p.accentColor));
+	root.style.setProperty('--color-user-bubble', p.userBubbleColor || p.accentColor);
+	root.style.setProperty('--color-ai-bubble', p.aiBubbleColor || '#1a1d27');
 	root.style.setProperty('--msg-font-size', `${p.messageFontSize}rem`);
 	if (p.compactMode) root.classList.add('compact');
 	else root.classList.remove('compact');
@@ -808,11 +818,11 @@ function handleContextSave(): void {
 		<div class="bubble-preview">
 			<p class="preview-label">Preview</p>
 			<div class="preview-chat">
-				<div class="preview-bubble preview-user" style="background:{prefs.userBubbleColor || `color-mix(in srgb, ${prefs.accentColor} 15%, transparent)`}">
+				<div class="preview-bubble preview-user" style="background:{prefs.userBubbleColor || prefs.accentColor}">
 					<span class="preview-sender">You</span>
 					<span class="preview-text" style="font-size:{prefs.messageFontSize}rem">How does the safety engine work?</span>
 				</div>
-				<div class="preview-bubble preview-ai" style="background:{prefs.aiBubbleColor || 'var(--color-surface)'}">
+				<div class="preview-bubble preview-ai" style="background:{prefs.aiBubbleColor || '#1a1d27'}">
 					<span class="preview-sender">Claude</span>
 					<span class="preview-text" style="font-size:{prefs.messageFontSize}rem">The safety engine uses a three-layer evaluation system: absolute boundaries, contextual challenges, and completeness checks.</span>
 				</div>

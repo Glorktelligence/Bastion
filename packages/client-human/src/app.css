@@ -12,9 +12,10 @@
   --font-mono: "JetBrains Mono", "Fira Code", monospace;
   --font-sans: "Inter", system-ui, sans-serif;
 
-  /* User-customisable — overridden dynamically by preferences */
-  --color-user-bubble: color-mix(in srgb, var(--color-accent) 15%, transparent);
-  --color-ai-bubble: var(--color-surface);
+  /* User-customisable — overridden dynamically by applyPreferences() in +layout.svelte.
+     Defaults here must be safe (no color-mix) for WebViews that lack support. */
+  --color-user-bubble: #6366f1;
+  --color-ai-bubble: #1a1d27;
   --msg-font-size: 0.875rem;
 }
 

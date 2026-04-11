@@ -131,13 +131,14 @@ function getTransparency(msg: DisplayMessage): { confidence: string; permissions
 
 	.incoming {
 		align-self: flex-start;
-		background: var(--color-ai-bubble, var(--color-surface));
+		background: var(--color-ai-bubble, #1a1d27);
 		border: 1px solid var(--color-border);
+		color: var(--color-text, #e4e4e7);
 	}
 
 	.outgoing {
 		align-self: flex-end;
-		background: var(--color-user-bubble, var(--color-accent));
+		background: var(--color-user-bubble, #6366f1);
 		color: #fff;
 	}
 
