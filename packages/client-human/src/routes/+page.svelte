@@ -645,16 +645,9 @@ function handleChallengeCancel(): void {
 			})) : messages}
 			groupConsecutive={groupConsecutiveMessages}
 			adapterName={currentAdapterName}
+			{isStreaming}
+			{streamingContent}
 		/>
-
-		{#if isStreaming}
-			<div class="streaming-indicator">
-				<div class="streaming-bubble">
-					<span class="streaming-sender">Claude</span>
-					<span class="streaming-text">{streamingContent}<span class="streaming-cursor">|</span></span>
-				</div>
-			</div>
-		{/if}
 
 		{#if showChallengeBar}
 			{#if challengeActive && challengePeriodEnd}

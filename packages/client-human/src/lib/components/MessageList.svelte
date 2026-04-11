@@ -8,10 +8,14 @@ const {
   messages,
   groupConsecutive = true,
   adapterName = '',
+  isStreaming = false,
+  streamingContent = '',
 }: {
   messages: DisplayMessage[];
   groupConsecutive?: boolean;
   adapterName?: string;
+  isStreaming?: boolean;
+  streamingContent?: string;
 } = $props();
 
 // Filter out extension-namespaced messages that have no registered renderer
@@ -57,11 +61,10 @@ onMount(() => {
 
 $effect(() => {
   const count = visibleMessages.length;
-  if (count && container) {
-    if (count !== prevMessageCount) {
-      // New messages arrived — only auto-scroll if user was near the bottom
+  const streaming = isStreaming;
+  if (container) {
+    if (count !== prevMessageCount || streaming) {
       if (isNearBottom) {
-        // Use requestAnimationFrame to scroll after DOM renders
         requestAnimationFrame(() => scrollToBottom());
       }
       prevMessageCount = count;
@@ -81,6 +84,12 @@ $effect(() => {
 		{#each visibleMessages as msg, idx (msg.id)}
 			<MessageBubble message={msg} grouped={isGrouped(idx)} />
 		{/each}
+	{/if}
+	{#if isStreaming}
+		<div class="streaming-bubble incoming">
+			<span class="streaming-sender">Claude</span>
+			<span class="streaming-text">{streamingContent}<span class="streaming-cursor">|</span></span>
+		</div>
 	{/if}
 </div>
 
@@ -108,4 +117,21 @@ $effect(() => {
 	.empty-icon { font-size: 2.5rem; opacity: 0.4; }
 	.empty-title { font-size: 1rem; font-weight: 500; color: var(--color-text); }
 	.empty-hint { font-size: 0.8rem; }
+
+	/* Streaming indicator — inside the scrollable area */
+	.streaming-bubble {
+		align-self: flex-start;
+		background: var(--color-ai-bubble, var(--color-surface));
+		border: 1px solid var(--color-border);
+		border-radius: 12px;
+		padding: 0.625rem 0.875rem;
+		max-width: 75%;
+	}
+	.streaming-sender { font-size: 0.7rem; color: var(--color-accent); font-weight: 500; display: block; margin-bottom: 0.2rem; }
+	.streaming-text { font-size: var(--msg-font-size, 0.875rem); color: var(--color-text); white-space: pre-wrap; overflow-wrap: break-word; word-break: break-word; }
+	.streaming-cursor {
+		display: inline-block; animation: blink 0.7s infinite;
+		color: var(--color-accent); font-weight: 300;
+	}
+	@keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
 </style>
