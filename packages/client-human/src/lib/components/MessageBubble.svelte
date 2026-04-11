@@ -126,7 +126,6 @@ function getTransparency(msg: DisplayMessage): { confidence: string; permissions
 		margin-bottom: 0.5rem;
 		word-wrap: break-word;
 		min-width: 0;
-		overflow-x: hidden;
 	}
 
 	.incoming {
