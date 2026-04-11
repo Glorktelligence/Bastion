@@ -620,6 +620,7 @@ function handleChallengeCancel(): void {
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
+		min-height: 0;
 	}
 
 	/* ---------- connect screen ---------- */

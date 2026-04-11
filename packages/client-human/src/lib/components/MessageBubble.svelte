@@ -124,6 +124,8 @@ function getTransparency(msg: DisplayMessage): { confidence: string; permissions
 		border-radius: 12px;
 		margin-bottom: 0.5rem;
 		word-wrap: break-word;
+		min-width: 0;
+		overflow-x: hidden;
 	}
 
 	.incoming {
@@ -167,6 +169,8 @@ function getTransparency(msg: DisplayMessage): { confidence: string; permissions
 		font-size: 0.875rem;
 		line-height: 1.4;
 		white-space: pre-wrap;
+		overflow-wrap: break-word;
+		word-break: break-word;
 	}
 
 	.transparency {

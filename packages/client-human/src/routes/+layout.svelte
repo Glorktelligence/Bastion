@@ -3,6 +3,7 @@ import '../app.css';
 import { onMount } from 'svelte';
 import { browser } from '$app/environment';
 import { page } from '$app/state';
+import { goto } from '$app/navigation';
 import * as session from '$lib/session.js';
 import SetupWizard from '$lib/components/SetupWizard.svelte';
 import AiDisclosureBanner from '$lib/components/AiDisclosureBanner.svelte';
@@ -131,6 +132,10 @@ function handleSwitchConversation(id) {
 		sender: session.getIdentity(),
 		payload: { conversationId: id },
 	}));
+	// Navigate to messages view if on another page
+	if (page.url.pathname !== '/') {
+		goto('/');
+	}
 }
 
 function handleCreateConversation() {
@@ -318,6 +323,7 @@ function relativeTime(iso) {
 			<a href="/challenges" class="nav-item" class:active={page.url.pathname === '/challenges'}>Challenges</a>
 			<a href="/audit" class="nav-item" class:active={page.url.pathname === '/audit'}>Audit Log</a>
 			<a href="/dreams" class="nav-item" class:active={page.url.pathname === '/dreams'}>Dreams</a>
+			<a href="/file-transfer" class="nav-item" class:active={page.url.pathname === '/file-transfer'}>File Transfer</a>
 			<a href="/settings" class="nav-item" class:active={page.url.pathname === '/settings'}>Settings</a>
 
 			{#if extensionPages.length > 0}
