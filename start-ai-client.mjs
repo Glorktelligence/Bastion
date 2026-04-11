@@ -819,8 +819,8 @@ const aiActionLimits = {
   recallCount: 0,
   execCount: 0,
   execCountThisResponse: 0,
-  messagesSinceLastMemory: 0,
-  messagesSinceLastRecall: 0,
+  messagesSinceLastMemory: 5,  // Start at gap value — first proposal in session is allowed
+  messagesSinceLastRecall: 5,  // Same — first recall in session is allowed
   maxChallengesPerSession: 3,
   maxMemoriesPerSession: 3,
   maxRecallsPerSession: 3,
@@ -2317,6 +2317,7 @@ client.on('message', async (data) => {
             auditLogger.logChallenge('issued', { severity: payload.severity, reason: String(payload.reason || '') });
           } else if (action.type === 'MEMORY' && aiActionLimits.canMemory()) {
             aiActionLimits.recordMemory();
+
             const payload = action.data;
             const proposalId = randomUUID();
             sendSecure({
@@ -2340,6 +2341,9 @@ client.on('message', async (data) => {
               sourceMessageId: msg.id || '',
             });
             console.log(`[→] AI memory proposal: "${String(payload.content || '').substring(0, 60)}"`);
+          } else if (action.type === 'MEMORY' && !aiActionLimits.canMemory()) {
+            console.log(`[!] AI memory proposal rate-limited (${aiActionLimits.memoryCount}/${aiActionLimits.maxMemoriesPerSession} used, ${aiActionLimits.messagesSinceLastMemory}/${aiActionLimits.memoryMinMessageGap} gap)`);
+            auditLogger.logMemory('rate_limited', { messagesSince: aiActionLimits.messagesSinceLastMemory, count: aiActionLimits.memoryCount });
           } else if (action.type === 'RECALL' && aiActionLimits.canRecall()) {
             aiActionLimits.recordRecall();
             const payload = action.data;
