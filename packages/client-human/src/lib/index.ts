@@ -148,3 +148,7 @@ export {
   BLOCKED_UI_PATTERNS,
 } from './extensions/bridge.js';
 export type { BridgeComponent, BridgeMessage } from './extensions/bridge.js';
+
+// Extension state cache (M14)
+export { ExtensionStateCache, extensionStateCache } from './extensions/extension-state-cache.js';
+export type { ExtensionTier1, ExtensionStateInfo, ExtensionStateSummary } from './extensions/extension-state-cache.js';

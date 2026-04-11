@@ -14,6 +14,8 @@
  * extensions can only send their own namespaced types.
  */
 
+import { extensionStateCache } from './extension-state-cache.js';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -312,10 +314,9 @@ export class ExtensionBridgeManager {
         const requestId = data.requestId;
         const namespace = data.namespace;
         if (!requestId || !namespace) break;
-        // Send a protocol message to request extension state from AI client.
-        // The AI client would respond via a forwarded message.
-        // For now, reply with null (state bridge requires AI client handler).
-        this.reply(component.iframe, requestId, null);
+        // M14: Return cached state (tier 1 + tier 2) — instant, no round-trip
+        const state = extensionStateCache.getState(namespace);
+        this.reply(component.iframe, requestId, state);
         break;
       }
       case 'switchConversation': {

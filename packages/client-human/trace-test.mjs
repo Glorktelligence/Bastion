@@ -30,6 +30,7 @@ import {
   ConversationRendererRegistry,
   conversationRendererRegistry,
   ExtensionBridgeManager,
+  ExtensionStateCache,
 } from './dist/index.js';
 
 let pass = 0, fail = 0;
@@ -2135,6 +2136,112 @@ async function run() {
     check('H14: only src1 messages flushed', results4.length === 1);
     check('H14: flushed message is from src1', results4[0]?.p?.from === 'src1');
     mgr4.destroy();
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // M14: ExtensionStateCache — three-tier state system
+  // -------------------------------------------------------------------
+  console.log('--- M14: ExtensionStateCache ---');
+  {
+    // Test 1: Empty cache
+    const cache = new ExtensionStateCache();
+    check('M14: cache starts empty', cache.size === 0);
+    check('M14: getState returns null for unknown', cache.getState('game') === null);
+    check('M14: has returns false for unknown', !cache.has('game'));
+
+    // Test 2: loadFromExtensions populates tier 1
+    cache.loadFromExtensions([
+      { namespace: 'game', name: 'Game', version: '1.0.0', messageTypes: ['game:turn', 'game:result'], ui: null },
+      { namespace: 'chronicle', name: 'Chronicle', version: '0.5.0', messageTypes: ['chronicle:entry'], ui: null },
+    ]);
+    check('M14: loadFromExtensions populates cache', cache.size === 2);
+    check('M14: has returns true after load', cache.has('game'));
+
+    const gameState = cache.getState('game');
+    check('M14: getState returns tier1 info', gameState !== null);
+    check('M14: tier1 namespace correct', gameState?.namespace === 'game');
+    check('M14: tier1 version correct', gameState?.version === '1.0.0');
+    check('M14: tier1 status is ready', gameState?.status === 'ready');
+    check('M14: tier2 state is null (no push yet)', gameState?.state === null);
+
+    // Test 3: updateState populates tier 2
+    cache.updateState('game', { turn: 3, phase: 'action' });
+    const updated = cache.getState('game');
+    check('M14: tier2 state populated', updated?.state !== null);
+    check('M14: tier2 turn correct', updated?.state?.turn === 3);
+    check('M14: tier2 phase correct', updated?.state?.phase === 'action');
+
+    // Test 4: updateState for unknown namespace creates minimal entry
+    cache.updateState('unknown-ext', { data: 'test' });
+    check('M14: unknown namespace creates entry', cache.has('unknown-ext'));
+    const unknownState = cache.getState('unknown-ext');
+    check('M14: unknown namespace has state', unknownState?.state?.data === 'test');
+    check('M14: unknown namespace version is unknown', unknownState?.version === 'unknown');
+
+    // Test 5: clearPushedState clears tier 2 but keeps tier 1
+    cache.clearPushedState();
+    const afterClear = cache.getState('game');
+    check('M14: clearPushedState keeps tier1', afterClear !== null);
+    check('M14: clearPushedState keeps namespace', afterClear?.namespace === 'game');
+    check('M14: clearPushedState keeps version', afterClear?.version === '1.0.0');
+    check('M14: clearPushedState clears tier2', afterClear?.state === null);
+
+    // Test 6: clear removes everything
+    cache.clear();
+    check('M14: clear empties cache', cache.size === 0);
+    check('M14: getState null after clear', cache.getState('game') === null);
+
+    // Test 7: loadFromExtensions preserves tier2 on refresh
+    const cache2 = new ExtensionStateCache();
+    cache2.loadFromExtensions([
+      { namespace: 'game', name: 'Game', version: '1.0.0', messageTypes: [], ui: null },
+    ]);
+    cache2.updateState('game', { turn: 7 });
+    // Simulate extension list refresh
+    cache2.loadFromExtensions([
+      { namespace: 'game', name: 'Game', version: '1.1.0', messageTypes: ['game:new'], ui: null },
+    ]);
+    const refreshed = cache2.getState('game');
+    check('M14: tier1 updated after refresh', refreshed?.version === '1.1.0');
+    check('M14: tier2 preserved after refresh', refreshed?.state?.turn === 7);
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // M14: Bridge getExtensionState returns cached state
+  // -------------------------------------------------------------------
+  console.log('--- M14: Bridge getExtensionState uses state cache ---');
+  {
+    const mgr = new ExtensionBridgeManager();
+    const replies = [];
+    const mockCW = {
+      postMessage: (data) => replies.push(data),
+    };
+    mgr.configure({
+      sendMessage: () => {},
+      getConversationId: () => 'conv-1',
+      isChallengeActive: () => false,
+    });
+    mgr.registerComponent('ext-ui', 'game', ['game:turn'], { contentWindow: mockCW });
+
+    // Populate the global extensionStateCache (imported from dist)
+    // We use a separate ExtensionStateCache instance via the bridge's import
+    // But the bridge imports from the singleton — so we test via the manager
+    mgr.handleMessage({
+      data: {
+        bridge: 'bastion',
+        action: 'getExtensionState',
+        requestId: 'req-1',
+        namespace: 'nonexistent',
+      },
+      source: mockCW,
+    });
+    check('M14: bridge replies to getExtensionState', replies.length === 1);
+    check('M14: bridge reply has requestId', replies[0]?.requestId === 'req-1');
+    // Without cached state, returns null for unknown namespace
+    check('M14: bridge returns null for unknown namespace', replies[0]?.value === null);
+    mgr.destroy();
   }
   console.log();
 

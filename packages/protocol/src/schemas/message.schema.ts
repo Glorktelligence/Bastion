@@ -3,7 +3,7 @@
 // See LICENSE file for full terms
 
 /**
- * Zod schemas for all 85 message type payloads.
+ * Zod schemas for all 93 message type payloads.
  * These provide runtime validation that mirrors the TypeScript interfaces
  * in types/messages.ts.
  */
@@ -335,6 +335,20 @@ export const ExtensionConversationRendererSchema = z.object({
   html: z.string(),
   style: z.enum(['compact', 'full']).optional(),
   markdown: z.boolean().optional(),
+});
+
+export const ExtensionStateUpdatePayloadSchema = z.object({
+  namespace: z.string().min(1),
+  state: z.record(z.string(), z.unknown()),
+});
+
+export const ExtensionStateRequestPayloadSchema = z.object({
+  namespace: z.string().min(1),
+});
+
+export const ExtensionStateResponsePayloadSchema = z.object({
+  namespace: z.string().min(1),
+  state: z.record(z.string(), z.unknown()).nullable(),
 });
 
 export const ExtensionListResponsePayloadSchema = z.object({
@@ -917,6 +931,9 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.MEMORY_DELETE]: MemoryDeletePayloadSchema,
   [MESSAGE_TYPES.EXTENSION_QUERY]: ExtensionQueryPayloadSchema,
   [MESSAGE_TYPES.EXTENSION_LIST_RESPONSE]: ExtensionListResponsePayloadSchema,
+  [MESSAGE_TYPES.EXTENSION_STATE_UPDATE]: ExtensionStateUpdatePayloadSchema,
+  [MESSAGE_TYPES.EXTENSION_STATE_REQUEST]: ExtensionStateRequestPayloadSchema,
+  [MESSAGE_TYPES.EXTENSION_STATE_RESPONSE]: ExtensionStateResponsePayloadSchema,
   [MESSAGE_TYPES.SKILL_LIST_RESPONSE]: SkillListResponsePayloadSchema,
   [MESSAGE_TYPES.SKILL_SCAN_RESULT]: SkillScanResultPayloadSchema,
   [MESSAGE_TYPES.PROJECT_SYNC]: ProjectSyncPayloadSchema,

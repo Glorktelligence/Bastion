@@ -1555,6 +1555,19 @@ relay.on('message', async (data, info) => {
   }
 
   // ---------------------------------------------------------------------------
+  // Extension state bridge (M14) — audit state pushes, forward all state msgs
+  // ---------------------------------------------------------------------------
+  if (msg.type === 'extension_state_update') {
+    const sid = sessionIds.get(connId);
+    const namespace = msg.payload?.namespace || 'unknown';
+    if (sid) auditLogger.logEvent('extension_state_update', sid, {
+      namespace,
+      sender: connectionIdentities.get(connId)?.id || 'unknown',
+    });
+    // Fall through to generic peer-forward
+  }
+
+  // ---------------------------------------------------------------------------
   // Extension message validation — namespace:type messages
   // ---------------------------------------------------------------------------
   if (msg.type && typeof msg.type === 'string' && msg.type.includes(':')) {

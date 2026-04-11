@@ -696,6 +696,16 @@ const extensionContext = {
   skillStore,
   challengeManager,
   toolRegistry,
+  pushState: (namespace, state) => {
+    if (!client) return;
+    sendSecure({
+      type: 'extension_state_update',
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: IDENTITY,
+      payload: { namespace, state },
+    });
+  },
 };
 
 const handlerCount = await loadExtensionHandlers(extensionDispatcher, extensionContext, EXTENSION_HANDLERS_DIR);
@@ -2902,6 +2912,22 @@ client.on('message', async (data) => {
   }
 
   // ---------------------------------------------------------------------------
+  // Extension state request — human client queries extension state (M14)
+  // ---------------------------------------------------------------------------
+  if (msg.type === 'extension_state_request') {
+    const namespace = msg.payload?.namespace;
+    const state = extensionDispatcher.getState(namespace);
+    sendSecure({
+      type: 'extension_state_response',
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: IDENTITY,
+      payload: { namespace, state },
+    });
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
   // Extension message dispatch — handles namespace:type messages
   // ---------------------------------------------------------------------------
   if (msg.type && typeof msg.type === 'string' && msg.type.includes(':')) {
@@ -2944,6 +2970,15 @@ client.on('message', async (data) => {
               timestamp: new Date().toISOString(),
               sender: IDENTITY,
               payload,
+            });
+          },
+          pushState: (state) => {
+            sendSecure({
+              type: 'extension_state_update',
+              id: randomUUID(),
+              timestamp: new Date().toISOString(),
+              sender: IDENTITY,
+              payload: { namespace, state },
             });
           },
           dataDir: extDataDir,

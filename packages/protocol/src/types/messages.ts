@@ -482,6 +482,23 @@ export interface ExtensionConversationRenderer {
   readonly markdown?: boolean;
 }
 
+/** AI Client → Human Client: Pushed extension state update (cached on human side). */
+export interface ExtensionStateUpdatePayload {
+  readonly namespace: string;
+  readonly state: Record<string, unknown>;
+}
+
+/** Human Client → AI Client: Request current extension state. */
+export interface ExtensionStateRequestPayload {
+  readonly namespace: string;
+}
+
+/** AI Client → Human Client: Response with current extension state. */
+export interface ExtensionStateResponsePayload {
+  readonly namespace: string;
+  readonly state: Record<string, unknown> | null;
+}
+
 /** Relay → Client: Loaded extensions with namespaces and message types. */
 export interface ExtensionListResponsePayload {
   readonly extensions: readonly {
@@ -1010,6 +1027,9 @@ export type MessagePayload =
   | { type: 'memory_delete'; payload: MemoryDeletePayload }
   | { type: 'extension_query'; payload: ExtensionQueryPayload }
   | { type: 'extension_list_response'; payload: ExtensionListResponsePayload }
+  | { type: 'extension_state_update'; payload: ExtensionStateUpdatePayload }
+  | { type: 'extension_state_request'; payload: ExtensionStateRequestPayload }
+  | { type: 'extension_state_response'; payload: ExtensionStateResponsePayload }
   | { type: 'project_sync'; payload: ProjectSyncPayload }
   | { type: 'project_sync_ack'; payload: ProjectSyncAckPayload }
   | { type: 'project_list'; payload: ProjectListPayload }

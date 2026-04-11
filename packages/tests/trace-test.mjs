@@ -76,6 +76,11 @@ import {
   ExtensionManifestSchema,
   SkillListResponsePayloadSchema,
 
+  // Schemas — extension state bridge (M14)
+  ExtensionStateUpdatePayloadSchema,
+  ExtensionStateRequestPayloadSchema,
+  ExtensionStateResponsePayloadSchema,
+
   // Constants
   RESERVED_NAMESPACES,
 
@@ -286,6 +291,17 @@ function validPayloads() {
       }],
       totalCount: 1,
     },
+    extension_state_update: {
+      namespace: 'chronicle',
+      state: { turn: 3, phase: 'action' },
+    },
+    extension_state_request: {
+      namespace: 'chronicle',
+    },
+    extension_state_response: {
+      namespace: 'chronicle',
+      state: { turn: 3, phase: 'action' },
+    },
     project_sync: { path: 'world-rules.md', content: '# World Rules', mimeType: 'text/markdown' },
     project_sync_ack: { path: 'world-rules.md', size: 13, timestamp: '2026-03-26T10:00:00.000Z' },
     project_list: {},
@@ -430,7 +446,7 @@ async function run() {
       }
     }
     check('all 88 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 87 entries', ALL_MESSAGE_TYPES.length === 90);
+    check('ALL_MESSAGE_TYPES has 93 entries', ALL_MESSAGE_TYPES.length === 93);
   }
   console.log();
 
@@ -466,8 +482,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 87 entries', typeKeys.length === 90);
-    check('PAYLOAD_SCHEMAS has 87 entries', Object.keys(PAYLOAD_SCHEMAS).length === 90);
+    check('MESSAGE_TYPES has 93 entries', typeKeys.length === 93);
+    check('PAYLOAD_SCHEMAS has 93 entries', Object.keys(PAYLOAD_SCHEMAS).length === 93);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -1111,6 +1127,44 @@ async function run() {
       totalEstimatedTokens: 100,
     };
     check('M10: SkillListResponsePayloadSchema validates', SkillListResponsePayloadSchema.safeParse(skillListPayload).success);
+
+    // M14: Extension State Bridge schemas
+    console.log('--- M14: Extension State Bridge schemas ---');
+
+    // extension_state_update
+    const stateUpdateValid = { namespace: 'chronicle', state: { turn: 3, phase: 'action' } };
+    check('M14: extension_state_update valid', ExtensionStateUpdatePayloadSchema.safeParse(stateUpdateValid).success);
+    check('M14: extension_state_update empty namespace rejected', !ExtensionStateUpdatePayloadSchema.safeParse({ namespace: '', state: {} }).success);
+    check('M14: extension_state_update missing namespace rejected', !ExtensionStateUpdatePayloadSchema.safeParse({ state: {} }).success);
+    check('M14: extension_state_update missing state rejected', !ExtensionStateUpdatePayloadSchema.safeParse({ namespace: 'chronicle' }).success);
+    check('M14: extension_state_update empty state valid', ExtensionStateUpdatePayloadSchema.safeParse({ namespace: 'game', state: {} }).success);
+
+    // extension_state_request
+    const stateReqValid = { namespace: 'chronicle' };
+    check('M14: extension_state_request valid', ExtensionStateRequestPayloadSchema.safeParse(stateReqValid).success);
+    check('M14: extension_state_request empty namespace rejected', !ExtensionStateRequestPayloadSchema.safeParse({ namespace: '' }).success);
+    check('M14: extension_state_request missing namespace rejected', !ExtensionStateRequestPayloadSchema.safeParse({}).success);
+
+    // extension_state_response
+    const stateRespValid = { namespace: 'chronicle', state: { turn: 3 } };
+    check('M14: extension_state_response with state valid', ExtensionStateResponsePayloadSchema.safeParse(stateRespValid).success);
+    const stateRespNull = { namespace: 'chronicle', state: null };
+    check('M14: extension_state_response with null state valid', ExtensionStateResponsePayloadSchema.safeParse(stateRespNull).success);
+    check('M14: extension_state_response empty namespace rejected', !ExtensionStateResponsePayloadSchema.safeParse({ namespace: '', state: null }).success);
+    check('M14: extension_state_response missing state rejected', !ExtensionStateResponsePayloadSchema.safeParse({ namespace: 'chronicle' }).success);
+
+    // PAYLOAD_SCHEMAS lookup
+    check('M14: PAYLOAD_SCHEMAS has extension_state_update', PAYLOAD_SCHEMAS['extension_state_update'] != null);
+    check('M14: PAYLOAD_SCHEMAS has extension_state_request', PAYLOAD_SCHEMAS['extension_state_request'] != null);
+    check('M14: PAYLOAD_SCHEMAS has extension_state_response', PAYLOAD_SCHEMAS['extension_state_response'] != null);
+
+    // MESSAGE_TYPES constants
+    check('M14: MESSAGE_TYPES.EXTENSION_STATE_UPDATE exists', MESSAGE_TYPES.EXTENSION_STATE_UPDATE === 'extension_state_update');
+    check('M14: MESSAGE_TYPES.EXTENSION_STATE_REQUEST exists', MESSAGE_TYPES.EXTENSION_STATE_REQUEST === 'extension_state_request');
+    check('M14: MESSAGE_TYPES.EXTENSION_STATE_RESPONSE exists', MESSAGE_TYPES.EXTENSION_STATE_RESPONSE === 'extension_state_response');
+    check('M14: ALL_MESSAGE_TYPES includes extension_state_update', ALL_MESSAGE_TYPES.includes('extension_state_update'));
+    check('M14: ALL_MESSAGE_TYPES includes extension_state_request', ALL_MESSAGE_TYPES.includes('extension_state_request'));
+    check('M14: ALL_MESSAGE_TYPES includes extension_state_response', ALL_MESSAGE_TYPES.includes('extension_state_response'));
   }
   console.log();
 

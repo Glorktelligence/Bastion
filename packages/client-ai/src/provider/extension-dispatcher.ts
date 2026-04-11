@@ -51,6 +51,7 @@ export type ExtensionHandler = (ctx: ExtensionContext) => Promise<void>;
 
 export class ExtensionDispatcher {
   private readonly handlers = new Map<string, ExtensionHandler>();
+  private readonly stateProviders = new Map<string, () => Record<string, unknown>>();
   private locked = false;
 
   /**
@@ -62,6 +63,26 @@ export class ExtensionDispatcher {
     if (!messageType.includes(':'))
       throw new Error(`Extension types must use namespace:type format, got: ${messageType}`);
     this.handlers.set(messageType, handler);
+  }
+
+  /**
+   * Register a state provider for an extension namespace.
+   * The provider function is called when state is queried.
+   */
+  registerStateProvider(namespace: string, getState: () => Record<string, unknown>): void {
+    if (this.locked) throw new Error('Extension dispatcher locked after startup');
+    this.stateProviders.set(namespace, getState);
+  }
+
+  /** Get the current state for a namespace, or null if no provider registered. */
+  getState(namespace: string): Record<string, unknown> | null {
+    const provider = this.stateProviders.get(namespace);
+    return provider ? provider() : null;
+  }
+
+  /** Check if a state provider exists for the given namespace. */
+  hasStateProvider(namespace: string): boolean {
+    return this.stateProviders.has(namespace);
   }
 
   /** Lock the dispatcher — no further registrations allowed. */

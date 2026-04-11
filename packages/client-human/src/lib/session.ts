@@ -17,6 +17,7 @@
  */
 
 import { conversationRendererRegistry } from './extensions/conversation-renderer-registry.js';
+import { extensionStateCache } from './extensions/extension-state-cache.js';
 import { BastionHumanClient } from './services/connection.js';
 import type { Writable } from './store.js';
 import { writable } from './store.js';
@@ -446,6 +447,7 @@ export async function disconnect(): Promise<void> {
   projects.clear();
   provider.clear();
   extensions.clear();
+  extensionStateCache.clear();
   conversations.clear();
   aiDisclosure.clear();
   fileTransfers.clear();
@@ -1650,6 +1652,42 @@ function handleRelayMessage(data: string): void {
     );
     // Load conversation renderers into the global registry
     conversationRendererRegistry.loadFromExtensions(exts);
+    // M14: Populate extension state cache tier 1 from manifest info
+    extensionStateCache.loadFromExtensions(
+      exts.map((e) => ({
+        namespace: e.namespace,
+        name: e.name,
+        version: e.version,
+        messageTypes: e.messageTypes ?? [],
+        ui: (e.ui as ExtensionInfo['ui']) ?? null,
+      })),
+    );
+    return;
+  }
+
+  // M14: Extension state update — AI client pushed state change
+  if (type === 'extension_state_update') {
+    const p = payload as Record<string, unknown>;
+    const ns = typeof p.namespace === 'string' ? p.namespace : '';
+    const state = (p.state && typeof p.state === 'object' ? p.state : null) as Record<string, unknown> | null;
+    if (ns && state) {
+      extensionStateCache.updateState(ns, state);
+    }
+    return;
+  }
+
+  // M14: Extension state response — AI client responded to a state query
+  // (consumed silently — bridge resolves pending promises via extensionStateCache)
+  if (type === 'extension_state_response') {
+    const p = payload as Record<string, unknown>;
+    const ns = typeof p.namespace === 'string' ? p.namespace : '';
+    const state =
+      p.state === null
+        ? null
+        : ((p.state && typeof p.state === 'object' ? p.state : null) as Record<string, unknown> | null);
+    if (ns && state) {
+      extensionStateCache.updateState(ns, state);
+    }
     return;
   }
 

@@ -3227,6 +3227,52 @@ async function run() {
   console.log();
 
   // -------------------------------------------------------------------
+  // M14: ExtensionDispatcher state providers
+  // -------------------------------------------------------------------
+  console.log('--- M14: ExtensionDispatcher state providers ---');
+  {
+    const d = new ExtensionDispatcher();
+
+    // Initially no state providers
+    check('M14: getState returns null for unregistered namespace', d.getState('game') === null);
+    check('M14: hasStateProvider false for unregistered namespace', !d.hasStateProvider('game'));
+
+    // Register a state provider
+    let turnCount = 1;
+    d.registerStateProvider('game', () => ({ turn: turnCount, phase: 'action' }));
+    check('M14: hasStateProvider true after registration', d.hasStateProvider('game'));
+
+    // getState returns current state
+    const state1 = d.getState('game');
+    check('M14: getState returns object', state1 !== null && typeof state1 === 'object');
+    check('M14: getState has correct turn', state1?.turn === 1);
+    check('M14: getState has correct phase', state1?.phase === 'action');
+
+    // State provider is dynamic — returns latest state
+    turnCount = 5;
+    const state2 = d.getState('game');
+    check('M14: getState reflects updated state', state2?.turn === 5);
+
+    // Multiple namespaces
+    d.registerStateProvider('chronicle', () => ({ entries: 42 }));
+    check('M14: multiple state providers coexist', d.hasStateProvider('game') && d.hasStateProvider('chronicle'));
+    check('M14: chronicle state correct', d.getState('chronicle')?.entries === 42);
+
+    // Unregistered namespace still returns null
+    check('M14: unknown namespace returns null', d.getState('unknown') === null);
+
+    // Lock prevents new state provider registrations
+    d.lock();
+    let lockErr = false;
+    try { d.registerStateProvider('new', () => ({})); } catch { lockErr = true; }
+    check('M14: rejects state provider after lock', lockErr);
+
+    // Existing providers still work after lock
+    check('M14: getState works after lock', d.getState('game')?.turn === 5);
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
   // loadExtensionHandlers — generic extension handler loader
   // -------------------------------------------------------------------
   console.log('--- loadExtensionHandlers ---');
