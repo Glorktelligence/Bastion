@@ -11,6 +11,8 @@ const {
   providerName = '',
   providerActive = false,
   providerModel = '',
+  relayUrl = '',
+  adapterName = '',
   onRetry,
 }: {
   status: HumanClientState;
@@ -22,6 +24,8 @@ const {
   providerName?: string;
   providerActive?: boolean;
   providerModel?: string;
+  relayUrl?: string;
+  adapterName?: string;
   onRetry?: () => void;
 } = $props();
 
@@ -67,7 +71,7 @@ function formatDelay(ms: number): string {
 }
 </script>
 
-<div class="status-bar">
+<div class="status-bar" title={relayUrl ? `Relay: ${relayUrl}` : ''}>
 	<div class="status-group">
 		<span class="dot" style="background:{dotColor(status)}"></span>
 		<span class="label">{statusLabel(status)}</span>
@@ -98,6 +102,9 @@ function formatDelay(ms: number): string {
 		{peerLabel(peerStatus)}
 		{#if status === 'authenticated' || status === 'connected'}
 			<span class="provider-label">{providerName ? `${providerName}${providerModel ? ` (${providerModel})` : ''} ${providerActive ? '✓' : '✗'}` : 'No AI provider'}</span>
+			{#if adapterName}
+				<span class="adapter-label">{adapterName}</span>
+			{/if}
 		{/if}
 	</div>
 </div>
@@ -189,6 +196,17 @@ function formatDelay(ms: number): string {
 	.e2e-unavailable {
 		background: color-mix(in srgb, #ef4444 15%, transparent);
 		color: #ef4444;
+	}
+
+	.adapter-label {
+		margin-left: 0.375rem;
+		padding: 0.0625rem 0.375rem;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--color-accent) 15%, transparent);
+		color: var(--color-accent);
+		font-size: 0.65rem;
+		font-weight: 600;
+		white-space: nowrap;
 	}
 
 	@keyframes pulse {

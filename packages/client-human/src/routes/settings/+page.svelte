@@ -10,9 +10,10 @@ import type { ExtensionInfo } from '$lib/stores/extensions.js';
 import type { ConversationEntry } from '$lib/stores/conversations.js';
 import type { DataPortabilityState, UsageStatusState } from '$lib/session.js';
 import SettingsPanel from '$lib/components/SettingsPanel.svelte';
+import { type UserPreferences, DEFAULT_USER_PREFERENCES, type BastionConfig } from '$lib/config/config-store.js';
 
 // Tab navigation
-const TABS = ['Profile', 'Safety', 'Context', 'Files', 'Privacy', 'Usage', 'Tools', 'Provider', 'About'] as const;
+const TABS = ['Appearance', 'Profile', 'Safety', 'Context', 'Files', 'Privacy', 'Usage', 'Tools', 'Provider', 'About'] as const;
 type TabId = typeof TABS[number];
 
 // ---------------------------------------------------------------------------
@@ -38,6 +39,49 @@ let cfgAutoReconnect = $state(cfgStore.get('autoReconnect'));
 let showResetConfirm = $state(false);
 let settingsConnStatus: 'disconnected' | 'connecting' | 'connected' | 'authenticated' | 'error' = $state('disconnected');
 
+// Appearance preferences
+const ACCENT_PRESETS = [
+	{ name: 'Indigo', color: '#6366f1' },
+	{ name: 'Blue', color: '#3b82f6' },
+	{ name: 'Emerald', color: '#10b981' },
+	{ name: 'Amber', color: '#f59e0b' },
+	{ name: 'Rose', color: '#f43f5e' },
+	{ name: 'Purple', color: '#a855f7' },
+	{ name: 'Cyan', color: '#06b6d4' },
+	{ name: 'Gold', color: '#c9a227' },
+] as const;
+
+let prefs: UserPreferences = $state({ ...DEFAULT_USER_PREFERENCES, ...(cfgStore.get('preferences') as UserPreferences ?? {}) });
+
+function savePreferences(): void {
+	cfgStore.set('preferences' as keyof BastionConfig, { ...prefs } as BastionConfig[keyof BastionConfig]);
+	applyPreferencesLive(prefs);
+}
+
+function applyPreferencesLive(p: UserPreferences): void {
+	if (typeof document === 'undefined') return;
+	const root = document.documentElement;
+	root.style.setProperty('--color-accent', p.accentColor);
+	root.style.setProperty('--color-accent-hover', `color-mix(in srgb, ${p.accentColor} 70%, white)`);
+	root.style.setProperty('--color-user-bubble', p.userBubbleColor || `color-mix(in srgb, ${p.accentColor} 15%, transparent)`);
+	root.style.setProperty('--color-ai-bubble', p.aiBubbleColor || 'var(--color-surface)');
+	root.style.setProperty('--msg-font-size', `${p.messageFontSize}rem`);
+	if (p.compactMode) root.classList.add('compact');
+	else root.classList.remove('compact');
+	if (p.timestampDisplay === 'hover') root.classList.add('timestamp-hover');
+	else root.classList.remove('timestamp-hover');
+}
+
+function handlePrefChange<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]): void {
+	prefs = { ...prefs, [key]: value };
+	savePreferences();
+}
+
+function resetPreferences(): void {
+	prefs = { ...DEFAULT_USER_PREFERENCES };
+	savePreferences();
+}
+
 // Tool state
 let approvedTools: readonly ApprovedTool[] = $state([]);
 
@@ -61,7 +105,7 @@ let importFileError: string | null = $state(null);
 let usage: UsageStatusState = $state(session.usageStatus.get());
 
 // Tab navigation state
-let activeTab: TabId = $state('Profile');
+let activeTab: TabId = $state('Appearance');
 
 function handleToolRevoke(toolId: string): void {
   const client = session.getClient();
@@ -707,6 +751,123 @@ function handleContextSave(): void {
 			{/each}
 		</div>
 	</header>
+
+	{#if activeTab === 'Appearance'}
+	<section class="section">
+		<h3>Accent Colour</h3>
+		<div class="accent-presets">
+			{#each ACCENT_PRESETS as preset}
+				<button
+					class="accent-swatch"
+					class:accent-active={prefs.accentColor === preset.color}
+					style="background:{preset.color}"
+					title={preset.name}
+					onclick={() => handlePrefChange('accentColor', preset.color)}
+				></button>
+			{/each}
+			<label class="accent-custom-label" title="Custom colour">
+				<input
+					type="color"
+					class="accent-custom-input"
+					value={prefs.accentColor}
+					oninput={(e) => handlePrefChange('accentColor', e.currentTarget.value)}
+				/>
+				<span class="accent-custom-icon">+</span>
+			</label>
+		</div>
+		<p class="hint">Current: {prefs.accentColor}</p>
+	</section>
+
+	<section class="section">
+		<h3>Message Bubbles</h3>
+		<div class="bubble-controls">
+			<label class="bubble-ctrl">
+				<span class="label">User bubble colour</span>
+				<div class="bubble-color-row">
+					<input
+						type="color"
+						value={prefs.userBubbleColor || prefs.accentColor}
+						oninput={(e) => handlePrefChange('userBubbleColor', e.currentTarget.value)}
+					/>
+					<button class="btn-sm btn-cancel" onclick={() => handlePrefChange('userBubbleColor', '')}>Reset</button>
+				</div>
+			</label>
+			<label class="bubble-ctrl">
+				<span class="label">AI bubble colour</span>
+				<div class="bubble-color-row">
+					<input
+						type="color"
+						value={prefs.aiBubbleColor || '#1a1d27'}
+						oninput={(e) => handlePrefChange('aiBubbleColor', e.currentTarget.value)}
+					/>
+					<button class="btn-sm btn-cancel" onclick={() => handlePrefChange('aiBubbleColor', '')}>Reset</button>
+				</div>
+			</label>
+		</div>
+
+		<div class="bubble-preview">
+			<p class="preview-label">Preview</p>
+			<div class="preview-chat">
+				<div class="preview-bubble preview-user" style="background:{prefs.userBubbleColor || `color-mix(in srgb, ${prefs.accentColor} 15%, transparent)`}">
+					<span class="preview-sender">You</span>
+					<span class="preview-text" style="font-size:{prefs.messageFontSize}rem">How does the safety engine work?</span>
+				</div>
+				<div class="preview-bubble preview-ai" style="background:{prefs.aiBubbleColor || 'var(--color-surface)'}">
+					<span class="preview-sender">Claude</span>
+					<span class="preview-text" style="font-size:{prefs.messageFontSize}rem">The safety engine uses a three-layer evaluation system: absolute boundaries, contextual challenges, and completeness checks.</span>
+				</div>
+			</div>
+		</div>
+	</section>
+
+	<section class="section">
+		<h3>Typography</h3>
+		<label class="slider-label">
+			<span class="label">Message font size: {prefs.messageFontSize.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')}rem</span>
+			<input
+				type="range"
+				min="0.75"
+				max="1.125"
+				step="0.0625"
+				value={prefs.messageFontSize}
+				oninput={(e) => handlePrefChange('messageFontSize', parseFloat(e.currentTarget.value))}
+				class="pref-slider"
+			/>
+		</label>
+		<p class="preview-text-sample" style="font-size:{prefs.messageFontSize}rem">The quick brown fox jumps over the lazy dog.</p>
+	</section>
+
+	<section class="section">
+		<h3>Layout</h3>
+		<div class="toggle-fields">
+			<label class="toggle-label">
+				<input type="checkbox" checked={prefs.compactMode} onchange={(e) => handlePrefChange('compactMode', e.currentTarget.checked)} />
+				<span>Compact mode</span>
+			</label>
+			<label class="toggle-label">
+				<input type="checkbox" checked={prefs.timestampDisplay === 'always'} onchange={(e) => handlePrefChange('timestampDisplay', e.currentTarget.checked ? 'always' : 'hover')} />
+				<span>Always show timestamps</span>
+			</label>
+			<label class="toggle-label">
+				<input type="checkbox" checked={prefs.groupConsecutiveMessages} onchange={(e) => handlePrefChange('groupConsecutiveMessages', e.currentTarget.checked)} />
+				<span>Group consecutive messages</span>
+			</label>
+			<label class="toggle-label">
+				<input type="checkbox" checked={prefs.showChallengeBar} onchange={(e) => handlePrefChange('showChallengeBar', e.currentTarget.checked)} />
+				<span>Show challenge hours bar</span>
+			</label>
+			<label class="toggle-label">
+				<input type="checkbox" checked={prefs.soundsEnabled} onchange={(e) => handlePrefChange('soundsEnabled', e.currentTarget.checked)} />
+				<span>Notification sounds</span>
+			</label>
+		</div>
+	</section>
+
+	<section class="section">
+		<button class="btn-danger-outline" onclick={resetPreferences}>Reset to Defaults</button>
+		<p class="hint">Restore all appearance settings to their factory values.</p>
+	</section>
+	{/if}
 
 	{#if activeTab === 'Profile'}
 	<section class="section">
@@ -1865,5 +2026,76 @@ function handleContextSave(): void {
 		background: var(--color-bg, #0f0f23);
 		color: var(--color-text);
 		font-size: 0.75rem;
+	}
+
+	/* Appearance tab */
+	.accent-presets {
+		display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;
+	}
+	.accent-swatch {
+		width: 32px; height: 32px; border-radius: 50%; border: 2px solid transparent;
+		cursor: pointer; transition: border-color 0.15s, transform 0.15s;
+	}
+	.accent-swatch:hover { transform: scale(1.15); }
+	.accent-active { border-color: var(--color-text) !important; box-shadow: 0 0 0 2px var(--color-bg); }
+
+	.accent-custom-label {
+		position: relative; width: 32px; height: 32px; cursor: pointer;
+		display: flex; align-items: center; justify-content: center;
+	}
+	.accent-custom-input {
+		position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer;
+	}
+	.accent-custom-icon {
+		width: 32px; height: 32px; border-radius: 50%;
+		border: 2px dashed var(--color-border);
+		display: flex; align-items: center; justify-content: center;
+		color: var(--color-text-muted); font-size: 1rem; pointer-events: none;
+	}
+
+	.bubble-controls { display: flex; gap: 1rem; flex-wrap: wrap; }
+	.bubble-ctrl { display: flex; flex-direction: column; gap: 0.25rem; }
+	.bubble-color-row { display: flex; align-items: center; gap: 0.375rem; }
+	.bubble-color-row input[type="color"] {
+		width: 36px; height: 28px; border: 1px solid var(--color-border);
+		border-radius: 4px; background: var(--color-bg); cursor: pointer; padding: 0;
+	}
+
+	.bubble-preview { margin-top: 0.75rem; }
+	.preview-label {
+		font-size: 0.7rem; color: var(--color-text-muted); text-transform: uppercase;
+		letter-spacing: 0.05em; margin-bottom: 0.375rem;
+	}
+	.preview-chat {
+		display: flex; flex-direction: column; gap: 0.375rem;
+		padding: 0.75rem;
+		background: var(--color-bg, #0f0f23);
+		border: 1px solid var(--color-border, #2a2a4a);
+		border-radius: 0.5rem;
+	}
+	.preview-bubble {
+		padding: 0.5rem 0.75rem; border-radius: 10px;
+		max-width: 80%; display: flex; flex-direction: column; gap: 0.125rem;
+	}
+	.preview-user {
+		align-self: flex-end; color: #fff;
+		border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
+	}
+	.preview-ai {
+		align-self: flex-start;
+		border: 1px solid var(--color-border, #2a2a4a);
+	}
+	.preview-sender { font-size: 0.7rem; font-weight: 600; opacity: 0.8; }
+	.preview-text { line-height: 1.4; }
+
+	.slider-label { display: flex; flex-direction: column; gap: 0.375rem; font-size: 0.8rem; color: var(--color-text-muted); }
+	.pref-slider {
+		width: 100%; max-width: 320px; accent-color: var(--color-accent, #6366f1);
+		cursor: pointer;
+	}
+	.preview-text-sample {
+		margin-top: 0.375rem; color: var(--color-text); line-height: 1.4;
+		padding: 0.5rem; background: var(--color-bg, #0f0f23);
+		border: 1px solid var(--color-border); border-radius: 0.25rem;
 	}
 </style>

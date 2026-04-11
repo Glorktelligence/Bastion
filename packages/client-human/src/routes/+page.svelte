@@ -16,6 +16,7 @@ import FileUploadStatus from '$lib/components/FileUploadStatus.svelte';
 import type { BudgetStatusData, BudgetAlert } from '$lib/stores/budget.js';
 import type { FileUploadProgress } from '$lib/stores/file-transfers.js';
 import type { ProviderAdapterInfo } from '$lib/stores/provider.js';
+import { type UserPreferences, DEFAULT_USER_PREFERENCES } from '$lib/config/config-store.js';
 
 // ---------------------------------------------------------------------------
 // Reactive UI state — subscribed from shared session stores
@@ -59,6 +60,9 @@ let challengePeriodEnd: string | null = $state(null);
 let challengeHighRiskStart = $state(0);
 let challengeHighRiskEnd = $state(6);
 let challengeRemainingLabel = $state('');
+let showChallengeBar = $state(true);
+let groupConsecutiveMessages = $state(true);
+let currentAdapterName = $state('');
 
 const isConnected = $derived(
 	conn.status === 'connected' || conn.status === 'authenticated',
@@ -106,11 +110,50 @@ onMount(() => {
 	// Countdown interval — ticks every 30s to keep remaining-time label fresh
 	const challengeTimer = setInterval(updateChallengeRemaining, 30_000);
 
+	// Load user preferences
+	const cfg = session.getConfigStore();
+	const prefs: UserPreferences = (cfg.get('preferences') as UserPreferences) ?? DEFAULT_USER_PREFERENCES;
+	showChallengeBar = prefs.showChallengeBar;
+	groupConsecutiveMessages = prefs.groupConsecutiveMessages;
+
+	// Keyboard shortcuts
+	function handleKeydown(e: KeyboardEvent): void {
+		// Ctrl+N / Cmd+N — new conversation (bubble up to layout)
+		if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+			e.preventDefault();
+			// Click the new-conversation button in sidebar
+			const btn = document.querySelector('.conv-new-btn') as HTMLButtonElement | null;
+			btn?.click();
+		}
+		// Escape — close any open menu/panel
+		if (e.key === 'Escape') {
+			showConvActions = false;
+			showAdapterPicker = false;
+			deleteConfirm = false;
+		}
+	}
+	document.addEventListener('keydown', handleKeydown);
+
+	// Auto-focus input on mount
+	focusChatInput();
+
 	return () => {
 		clearInterval(challengeTimer);
+		document.removeEventListener('keydown', handleKeydown);
 		for (const u of subs) u();
 	};
 });
+
+// ---------------------------------------------------------------------------
+// Auto-focus chat input
+// ---------------------------------------------------------------------------
+
+function focusChatInput(): void {
+	requestAnimationFrame(() => {
+		const textarea = document.querySelector('.chat-input textarea') as HTMLTextAreaElement | null;
+		textarea?.focus();
+	});
+}
 
 // ---------------------------------------------------------------------------
 // Connect / Disconnect
@@ -201,6 +244,9 @@ function handleSendConversation(text: string): void {
 			senderName: session.IDENTITY.displayName, direction: 'outgoing', payload: envelope.payload,
 		});
 	}
+
+	// Re-focus input after send
+	focusChatInput();
 }
 
 function handleSendTask(task: {
@@ -416,6 +462,16 @@ function handleSwitchAdapter(adapterId: string): void {
 // Challenge responses
 // ---------------------------------------------------------------------------
 
+// Auto-focus input when active conversation changes
+$effect(() => {
+	if (activeConv) {
+		currentAdapterName = activeConv.preferredAdapter
+			? adapterBadgeLabel(activeConv.preferredAdapter)
+			: (providerModel || providerName || '');
+		focusChatInput();
+	}
+});
+
 function handleChallengeApprove(): void {
 	const client = session.getClient();
 	if (!client) return;
@@ -480,6 +536,8 @@ function handleChallengeCancel(): void {
 			{providerName}
 			{providerActive}
 			{providerModel}
+			relayUrl={session.getRelayUrl()}
+			adapterName={currentAdapterName}
 			onRetry={handleConnect}
 		/>
 
@@ -574,16 +632,20 @@ function handleChallengeCancel(): void {
 			</div>
 		{/if}
 
-		<MessageList messages={activeConv ? convMessages.map(m => ({
-			id: m.id,
-			type: m.type,
-			timestamp: m.timestamp,
-			senderType: m.role === 'user' ? 'human' as const : 'ai' as const,
-			senderName: m.senderName ?? (m.role === 'user' ? 'You' : 'Claude'),
-			content: m.content,
-			payload: m.payload ?? { content: m.content },
-			direction: m.direction ?? (m.role === 'user' ? 'outgoing' as const : 'incoming' as const),
-		})) : messages} />
+		<MessageList
+			messages={activeConv ? convMessages.map(m => ({
+				id: m.id,
+				type: m.type,
+				timestamp: m.timestamp,
+				senderType: m.role === 'user' ? 'human' as const : 'ai' as const,
+				senderName: m.senderName ?? (m.role === 'user' ? 'You' : 'Claude'),
+				content: m.content,
+				payload: m.payload ?? { content: m.content },
+				direction: m.direction ?? (m.role === 'user' ? 'outgoing' as const : 'incoming' as const),
+			})) : messages}
+			groupConsecutive={groupConsecutiveMessages}
+			adapterName={currentAdapterName}
+		/>
 
 		{#if isStreaming}
 			<div class="streaming-indicator">
@@ -594,15 +656,17 @@ function handleChallengeCancel(): void {
 			</div>
 		{/if}
 
-		{#if challengeActive && challengePeriodEnd}
-			<div class="challenge-bar challenge-bar--active">
-				<span class="challenge-bar-icon">⚠</span>
-				<span>Challenge hours active — ends {formatHour(challengeHighRiskEnd)} ({challengeRemainingLabel})</span>
-			</div>
-		{:else if isConnected}
-			<div class="challenge-bar challenge-bar--inactive">
-				<span>Challenge hours: {formatHour(challengeHighRiskStart)}–{formatHour(challengeHighRiskEnd)}</span>
-			</div>
+		{#if showChallengeBar}
+			{#if challengeActive && challengePeriodEnd}
+				<div class="challenge-bar challenge-bar--active">
+					<span class="challenge-bar-icon">⚠</span>
+					<span>Challenge hours active — ends {formatHour(challengeHighRiskEnd)} ({challengeRemainingLabel})</span>
+				</div>
+			{:else if isConnected}
+				<div class="challenge-bar challenge-bar--inactive">
+					<span>Challenge hours: {formatHour(challengeHighRiskStart)}–{formatHour(challengeHighRiskEnd)}</span>
+				</div>
+			{/if}
 		{/if}
 
 		<InputBar

@@ -19,7 +19,40 @@
 // ---------------------------------------------------------------------------
 
 /** Current config schema version. Bump when fields are added/changed. */
-export const CONFIG_VERSION = 2;
+export const CONFIG_VERSION = 3;
+
+export interface UserPreferences {
+  /** Accent colour — used for buttons, links, highlights. Default: '#6366f1' (indigo) */
+  accentColor: string;
+  /** User message bubble colour. Default: uses accent with low opacity */
+  userBubbleColor: string;
+  /** AI message bubble colour. Default: uses surface colour */
+  aiBubbleColor: string;
+  /** Font size for messages (rem). Default: 0.875 */
+  messageFontSize: number;
+  /** Show timestamps on every message or only on hover. Default: 'always' */
+  timestampDisplay: 'always' | 'hover';
+  /** Compact mode — reduces padding and spacing. Default: false */
+  compactMode: boolean;
+  /** Show the challenge hours bar. Default: true */
+  showChallengeBar: boolean;
+  /** Message grouping — group consecutive messages from same sender. Default: true */
+  groupConsecutiveMessages: boolean;
+  /** Notification sounds enabled. Default: true */
+  soundsEnabled: boolean;
+}
+
+export const DEFAULT_USER_PREFERENCES: UserPreferences = {
+  accentColor: '#6366f1',
+  userBubbleColor: '',
+  aiBubbleColor: '',
+  messageFontSize: 0.875,
+  timestampDisplay: 'always',
+  compactMode: false,
+  showChallengeBar: true,
+  groupConsecutiveMessages: true,
+  soundsEnabled: true,
+};
 
 export interface BastionConfig {
   /** Schema version for migration. */
@@ -29,11 +62,14 @@ export interface BastionConfig {
   displayName: string;
   setupComplete: boolean;
   lastConnected: string;
-  theme: 'dark' | 'light';
+  /** Dark mode only — Bastion enforces dark theme by design. */
+  theme: 'dark';
   /** Auto-connect to relay on app open (default: true after setup). */
   autoConnect: boolean;
   /** Auto-reconnect on unexpected disconnect (default: true). */
   autoReconnect: boolean;
+  /** User appearance and layout preferences. */
+  preferences: UserPreferences;
 }
 
 export const DEFAULT_CONFIG: BastionConfig = {
@@ -46,6 +82,7 @@ export const DEFAULT_CONFIG: BastionConfig = {
   theme: 'dark',
   autoConnect: true,
   autoReconnect: true,
+  preferences: { ...DEFAULT_USER_PREFERENCES },
 };
 
 // ---------------------------------------------------------------------------
@@ -60,7 +97,7 @@ export function migrateConfig(raw: Record<string, unknown>): BastionConfig {
   const version = typeof raw.configVersion === 'number' ? raw.configVersion : 1;
 
   // Start from defaults, overlay saved values
-  const config: BastionConfig = { ...DEFAULT_CONFIG };
+  const config: BastionConfig = { ...DEFAULT_CONFIG, preferences: { ...DEFAULT_USER_PREFERENCES } };
 
   // Always carry forward core fields that exist in all versions
   if (typeof raw.relayUrl === 'string') config.relayUrl = raw.relayUrl;
@@ -68,7 +105,8 @@ export function migrateConfig(raw: Record<string, unknown>): BastionConfig {
   if (typeof raw.displayName === 'string') config.displayName = raw.displayName;
   if (typeof raw.setupComplete === 'boolean') config.setupComplete = raw.setupComplete;
   if (typeof raw.lastConnected === 'string') config.lastConnected = raw.lastConnected;
-  if (raw.theme === 'dark' || raw.theme === 'light') config.theme = raw.theme;
+  // v3: theme is always 'dark' — ignore any saved 'light' value
+  config.theme = 'dark';
 
   // v2 fields — only apply if they were explicitly saved
   if (version >= 2) {
@@ -76,6 +114,23 @@ export function migrateConfig(raw: Record<string, unknown>): BastionConfig {
     if (typeof raw.autoReconnect === 'boolean') config.autoReconnect = raw.autoReconnect;
   }
   // v1 → v2: autoConnect and autoReconnect get defaults (true)
+
+  // v3 fields — UserPreferences
+  if (version >= 3 && raw.preferences && typeof raw.preferences === 'object') {
+    const p = raw.preferences as Record<string, unknown>;
+    if (typeof p.accentColor === 'string') config.preferences.accentColor = p.accentColor;
+    if (typeof p.userBubbleColor === 'string') config.preferences.userBubbleColor = p.userBubbleColor;
+    if (typeof p.aiBubbleColor === 'string') config.preferences.aiBubbleColor = p.aiBubbleColor;
+    if (typeof p.messageFontSize === 'number') config.preferences.messageFontSize = p.messageFontSize;
+    if (p.timestampDisplay === 'always' || p.timestampDisplay === 'hover')
+      config.preferences.timestampDisplay = p.timestampDisplay;
+    if (typeof p.compactMode === 'boolean') config.preferences.compactMode = p.compactMode;
+    if (typeof p.showChallengeBar === 'boolean') config.preferences.showChallengeBar = p.showChallengeBar;
+    if (typeof p.groupConsecutiveMessages === 'boolean')
+      config.preferences.groupConsecutiveMessages = p.groupConsecutiveMessages;
+    if (typeof p.soundsEnabled === 'boolean') config.preferences.soundsEnabled = p.soundsEnabled;
+  }
+  // v1/v2 → v3: preferences get defaults
 
   // Stamp current version
   config.configVersion = CONFIG_VERSION;

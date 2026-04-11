@@ -25,6 +25,7 @@ import {
   InMemoryConfigStore,
   migrateConfig,
   CONFIG_VERSION,
+  DEFAULT_USER_PREFERENCES,
   createDreamCyclesStore,
   ConversationRendererRegistry,
   conversationRendererRegistry,
@@ -1476,22 +1477,31 @@ async function run() {
     check('migration: userId preserved', migrated.userId === 'user-123');
     check('migration: displayName preserved', migrated.displayName === 'Harry');
     check('migration: setupComplete preserved', migrated.setupComplete === true);
-    check('migration: theme preserved', migrated.theme === 'dark');
+    check('migration: theme forced dark', migrated.theme === 'dark');
     check('migration: configVersion set to current', migrated.configVersion === CONFIG_VERSION);
     check('migration: autoConnect defaults to true', migrated.autoConnect === true);
     check('migration: autoReconnect defaults to true', migrated.autoReconnect === true);
+    check('migration: preferences defaults applied', migrated.preferences != null);
+    check('migration: preferences.accentColor defaults', migrated.preferences.accentColor === '#6366f1');
 
     // v2 config with explicit autoConnect=false
     const v2 = { ...v1, configVersion: 2, autoConnect: false, autoReconnect: true };
     const migrated2 = migrateConfig(v2);
     check('migration v2: autoConnect false preserved', migrated2.autoConnect === false);
     check('migration v2: autoReconnect true preserved', migrated2.autoReconnect === true);
+    check('migration v2: preferences get defaults', migrated2.preferences.messageFontSize === 0.875);
+
+    // v2 with light theme — v3 enforces dark
+    const v2light = { ...v1, configVersion: 2, theme: 'light' };
+    const migratedLight = migrateConfig(v2light);
+    check('migration v2 light: theme forced to dark', migratedLight.theme === 'dark');
 
     // Empty config
     const empty = migrateConfig({});
     check('migration empty: setupComplete false', empty.setupComplete === false);
     check('migration empty: configVersion current', empty.configVersion === CONFIG_VERSION);
     check('migration empty: defaults applied', empty.relayUrl === 'wss://10.0.30.10:9443');
+    check('migration empty: preferences defaults', empty.preferences.compactMode === false);
   }
 
   // -------------------------------------------------------------------
@@ -1517,6 +1527,144 @@ async function run() {
     check('inmem: clear resets setupComplete', store.get('setupComplete') === false);
     check('inmem: clear resets displayName', store.get('displayName') === '');
   }
+
+  // -------------------------------------------------------------------
+  // Test: UserPreferences defaults
+  // -------------------------------------------------------------------
+  console.log('--- Test: UserPreferences defaults ---');
+  {
+    check('defaults: accentColor is indigo', DEFAULT_USER_PREFERENCES.accentColor === '#6366f1');
+    check('defaults: userBubbleColor empty', DEFAULT_USER_PREFERENCES.userBubbleColor === '');
+    check('defaults: aiBubbleColor empty', DEFAULT_USER_PREFERENCES.aiBubbleColor === '');
+    check('defaults: messageFontSize 0.875', DEFAULT_USER_PREFERENCES.messageFontSize === 0.875);
+    check('defaults: timestampDisplay always', DEFAULT_USER_PREFERENCES.timestampDisplay === 'always');
+    check('defaults: compactMode false', DEFAULT_USER_PREFERENCES.compactMode === false);
+    check('defaults: showChallengeBar true', DEFAULT_USER_PREFERENCES.showChallengeBar === true);
+    check('defaults: groupConsecutiveMessages true', DEFAULT_USER_PREFERENCES.groupConsecutiveMessages === true);
+    check('defaults: soundsEnabled true', DEFAULT_USER_PREFERENCES.soundsEnabled === true);
+  }
+
+  // -------------------------------------------------------------------
+  // Test: ConfigStore v3 preferences
+  // -------------------------------------------------------------------
+  console.log('--- Test: ConfigStore v3 preferences ---');
+  {
+    // InMemoryConfigStore includes preferences in default
+    const store = new InMemoryConfigStore();
+    const prefs = store.get('preferences');
+    check('v3 store: preferences exists', prefs != null);
+    check('v3 store: accentColor is default', prefs.accentColor === '#6366f1');
+    check('v3 store: compactMode default false', prefs.compactMode === false);
+
+    // Set preferences
+    store.set('preferences', { ...prefs, accentColor: '#3b82f6', compactMode: true });
+    const updated = store.get('preferences');
+    check('v3 store: set accentColor works', updated.accentColor === '#3b82f6');
+    check('v3 store: set compactMode works', updated.compactMode === true);
+    check('v3 store: unchanged messageFontSize preserved', updated.messageFontSize === 0.875);
+
+    // Theme is dark only
+    check('v3 store: theme is dark', store.get('theme') === 'dark');
+  }
+
+  // -------------------------------------------------------------------
+  // Test: v2 → v3 migration preserves existing settings
+  // -------------------------------------------------------------------
+  console.log('--- Test: v2 → v3 migration ---');
+  {
+    const v2Config = {
+      configVersion: 2,
+      relayUrl: 'wss://custom:9443',
+      userId: 'user-456',
+      displayName: 'Alice',
+      setupComplete: true,
+      lastConnected: '2026-03-15T12:00:00Z',
+      theme: 'light', // should be forced to dark
+      autoConnect: false,
+      autoReconnect: true,
+    };
+    const migrated = migrateConfig(v2Config);
+    check('v2→v3: relayUrl preserved', migrated.relayUrl === 'wss://custom:9443');
+    check('v2→v3: userId preserved', migrated.userId === 'user-456');
+    check('v2→v3: displayName preserved', migrated.displayName === 'Alice');
+    check('v2→v3: setupComplete preserved', migrated.setupComplete === true);
+    check('v2→v3: autoConnect preserved', migrated.autoConnect === false);
+    check('v2→v3: autoReconnect preserved', migrated.autoReconnect === true);
+    check('v2→v3: theme forced dark', migrated.theme === 'dark');
+    check('v2→v3: configVersion bumped to 3', migrated.configVersion === 3);
+    check('v2→v3: preferences defaults applied', migrated.preferences != null);
+    check('v2→v3: preferences.accentColor default', migrated.preferences.accentColor === '#6366f1');
+    check('v2→v3: preferences.compactMode default', migrated.preferences.compactMode === false);
+    check('v2→v3: preferences.showChallengeBar default', migrated.preferences.showChallengeBar === true);
+    check('v2→v3: preferences.messageFontSize default', migrated.preferences.messageFontSize === 0.875);
+  }
+
+  // -------------------------------------------------------------------
+  // Test: v3 migration preserves saved preferences
+  // -------------------------------------------------------------------
+  console.log('--- Test: v3 migration preserves preferences ---');
+  {
+    const v3Config = {
+      configVersion: 3,
+      relayUrl: 'wss://relay:9443',
+      userId: 'user-789',
+      displayName: 'Bob',
+      setupComplete: true,
+      lastConnected: '',
+      theme: 'dark',
+      autoConnect: true,
+      autoReconnect: true,
+      preferences: {
+        accentColor: '#10b981',
+        userBubbleColor: '#ff0000',
+        aiBubbleColor: '#00ff00',
+        messageFontSize: 1.0,
+        timestampDisplay: 'hover',
+        compactMode: true,
+        showChallengeBar: false,
+        groupConsecutiveMessages: false,
+        soundsEnabled: false,
+      },
+    };
+    const migrated = migrateConfig(v3Config);
+    check('v3→v3: accentColor preserved', migrated.preferences.accentColor === '#10b981');
+    check('v3→v3: userBubbleColor preserved', migrated.preferences.userBubbleColor === '#ff0000');
+    check('v3→v3: aiBubbleColor preserved', migrated.preferences.aiBubbleColor === '#00ff00');
+    check('v3→v3: messageFontSize preserved', migrated.preferences.messageFontSize === 1.0);
+    check('v3→v3: timestampDisplay preserved', migrated.preferences.timestampDisplay === 'hover');
+    check('v3→v3: compactMode preserved', migrated.preferences.compactMode === true);
+    check('v3→v3: showChallengeBar preserved', migrated.preferences.showChallengeBar === false);
+    check('v3→v3: groupConsecutiveMessages preserved', migrated.preferences.groupConsecutiveMessages === false);
+    check('v3→v3: soundsEnabled preserved', migrated.preferences.soundsEnabled === false);
+  }
+
+  // -------------------------------------------------------------------
+  // Test: Message grouping logic
+  // -------------------------------------------------------------------
+  console.log('--- Test: Message grouping logic ---');
+  {
+    // Simulate grouping detection: consecutive messages from same sender should be grouped
+    const msgs = [
+      { id: '1', senderType: 'human', senderName: 'You', content: 'Hello' },
+      { id: '2', senderType: 'human', senderName: 'You', content: 'How are you?' },
+      { id: '3', senderType: 'ai', senderName: 'Claude', content: 'I am fine' },
+      { id: '4', senderType: 'ai', senderName: 'Claude', content: 'Thanks for asking' },
+      { id: '5', senderType: 'human', senderName: 'You', content: 'Great' },
+    ];
+
+    function isGrouped(idx) {
+      if (idx === 0) return false;
+      return msgs[idx].senderType === msgs[idx - 1].senderType &&
+             msgs[idx].senderName === msgs[idx - 1].senderName;
+    }
+
+    check('grouping: first msg not grouped', !isGrouped(0));
+    check('grouping: same sender grouped', isGrouped(1));
+    check('grouping: different sender not grouped', !isGrouped(2));
+    check('grouping: consecutive AI grouped', isGrouped(3));
+    check('grouping: switch back not grouped', !isGrouped(4));
+  }
+  console.log();
 
   // -------------------------------------------------------------------
   // Test: Ping/pong keep-alive

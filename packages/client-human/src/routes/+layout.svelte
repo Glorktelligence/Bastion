@@ -5,6 +5,7 @@ import { browser } from '$app/environment';
 import { page } from '$app/state';
 import { goto } from '$app/navigation';
 import * as session from '$lib/session.js';
+import { type UserPreferences, DEFAULT_USER_PREFERENCES } from '$lib/config/config-store.js';
 import SetupWizard from '$lib/components/SetupWizard.svelte';
 import AiDisclosureBanner from '$lib/components/AiDisclosureBanner.svelte';
 import FileOfferBanner from '$lib/components/FileOfferBanner.svelte';
@@ -30,6 +31,30 @@ let memoryEditText = $state('');
 function handleSetupComplete() {
 	setupComplete = true;
 	if (browser) session.tryAutoConnect();
+}
+
+/** Apply UserPreferences as CSS custom properties on the document root. */
+function applyPreferences(prefs: UserPreferences): void {
+	if (!browser) return;
+	const root = document.documentElement;
+	root.style.setProperty('--color-accent', prefs.accentColor);
+	// Derive accent-hover as a lighter variant
+	root.style.setProperty('--color-accent-hover', `color-mix(in srgb, ${prefs.accentColor} 70%, white)`);
+	root.style.setProperty(
+		'--color-user-bubble',
+		prefs.userBubbleColor || `color-mix(in srgb, ${prefs.accentColor} 15%, transparent)`,
+	);
+	root.style.setProperty(
+		'--color-ai-bubble',
+		prefs.aiBubbleColor || 'var(--color-surface)',
+	);
+	root.style.setProperty('--msg-font-size', `${prefs.messageFontSize}rem`);
+
+	if (prefs.compactMode) root.classList.add('compact');
+	else root.classList.remove('compact');
+
+	if (prefs.timestampDisplay === 'hover') root.classList.add('timestamp-hover');
+	else root.classList.remove('timestamp-hover');
 }
 
 // Conversation state
@@ -116,6 +141,10 @@ onMount(() => {
 	];
 
 	session.aiDisclosure.resetDismissal();
+
+	// Apply user preferences from ConfigStore
+	const prefs = cfg.get('preferences') ?? DEFAULT_USER_PREFERENCES;
+	applyPreferences(prefs as UserPreferences);
 
 	return () => {
 		for (const u of subs) u();

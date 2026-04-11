@@ -18,8 +18,9 @@ export {
   InMemoryConfigStore,
   migrateConfig,
   CONFIG_VERSION,
+  DEFAULT_USER_PREFERENCES,
 } from './config/config-store.js';
-export type { BastionConfig, ConfigStore } from './config/config-store.js';
+export type { BastionConfig, ConfigStore, UserPreferences } from './config/config-store.js';
 
 // Utilities
 export { TypedEmitter } from './emitter.js';

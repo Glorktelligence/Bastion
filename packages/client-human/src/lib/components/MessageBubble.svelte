@@ -4,7 +4,7 @@ import { conversationRendererRegistry } from '../extensions/conversation-rendere
 import ExtensionMessageRenderer from './ExtensionMessageRenderer.svelte';
 import * as session from '../session.js';
 
-const { message }: { message: DisplayMessage } = $props();
+const { message, grouped = false }: { message: DisplayMessage; grouped?: boolean } = $props();
 const rendererConfig = message.type.includes(':') ? conversationRendererRegistry.get(message.type) : undefined;
 
 let showRememberForm = $state(false);
@@ -67,10 +67,11 @@ function getTransparency(msg: DisplayMessage): { confidence: string; permissions
 	class:incoming={message.direction === 'incoming'}
 	class:denial={message.type === 'denial'}
 	class:error={message.type === 'error'}
+	class:bubble--grouped={grouped}
 >
 	<div class="bubble-header">
 		<span class="sender">{message.senderName}</span>
-		<span class="time">{formatTime(message.timestamp)}</span>
+		<span class="time bubble-timestamp">{formatTime(message.timestamp)}</span>
 	</div>
 
 	<div class="bubble-content">
@@ -130,13 +131,13 @@ function getTransparency(msg: DisplayMessage): { confidence: string; permissions
 
 	.incoming {
 		align-self: flex-start;
-		background: var(--color-surface);
+		background: var(--color-ai-bubble, var(--color-surface));
 		border: 1px solid var(--color-border);
 	}
 
 	.outgoing {
 		align-self: flex-end;
-		background: var(--color-accent);
+		background: var(--color-user-bubble, var(--color-accent));
 		color: #fff;
 	}
 
@@ -166,12 +167,16 @@ function getTransparency(msg: DisplayMessage): { confidence: string; permissions
 	}
 
 	.bubble-content {
-		font-size: 0.875rem;
+		font-size: var(--msg-font-size, 0.875rem);
 		line-height: 1.4;
 		white-space: pre-wrap;
 		overflow-wrap: break-word;
 		word-break: break-word;
 	}
+
+	/* Grouped messages — consecutive from same sender */
+	.bubble--grouped { margin-top: 0.125rem; }
+	.bubble--grouped .bubble-header { display: none; }
 
 	.transparency {
 		margin-top: 0.5rem;

@@ -4,7 +4,15 @@ import type { DisplayMessage } from '../stores/messages.js';
 import { conversationRendererRegistry } from '../extensions/conversation-renderer-registry.js';
 import MessageBubble from './MessageBubble.svelte';
 
-const { messages }: { messages: DisplayMessage[] } = $props();
+const {
+  messages,
+  groupConsecutive = true,
+  adapterName = '',
+}: {
+  messages: DisplayMessage[];
+  groupConsecutive?: boolean;
+  adapterName?: string;
+} = $props();
 
 // Filter out extension-namespaced messages that have no registered renderer
 const visibleMessages = $derived(
@@ -13,6 +21,14 @@ const visibleMessages = $derived(
     return true;
   }),
 );
+
+/** Check if a message is grouped with the previous one (same sender, consecutive). */
+function isGrouped(idx: number): boolean {
+  if (!groupConsecutive || idx === 0) return false;
+  const prev = visibleMessages[idx - 1];
+  const curr = visibleMessages[idx];
+  return prev.senderType === curr.senderType && prev.senderName === curr.senderName;
+}
 
 let container: HTMLDivElement | undefined = $state();
 let isNearBottom = $state(true);
@@ -57,11 +73,13 @@ $effect(() => {
 <div class="message-list" bind:this={container} onscroll={checkNearBottom}>
 	{#if visibleMessages.length === 0}
 		<div class="empty-state">
-			<p>No messages yet. Start a conversation or submit a task.</p>
+			<div class="empty-icon">💬</div>
+			<p class="empty-title">Start a conversation{adapterName ? ` with ${adapterName}` : ''}</p>
+			<p class="empty-hint">Type a message below or submit a task to get started.</p>
 		</div>
 	{:else}
-		{#each visibleMessages as msg (msg.id)}
-			<MessageBubble message={msg} />
+		{#each visibleMessages as msg, idx (msg.id)}
+			<MessageBubble message={msg} grouped={isGrouped(idx)} />
 		{/each}
 	{/if}
 </div>
@@ -80,9 +98,14 @@ $effect(() => {
 	.empty-state {
 		flex: 1;
 		display: flex;
+		flex-direction: column;
 		align-items: center;
 		justify-content: center;
+		gap: 0.5rem;
 		color: var(--color-text-muted);
-		font-size: 0.875rem;
 	}
+
+	.empty-icon { font-size: 2.5rem; opacity: 0.4; }
+	.empty-title { font-size: 1rem; font-weight: 500; color: var(--color-text); }
+	.empty-hint { font-size: 0.8rem; }
 </style>
