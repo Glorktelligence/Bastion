@@ -17,11 +17,14 @@ import {
   MessageRouter,
   ExtensionRegistry,
   generateSelfSigned,
+  isPrivateHost,
 } from './dist/index.js';
 import { PROTOCOL_VERSION, MESSAGE_TYPES } from '@bastion/protocol';
 import { randomUUID, randomBytes } from 'node:crypto';
+import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { request as httpsRequest } from 'node:https';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 let pass = 0, fail = 0;
 function check(name, condition, detail) {
@@ -2133,6 +2136,172 @@ async function run() {
     const res4 = mockRes();
     await routes.handleRequest(req4, res4, 'admin');
     check('H19: empty link accepted', res4.statusCode === 200);
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: isPrivateHost() comprehensive validation
+  // -------------------------------------------------------------------
+  console.log('--- Test: isPrivateHost() comprehensive validation ---');
+  {
+    // Should return true for private/loopback addresses
+    check('127.0.0.1 is private', isPrivateHost('127.0.0.1') === true);
+    check('localhost is private', isPrivateHost('localhost') === true);
+    check('::1 is private', isPrivateHost('::1') === true);
+    check('10.0.30.10 is private', isPrivateHost('10.0.30.10') === true);
+    check('10.255.255.255 is private', isPrivateHost('10.255.255.255') === true);
+    check('192.168.1.1 is private', isPrivateHost('192.168.1.1') === true);
+    check('192.168.0.100 is private', isPrivateHost('192.168.0.100') === true);
+    check('172.16.0.1 is private', isPrivateHost('172.16.0.1') === true);
+    check('172.31.255.255 is private', isPrivateHost('172.31.255.255') === true);
+    check('169.254.1.1 is private (link-local)', isPrivateHost('169.254.1.1') === true);
+
+    // Should return false for public/wildcard addresses
+    check('0.0.0.0 is NOT private', isPrivateHost('0.0.0.0') === false);
+    check(':: is NOT private', isPrivateHost('::') === false);
+    check('* is NOT private', isPrivateHost('*') === false);
+    check('empty string is NOT private', isPrivateHost('') === false);
+    check('8.8.8.8 is NOT private', isPrivateHost('8.8.8.8') === false);
+    check('203.0.113.1 is NOT private', isPrivateHost('203.0.113.1') === false);
+    check('172.32.0.1 is NOT private (outside range)', isPrivateHost('172.32.0.1') === false);
+    check('172.15.0.1 is NOT private (below range)', isPrivateHost('172.15.0.1') === false);
+    check('1.1.1.1 is NOT private', isPrivateHost('1.1.1.1') === false);
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: Static file serving from AdminServer
+  // -------------------------------------------------------------------
+  console.log('--- Test: Static file serving from AdminServer ---');
+  {
+    const { cert, key } = await generateSelfSigned();
+    const auth = new AdminAuth({ accounts: [] });
+    const registry = new ProviderRegistry();
+    const routes = new AdminRoutes({ providerRegistry: registry });
+
+    // Create a temporary static directory with test files
+    const staticDir = join(tmpdir(), `bastion-test-static-${randomUUID()}`);
+    mkdirSync(staticDir, { recursive: true });
+    writeFileSync(join(staticDir, 'index.html'), '<html><body>Admin UI</body></html>');
+    writeFileSync(join(staticDir, 'app.js'), 'console.log("hello");');
+    writeFileSync(join(staticDir, 'style.css'), 'body { color: red; }');
+    mkdirSync(join(staticDir, 'assets'), { recursive: true });
+    writeFileSync(join(staticDir, 'assets', 'icon.svg'), '<svg></svg>');
+
+    // Server WITH static dir
+    const server = new AdminServer({
+      port: 0,
+      host: '127.0.0.1',
+      tls: { cert, key },
+      auth,
+      routes,
+      staticDir,
+    });
+    check('hasStaticUi is true when build exists', server.hasStaticUi === true);
+
+    await server.start();
+    const port = server.boundPort;
+
+    // Helper to make requests
+    function staticRequest(path) {
+      return new Promise((resolve, reject) => {
+        const req = httpsRequest({
+          hostname: '127.0.0.1',
+          port,
+          path,
+          method: 'GET',
+          rejectUnauthorized: false,
+        }, (res) => {
+          const chunks = [];
+          res.on('data', (c) => chunks.push(c));
+          res.on('end', () => {
+            resolve({
+              status: res.statusCode,
+              headers: res.headers,
+              body: Buffer.concat(chunks).toString(),
+            });
+          });
+        });
+        req.on('error', reject);
+        req.end();
+      });
+    }
+
+    // Test: root path serves index.html
+    const rootRes = await staticRequest('/');
+    check('root serves index.html', rootRes.status === 200 && rootRes.body.includes('Admin UI'));
+    check('root Content-Type is text/html', rootRes.headers['content-type'] === 'text/html');
+
+    // Test: JS file served with correct MIME
+    const jsRes = await staticRequest('/app.js');
+    check('JS file served', jsRes.status === 200 && jsRes.body.includes('console.log'));
+    check('JS Content-Type', jsRes.headers['content-type'] === 'application/javascript');
+
+    // Test: CSS file served with correct MIME
+    const cssRes = await staticRequest('/style.css');
+    check('CSS file served', cssRes.status === 200 && cssRes.body.includes('color'));
+    check('CSS Content-Type', cssRes.headers['content-type'] === 'text/css');
+
+    // Test: nested asset served
+    const svgRes = await staticRequest('/assets/icon.svg');
+    check('nested SVG served', svgRes.status === 200 && svgRes.body.includes('<svg>'));
+    check('SVG Content-Type', svgRes.headers['content-type'] === 'image/svg+xml');
+
+    // Test: SPA fallback — unknown path returns index.html
+    const spaRes = await staticRequest('/dashboard/providers');
+    check('SPA fallback serves index.html', spaRes.status === 200 && spaRes.body.includes('Admin UI'));
+
+    // Test: directory traversal prevention — ../../../etc/passwd
+    const traversalRes = await staticRequest('/../../../etc/passwd');
+    check('directory traversal blocked', traversalRes.status === 200 && traversalRes.body.includes('Admin UI'));
+
+    // Test: encoded traversal
+    const encodedRes = await staticRequest('/%2e%2e/%2e%2e/etc/passwd');
+    check('encoded traversal blocked', encodedRes.status === 200 && encodedRes.body.includes('Admin UI'));
+
+    // Test: API requests still go through (not intercepted by static serving)
+    const apiRes = await staticRequest('/api/admin/status');
+    check('API requests still work', apiRes.status === 200);
+    const apiBody = JSON.parse(apiRes.body);
+    check('API returns admin status', apiBody.requiresSetup === true);
+
+    await server.shutdown();
+
+    // Cleanup
+    rmSync(staticDir, { recursive: true, force: true });
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: AdminServer without static dir (API-only mode)
+  // -------------------------------------------------------------------
+  console.log('--- Test: AdminServer without static dir (API-only mode) ---');
+  {
+    const { cert, key } = await generateSelfSigned();
+    const auth = new AdminAuth({ accounts: [] });
+    const registry = new ProviderRegistry();
+    const routes = new AdminRoutes({ providerRegistry: registry });
+
+    // No static dir
+    const server = new AdminServer({
+      port: 0,
+      host: '127.0.0.1',
+      tls: { cert, key },
+      auth,
+      routes,
+    });
+    check('hasStaticUi is false without static dir', server.hasStaticUi === false);
+
+    // Non-existent static dir
+    const server2 = new AdminServer({
+      port: 0,
+      host: '127.0.0.1',
+      tls: { cert, key },
+      auth,
+      routes,
+      staticDir: '/nonexistent/path/that/does/not/exist',
+    });
+    check('hasStaticUi is false for missing dir', server2.hasStaticUi === false);
   }
   console.log();
 

@@ -1,5 +1,6 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import {
   BastionRelay,
   MessageRouter,
@@ -17,6 +18,7 @@ import {
   FileTransferRouter,
   Allowlist,
   ReconnectionManager,
+  isPrivateHost,
 } from './packages/relay/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -485,12 +487,26 @@ console.log('[✓] Admin routes initialised (live status provider wired)');
 const ADMIN_SESSION_TIMEOUT = parseIntEnv('BASTION_ADMIN_SESSION_TIMEOUT', 1800, 300, 86400);
 const ADMIN_HOST = (() => {
   const host = process.env.BASTION_ADMIN_HOST || '127.0.0.1';
-  const privatePatterns = ['127.', '10.', '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.', '192.168.', 'localhost', '::1'];
-  if (privatePatterns.some(p => host.startsWith(p)) || host === '0.0.0.0') return host;
-  console.error(`[!] SECURITY: BASTION_ADMIN_HOST=${host} is not a private address — refusing. Using 127.0.0.1`);
-  auditLogger.logEvent('security_violation', null, { event: 'admin_public_bind_rejected', requested: host });
-  return '127.0.0.1';
+  if (!isPrivateHost(host)) {
+    console.error(`[✗] FATAL: Admin server refuses to bind to public address: ${host}`);
+    console.error('[✗] Admin server MUST bind to a private address (127.0.0.1, 10.x, 192.168.x, etc.)');
+    console.error('[✗] Set ADMIN_HOST=127.0.0.1 in your .env file');
+    auditLogger.logEvent('security_violation', null, { event: 'admin_public_bind_rejected', requested: host });
+    process.exit(1);
+  }
+  return host;
 })();
+
+// Resolve admin UI static build directory — check both build/ and build/client/ (adapter-static output)
+const ADMIN_UI_BUILD_DIR = (() => {
+  const baseDir = import.meta.dirname || '.';
+  const primary = join(baseDir, 'packages', 'relay-admin-ui', 'build');
+  if (existsSync(join(primary, 'index.html'))) return primary;
+  const client = join(primary, 'client');
+  if (existsSync(join(client, 'index.html'))) return client;
+  return null;
+})();
+
 const adminServer = new AdminServer({
   port: ADMIN_PORT,
   host: ADMIN_HOST,
@@ -501,7 +517,14 @@ const adminServer = new AdminServer({
   credentialsPath: ADMIN_CREDENTIALS_PATH,
   sessionSecret: jwtSecret,
   sessionTimeoutSec: ADMIN_SESSION_TIMEOUT,
+  staticDir: ADMIN_UI_BUILD_DIR,
 });
+
+if (adminServer.hasStaticUi) {
+  console.log(`[✓] Admin UI build found — serving from ${ADMIN_UI_BUILD_DIR}`);
+} else {
+  console.log('[!] Admin UI build not found — API-only mode (run pnpm --filter @bastion/relay-admin-ui build:app)');
+}
 console.log(`[✓] Admin server configured (${ADMIN_HOST} — use SSH tunnel for remote access)`);
 
 // ---------------------------------------------------------------------------

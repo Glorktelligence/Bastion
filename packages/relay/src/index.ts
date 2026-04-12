@@ -211,7 +211,7 @@ export type {
 // ---------------------------------------------------------------------------
 // Admin: HTTPS server
 // ---------------------------------------------------------------------------
-export { AdminServer, AdminServerError } from './admin/admin-server.js';
+export { AdminServer, AdminServerError, isPrivateHost } from './admin/admin-server.js';
 export type { AdminServerConfig } from './admin/admin-server.js';
 
 // ---------------------------------------------------------------------------

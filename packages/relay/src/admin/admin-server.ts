@@ -21,9 +21,10 @@
  */
 
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { type Server as HttpsServer, createServer as createHttpsServer } from 'node:https';
+import { extname, join, normalize, resolve } from 'node:path';
 import type { AuditLogger } from '../audit/audit-logger.js';
 import type { TlsMaterial } from '../server/tls.js';
 import { AdminAuth, type AdminAuthResult } from './admin-auth.js';
@@ -33,12 +34,18 @@ import type { AdminRoutes } from './admin-routes.js';
 // Private IP detection
 // ---------------------------------------------------------------------------
 
-/** IP addresses/patterns that are NOT allowed for admin binding. */
-const PUBLIC_BIND_ADDRESSES = new Set(['0.0.0.0', '::', '0:0:0:0:0:0:0:0']);
+/** Wildcard / public bind addresses that MUST be rejected. */
+const WILDCARD_BIND_ADDRESSES = new Set(['0.0.0.0', '::', '0:0:0:0:0:0:0:0', '*']);
 
-/** Check if a host is a private/loopback address (safe for admin). */
-function isPrivateHost(host: string): boolean {
-  if (PUBLIC_BIND_ADDRESSES.has(host)) return false;
+/**
+ * Check if a host is a private/loopback address (safe for admin binding).
+ *
+ * Returns true for: 127.0.0.1, localhost, ::1, 10.x.x.x, 192.168.x.x, 172.16–31.x.x, 169.254.x.x
+ * Returns false for: 0.0.0.0, ::, *, empty string, public IPs
+ */
+export function isPrivateHost(host: string): boolean {
+  if (!host) return false;
+  if (WILDCARD_BIND_ADDRESSES.has(host)) return false;
   // Loopback
   if (host === '127.0.0.1' || host === '::1' || host === 'localhost') return true;
   // Private ranges (RFC 1918)
@@ -47,8 +54,6 @@ function isPrivateHost(host: string): boolean {
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
   // Link-local
   if (host.startsWith('169.254.')) return true;
-  // WireGuard typical ranges
-  if (host.startsWith('10.')) return true;
   // Default: reject (err on the side of caution)
   return false;
 }
@@ -56,6 +61,22 @@ function isPrivateHost(host: string): boolean {
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+/** MIME types for static file serving. */
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html',
+  '.js': 'application/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.webp': 'image/webp',
+  '.txt': 'text/plain',
+};
 
 /** Configuration for the admin HTTP server. */
 export interface AdminServerConfig {
@@ -77,6 +98,8 @@ export interface AdminServerConfig {
   readonly credentialsPath?: string | null;
   /** Secret for signing session JWTs. Generated randomly if not provided. */
   readonly sessionSecret?: Uint8Array;
+  /** Directory containing the built admin UI static files. Null disables static serving. */
+  readonly staticDir?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +126,8 @@ export class AdminServer {
   private readonly sessionTimeoutSec: number;
   private readonly credentialsPath: string | null;
   private readonly revokedSessions: Set<string>;
+  private readonly staticDir: string | null;
+  private readonly staticAvailable: boolean;
   private server: HttpsServer | null;
   private _running: boolean;
 
@@ -119,6 +144,21 @@ export class AdminServer {
     this.revokedSessions = new Set();
     this.server = null;
     this._running = false;
+
+    // Static admin UI serving
+    if (config.staticDir) {
+      const indexPath = join(config.staticDir, 'index.html');
+      if (existsSync(indexPath)) {
+        this.staticDir = config.staticDir;
+        this.staticAvailable = true;
+      } else {
+        this.staticDir = null;
+        this.staticAvailable = false;
+      }
+    } else {
+      this.staticDir = null;
+      this.staticAvailable = false;
+    }
 
     // Security: refuse to bind to public interfaces
     if (!isPrivateHost(this.host)) {
@@ -153,6 +193,11 @@ export class AdminServer {
     return this.host;
   }
 
+  /** Whether the admin UI static build is available for serving. */
+  get hasStaticUi(): boolean {
+    return this.staticAvailable;
+  }
+
   /**
    * Start the admin HTTPS server.
    *
@@ -184,6 +229,24 @@ export class AdminServer {
       });
 
       this.server.listen(this.port, this.host, () => {
+        // Final safety check: verify the bound address is private
+        const addr = this.server!.address();
+        if (typeof addr === 'object' && addr) {
+          if (!isPrivateHost(addr.address)) {
+            this.server!.close();
+            this._running = false;
+            const msg = `Admin server bound to PUBLIC address ${addr.address} — shutting down (security policy violation)`;
+            if (this.audit) {
+              this.audit.logEvent('security_violation', 'admin', {
+                violation: 'public_bind_detected',
+                host: addr.address,
+                detail: msg,
+              });
+            }
+            reject(new AdminServerError(msg));
+            return;
+          }
+        }
         this._running = true;
         resolve();
       });
@@ -418,6 +481,55 @@ export class AdminServer {
   }
 
   // -------------------------------------------------------------------------
+  // Static file serving (admin UI build)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Serve a static file from the admin UI build directory.
+   * SPA fallback: if the path has no extension or doesn't exist, serve index.html.
+   * Directory traversal is prevented by resolving to an absolute path and
+   * checking it stays within the static directory.
+   */
+  private serveStaticFile(res: ServerResponse, pathname: string): void {
+    if (!this.staticDir) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not Found');
+      return;
+    }
+
+    // Normalise and resolve to prevent directory traversal
+    const rootDir = resolve(this.staticDir);
+    const safePath = normalize(pathname).replace(/^[/\\]+/, '');
+    let filePath = resolve(rootDir, safePath);
+
+    // Guard: resolved path must be within the static directory
+    if (!filePath.startsWith(rootDir)) {
+      filePath = join(rootDir, 'index.html');
+    }
+
+    // SPA routing: if path has no extension or file doesn't exist, serve index.html
+    if (!extname(filePath) || !existsSync(filePath) || statSync(filePath).isDirectory()) {
+      filePath = join(rootDir, 'index.html');
+    }
+
+    if (!existsSync(filePath)) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not Found');
+      return;
+    }
+
+    const ext = extname(filePath).toLowerCase();
+    const contentType = MIME_TYPES[ext] ?? 'application/octet-stream';
+    const content = readFileSync(filePath);
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Content-Length': content.length.toString(),
+      'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable',
+    });
+    res.end(content);
+  }
+
+  // -------------------------------------------------------------------------
   // Request handling
   // -------------------------------------------------------------------------
 
@@ -443,13 +555,19 @@ export class AdminServer {
     const method = req.method?.toUpperCase() ?? 'GET';
     const urlPath = new URL(req.url ?? '/', `https://${req.headers.host ?? 'localhost'}`).pathname;
 
+    // Serve static admin UI for non-API requests (production single-port architecture)
+    if (this.staticAvailable && !urlPath.startsWith('/api/')) {
+      this.serveStaticFile(res, urlPath);
+      return;
+    }
+
     // Admin auth endpoints — handled before general routing
     if (urlPath.startsWith('/api/admin/')) {
       const handled = await this.handleAdminEndpoint(req, res, urlPath, method);
       if (handled) return;
     }
 
-    // All requests require authentication — try Bearer token first, then Basic+TOTP
+    // All API requests require authentication — try Bearer token first, then Basic+TOTP
     const bearer = this.extractBearer(req);
     if (bearer) {
       const verified = this.verifySessionJwt(bearer);
