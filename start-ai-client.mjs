@@ -1833,6 +1833,24 @@ client.on('message', async (data) => {
     return;
   }
 
+  // Handle context_request — return current user context
+  if (msg.type === 'context_request') {
+    const content = conversationManager.getUserContext() || '';
+    sendSecure({
+      type: 'context_response',
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: IDENTITY,
+      payload: {
+        content,
+        source: 'file',
+        charCount: content.length,
+      },
+    });
+    console.log(`[→] User context sent (${content.length} chars)`);
+    return;
+  }
+
   // Handle context_update — update user context or preferred adapter
   if (msg.type === 'context_update') {
     const payload = msg.payload || {};

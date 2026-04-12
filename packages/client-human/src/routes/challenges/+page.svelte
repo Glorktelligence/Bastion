@@ -1,7 +1,7 @@
 <script lang="ts">
 import { onMount } from 'svelte';
 import * as session from '$lib/session.js';
-import type { ActiveChallenge } from '$lib/stores/challenges.js';
+import type { ChallengeHistoryEntry } from '$lib/stores/challenges.js';
 import type { ChallengeStats } from '$lib/stores/challenge-stats.js';
 import ChallengeHistory from '$lib/components/ChallengeHistory.svelte';
 
@@ -9,7 +9,7 @@ import ChallengeHistory from '$lib/components/ChallengeHistory.svelte';
 // Reactive state from shared session stores
 // ---------------------------------------------------------------------------
 
-let history: readonly ActiveChallenge[] = $state([]);
+let history: readonly ChallengeHistoryEntry[] = $state([]);
 let stats: ChallengeStats = $state({
 	totalChallenges: 0,
 	resolvedCount: 0,

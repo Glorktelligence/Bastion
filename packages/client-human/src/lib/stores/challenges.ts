@@ -20,14 +20,31 @@ export interface ActiveChallenge {
   readonly resolvedAt?: string;
 }
 
+/** AI-issued challenge stored in history alongside task challenges. */
+export interface AiChallengeEntry {
+  readonly challengeId: string;
+  readonly reason: string;
+  readonly severity: string;
+  readonly suggested: string;
+  readonly context?: { action?: string; target?: string };
+  readonly receivedAt: string;
+  readonly decision?: 'accept' | 'override' | 'cancel';
+  readonly resolvedAt?: string;
+  readonly source: 'ai';
+}
+
+export type ChallengeHistoryEntry = ActiveChallenge | AiChallengeEntry;
+
 export interface ChallengesStoreState {
   readonly active: ActiveChallenge | null;
-  readonly history: readonly ActiveChallenge[];
+  readonly history: readonly ChallengeHistoryEntry[];
 }
 
 export function createChallengesStore(): {
   store: Writable<ChallengesStoreState>;
   receiveChallenge(messageId: string, taskId: string, payload: ChallengePayload): void;
+  receiveAiChallenge(entry: Omit<AiChallengeEntry, 'source'>): void;
+  resolveAiChallenge(challengeId: string, decision: 'accept' | 'override' | 'cancel'): void;
   resolve(decision: 'approve' | 'modify' | 'cancel'): ActiveChallenge | null;
   clear(): void;
 } {
@@ -57,15 +74,35 @@ export function createChallengesStore(): {
 
     store.update((s) => ({
       active: null,
-      history: s.history.map((h) => (h.messageId === resolved?.messageId ? { ...h, decision, resolvedAt } : h)),
+      history: s.history.map((h) =>
+        'messageId' in h && h.messageId === resolved?.messageId ? { ...h, decision, resolvedAt } : h,
+      ),
     }));
 
     return resolved ? { ...resolved, decision, resolvedAt } : null;
+  }
+
+  function receiveAiChallenge(entry: Omit<AiChallengeEntry, 'source'>): void {
+    store.update((s) => ({
+      ...s,
+      history: [...s.history, { ...entry, source: 'ai' as const }],
+    }));
+  }
+
+  function resolveAiChallenge(challengeId: string, decision: 'accept' | 'override' | 'cancel'): void {
+    const resolvedAt = new Date().toISOString();
+    store.update((s) => ({
+      ...s,
+      history: s.history.map(
+        (h): ChallengeHistoryEntry =>
+          'challengeId' in h && h.source === 'ai' && h.challengeId === challengeId ? { ...h, decision, resolvedAt } : h,
+      ),
+    }));
   }
 
   function clear(): void {
     store.set({ active: null, history: [] });
   }
 
-  return { store, receiveChallenge, resolve, clear };
+  return { store, receiveChallenge, receiveAiChallenge, resolveAiChallenge, resolve, clear };
 }

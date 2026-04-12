@@ -699,7 +699,7 @@ relay.on('connection', (_ws, info) => {
 const SENDER_TYPE_RESTRICTIONS = {
   // Human-only messages (human → AI)
   task: 'human', confirmation: 'human',
-  context_update: 'human', tool_approved: 'human', tool_denied: 'human',
+  context_update: 'human', context_request: 'human', tool_approved: 'human', tool_denied: 'human',
   tool_revoke: 'human', tool_register: 'human', challenge_config: 'human', budget_config: 'human',
   memory_proposal: 'human', memory_list: 'human', memory_update: 'human',
   memory_delete: 'human', memory_batch_decision: 'human', project_sync: 'human', project_list: 'human',
@@ -712,7 +712,7 @@ const SENDER_TYPE_RESTRICTIONS = {
   data_export_request: 'human', data_import_confirm: 'human',
   // AI-only messages (AI → human)
   data_erasure_preview: 'ai', data_erasure_complete: 'ai',
-  ai_challenge: 'ai', ai_memory_proposal: 'ai', ai_memory_proposal_batch: 'ai', dream_cycle_complete: 'ai',
+  ai_challenge: 'ai', ai_memory_proposal: 'ai', ai_memory_proposal_batch: 'ai', dream_cycle_complete: 'ai', context_response: 'ai',
   denial: 'ai', challenge: 'ai', result: 'ai', status: 'ai',
   provider_status: 'ai', budget_alert: 'ai', budget_status: 'ai', usage_status: 'ai',
   challenge_status: 'ai', challenge_config_ack: 'ai',

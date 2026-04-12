@@ -749,6 +749,17 @@ function sendHydrationQueries(): void {
     }),
   );
 
+  // Request current user context from AI client
+  client.send(
+    JSON.stringify({
+      type: 'context_request',
+      id: crypto.randomUUID(),
+      timestamp: ts,
+      sender: identity,
+      payload: {},
+    }),
+  );
+
   // Request conversation list (multi-conversation persistence)
   client.send(
     JSON.stringify({
@@ -1318,22 +1329,38 @@ function handleRelayMessage(data: string): void {
     return;
   }
 
-  // AI-issued challenge → show challenge dialog
+  // AI-issued challenge → show challenge dialog + store in history
   if (type === 'ai_challenge') {
     const p = payload as Record<string, unknown>;
     const ctx = p.context as Record<string, unknown> | undefined;
+    const challengeId = String(p.challengeId ?? '');
+    const reason = String(p.reason ?? '');
+    const severity = (['info', 'warning', 'critical'].includes(String(p.severity)) ? String(p.severity) : 'warning') as
+      | 'info'
+      | 'warning'
+      | 'critical';
+    const suggested = String(p.suggestedAction ?? '');
+
+    // Live dialog state
     activeAiChallenge.set({
-      challengeId: String(p.challengeId ?? ''),
-      reason: String(p.reason ?? ''),
-      severity: (['info', 'warning', 'critical'].includes(String(p.severity)) ? String(p.severity) : 'warning') as
-        | 'info'
-        | 'warning'
-        | 'critical',
-      suggestedAction: String(p.suggestedAction ?? ''),
+      challengeId,
+      reason,
+      severity,
+      suggestedAction: suggested,
       waitSeconds: Number(p.waitSeconds ?? 10),
       challengeHoursActive: Boolean(ctx?.challengeHoursActive),
       requestedAction: String(ctx?.requestedAction ?? ''),
       receivedAt: Date.now(),
+    });
+
+    // Persist to challenges history for /challenges page
+    challenges.receiveAiChallenge({
+      challengeId,
+      reason,
+      severity,
+      suggested,
+      context: ctx ? { action: String(ctx.requestedAction ?? ''), target: String(ctx.target ?? '') } : undefined,
+      receivedAt: new Date().toISOString(),
     });
     return;
   }
@@ -1443,6 +1470,13 @@ function handleRelayMessage(data: string): void {
   // Project config ack → toast
   if (type === 'project_config_ack') {
     projects.setNotification('Project config updated');
+    return;
+  }
+
+  // Context response → populate settings store user context
+  if (type === 'context_response') {
+    const p = payload as Record<string, unknown>;
+    settings.setUserContext(String(p.content ?? ''));
     return;
   }
 

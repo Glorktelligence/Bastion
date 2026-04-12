@@ -1274,6 +1274,108 @@ async function run() {
   }
 
   // -------------------------------------------------------------------
+  // Test 29a: AI challenge history — receiveAiChallenge + resolveAiChallenge
+  // -------------------------------------------------------------------
+  console.log('--- Test 29a: AI challenge history — receiveAiChallenge + resolveAiChallenge ---');
+  {
+    const { store, receiveAiChallenge, resolveAiChallenge } = createChallengesStore();
+
+    // Receive an AI challenge
+    receiveAiChallenge({
+      challengeId: 'ai-c1',
+      reason: 'Late night deletion attempt',
+      severity: 'critical',
+      suggested: 'Sleep on it',
+      context: { action: 'delete_data', target: 'user_records' },
+      receivedAt: new Date().toISOString(),
+    });
+
+    const s1 = store.get();
+    check('AI challenge added to history', s1.history.length === 1);
+    check('AI challenge has source ai', s1.history[0].source === 'ai');
+    check('AI challenge has challengeId', s1.history[0].challengeId === 'ai-c1');
+    check('AI challenge has reason', s1.history[0].reason === 'Late night deletion attempt');
+    check('AI challenge severity critical', s1.history[0].severity === 'critical');
+    check('AI challenge suggested text', s1.history[0].suggested === 'Sleep on it');
+    check('AI challenge context action', s1.history[0].context?.action === 'delete_data');
+    check('AI challenge no decision yet', s1.history[0].decision === undefined);
+
+    // Resolve the AI challenge
+    resolveAiChallenge('ai-c1', 'accept');
+
+    const s2 = store.get();
+    check('AI challenge decision set', s2.history[0].decision === 'accept');
+    check('AI challenge resolvedAt set', s2.history[0].resolvedAt !== undefined);
+
+    // Add a second AI challenge and override
+    receiveAiChallenge({
+      challengeId: 'ai-c2',
+      reason: 'Budget exceeded',
+      severity: 'warning',
+      suggested: 'Wait until next month',
+      receivedAt: new Date().toISOString(),
+    });
+    resolveAiChallenge('ai-c2', 'override');
+
+    const s3 = store.get();
+    check('Two AI challenges in history', s3.history.length === 2);
+    check('Second AI challenge decision override', s3.history[1].decision === 'override');
+
+    // Cancel a third
+    receiveAiChallenge({
+      challengeId: 'ai-c3',
+      reason: 'Untested code',
+      severity: 'info',
+      suggested: 'Add tests first',
+      receivedAt: new Date().toISOString(),
+    });
+    resolveAiChallenge('ai-c3', 'cancel');
+    check('Third AI challenge cancel', store.get().history[2].decision === 'cancel');
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test 29b: Challenge stats — counts AI challenges in totals
+  // -------------------------------------------------------------------
+  console.log('--- Test 29b: Challenge stats — counts AI challenges in totals ---');
+  {
+    const { store, receiveChallenge, resolve, receiveAiChallenge, resolveAiChallenge } = createChallengesStore();
+    const stats = createChallengeStatsStore(store);
+
+    // Add a task challenge
+    receiveChallenge('c1', 't1', {
+      challengedMessageId: 'm1', challengedTaskId: 't1', layer: 2,
+      reason: 'Risk', riskAssessment: 'High',
+      suggestedAlternatives: [], factors: [{ name: 'reversibility', description: 'Cannot undo', weight: 0.8 }],
+    });
+    resolve('approve');
+
+    // Add an AI challenge
+    receiveAiChallenge({
+      challengeId: 'ai-s1',
+      reason: 'AI detected risk',
+      severity: 'warning',
+      suggested: 'Try dry-run',
+      receivedAt: new Date().toISOString(),
+    });
+    resolveAiChallenge('ai-s1', 'accept');
+
+    const s = stats.get();
+    check('stats totalChallenges includes both', s.totalChallenges === 2);
+    check('stats resolvedCount includes both', s.resolvedCount === 2);
+    check('stats thisWeek includes both', s.thisWeek === 2);
+    check('stats thisMonth includes both', s.thisMonth === 2);
+    check('stats byLayer has layer 2', s.byLayer[2] === 1);
+    check('stats byLayer has ai bucket', s.byLayer['ai'] === 1);
+    check('stats byDecision approve', s.byDecision['approve'] === 1);
+    check('stats byDecision accept', s.byDecision['accept'] === 1);
+    // Factor analysis only from task challenges
+    check('stats factors from task challenge', s.topTriggerFactors.length === 1);
+    check('stats factor is reversibility', s.topTriggerFactors[0]?.name === 'reversibility');
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
   // Test 29: Notification service — preferences and delivery
   // -------------------------------------------------------------------
   console.log('--- Test 29: Notification service — preferences and delivery ---');

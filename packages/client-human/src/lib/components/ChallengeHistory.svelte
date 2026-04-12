@@ -1,7 +1,7 @@
 <script>
 /**
  * @type {{
- *   history: readonly import('../stores/challenges.js').ActiveChallenge[],
+ *   history: readonly import('../stores/challenges.js').ChallengeHistoryEntry[],
  *   stats: import('../stores/challenge-stats.js').ChallengeStats
  * }}
  */
@@ -53,14 +53,14 @@ const { history, stats } = $props();
 	<!-- Layer Breakdown -->
 	{#if Object.keys(stats.byLayer).length > 0}
 		<div class="breakdown-section">
-			<h4>By Safety Layer</h4>
+			<h4>By Source / Safety Layer</h4>
 			<div class="breakdown-bars">
 				{#each Object.entries(stats.byLayer) as [layer, count]}
 					<div class="bar-row">
-						<span class="bar-label">Layer {layer}</span>
+						<span class="bar-label">{layer === 'ai' ? 'AI Challenge' : `Layer ${layer}`}</span>
 						<div class="bar-track">
 							<div
-								class="bar-fill"
+								class="bar-fill{layer === 'ai' ? ' ai-fill' : ''}"
 								style="width: {stats.totalChallenges > 0 ? (count / stats.totalChallenges * 100) : 0}%"
 							></div>
 						</div>
@@ -92,25 +92,49 @@ const { history, stats } = $props();
 		<h4>Challenge History ({history.length})</h4>
 		<div class="history-list">
 			{#each history as challenge}
-				<div class="history-entry" class:resolved={challenge.decision}>
-					<div class="entry-header">
-						<span class="entry-layer">Layer {challenge.payload?.layer}</span>
-						<span class="entry-time">{new Date(challenge.receivedAt).toLocaleString()}</span>
-						{#if challenge.decision}
-							<span class="entry-decision decision-{challenge.decision}">{challenge.decision}</span>
-						{:else}
-							<span class="entry-decision pending">pending</span>
+				{#if 'source' in challenge && challenge.source === 'ai'}
+					<!-- AI-issued challenge -->
+					<div class="history-entry ai-entry" class:resolved={challenge.decision}>
+						<div class="entry-header">
+							<span class="entry-layer severity-{challenge.severity}">{challenge.severity}</span>
+							<span class="entry-source">AI Challenge</span>
+							<span class="entry-time">{new Date(challenge.receivedAt).toLocaleString()}</span>
+							{#if challenge.decision}
+								<span class="entry-decision decision-{challenge.decision}">{challenge.decision}</span>
+							{:else}
+								<span class="entry-decision pending">pending</span>
+							{/if}
+						</div>
+						<div class="entry-reason">{challenge.reason}</div>
+						{#if challenge.suggested}
+							<div class="entry-suggested">Suggested: {challenge.suggested}</div>
+						{/if}
+						{#if challenge.context?.action}
+							<div class="entry-context">Action: {challenge.context.action}</div>
 						{/if}
 					</div>
-					<div class="entry-reason">{challenge.payload?.reason}</div>
-					{#if challenge.payload?.factors?.length > 0}
-						<div class="entry-factors">
-							{#each challenge.payload.factors as factor}
-								<span class="factor-tag">{factor.name} ({factor.weight.toFixed(1)})</span>
-							{/each}
+				{:else}
+					<!-- Task/safety-layer challenge -->
+					<div class="history-entry" class:resolved={challenge.decision}>
+						<div class="entry-header">
+							<span class="entry-layer">Layer {challenge.payload?.layer}</span>
+							<span class="entry-time">{new Date(challenge.receivedAt).toLocaleString()}</span>
+							{#if challenge.decision}
+								<span class="entry-decision decision-{challenge.decision}">{challenge.decision}</span>
+							{:else}
+								<span class="entry-decision pending">pending</span>
+							{/if}
 						</div>
-					{/if}
-				</div>
+						<div class="entry-reason">{challenge.payload?.reason}</div>
+						{#if challenge.payload?.factors?.length > 0}
+							<div class="entry-factors">
+								{#each challenge.payload.factors as factor}
+									<span class="factor-tag">{factor.name} ({factor.weight.toFixed(1)})</span>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{/if}
 			{:else}
 				<div class="empty">No challenges recorded</div>
 			{/each}
@@ -324,6 +348,38 @@ const { history, stats } = $props();
 		background: color-mix(in srgb, var(--color-accent) 15%, transparent);
 		color: var(--color-accent-hover);
 	}
+
+	.ai-fill { background: var(--color-info, var(--color-accent)); }
+
+	.ai-entry {
+		border-left: 3px solid var(--color-accent);
+	}
+
+	.entry-source {
+		font-size: 0.7rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		color: var(--color-accent);
+		letter-spacing: 0.05em;
+	}
+
+	.severity-info { color: var(--color-accent-hover); }
+	.severity-warning { color: var(--color-warning); }
+	.severity-critical { color: var(--color-error, #e74c3c); }
+
+	.entry-suggested {
+		font-size: 0.8rem;
+		color: var(--color-text-muted);
+		font-style: italic;
+	}
+
+	.entry-context {
+		font-size: 0.75rem;
+		color: var(--color-text-muted);
+	}
+
+	.decision-accept { color: var(--color-success); }
+	.decision-override { color: var(--color-warning); }
 
 	.empty {
 		text-align: center;

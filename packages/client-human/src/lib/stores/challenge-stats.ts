@@ -11,7 +11,7 @@
 
 import type { Readable, Writable } from '../store.js';
 import { derived } from '../store.js';
-import type { ActiveChallenge, ChallengesStoreState } from './challenges.js';
+import type { ChallengeHistoryEntry, ChallengesStoreState } from './challenges.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -46,7 +46,7 @@ function isWithinDays(timestamp: string, days: number, now: Date): boolean {
   return t >= cutoff;
 }
 
-function computeTrend(history: readonly ActiveChallenge[], now: Date): 'increasing' | 'stable' | 'decreasing' {
+function computeTrend(history: readonly ChallengeHistoryEntry[], now: Date): 'increasing' | 'stable' | 'decreasing' {
   // Compare challenges in last 7 days vs previous 7 days
   const oneWeekAgo = now.getTime() - 7 * 24 * 60 * 60 * 1000;
   const twoWeeksAgo = now.getTime() - 14 * 24 * 60 * 60 * 1000;
@@ -82,11 +82,16 @@ export function createChallengeStatsStore(challengeStore: Writable<ChallengesSto
       if (isWithinDays(c.receivedAt, 30, now)) thisMonth++;
     }
 
-    // Layer breakdown
-    const byLayer: Record<number, number> = {};
+    // Layer breakdown (task challenges have payload.layer; AI challenges use 'ai')
+    const byLayer: Record<number | string, number> = {};
     for (const c of history) {
-      const layer = c.payload?.layer ?? 0;
-      byLayer[layer] = (byLayer[layer] ?? 0) + 1;
+      if ('source' in c && c.source === 'ai') {
+        // AI challenges don't have a safety layer — bucket separately
+        byLayer.ai = (byLayer.ai ?? 0) + 1;
+      } else {
+        const layer = ('payload' in c ? c.payload?.layer : undefined) ?? 0;
+        byLayer[layer] = (byLayer[layer] ?? 0) + 1;
+      }
     }
 
     // Decision breakdown
@@ -99,11 +104,11 @@ export function createChallengeStatsStore(challengeStore: Writable<ChallengesSto
       }
     }
 
-    // Factor frequency analysis
+    // Factor frequency analysis (only task challenges have factors)
     const factorMap = new Map<string, { count: number; totalWeight: number }>();
     let totalFactors = 0;
     for (const c of history) {
-      const factors = c.payload?.factors ?? [];
+      const factors = ('payload' in c ? c.payload?.factors : undefined) ?? [];
       totalFactors += factors.length;
       for (const f of factors) {
         const existing = factorMap.get(f.name);

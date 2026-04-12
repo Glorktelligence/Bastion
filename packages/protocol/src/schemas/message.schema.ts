@@ -161,6 +161,14 @@ export const ContextUpdatePayloadSchema = z.object({
   content: z.string(),
 });
 
+export const ContextRequestPayloadSchema = z.object({});
+
+export const ContextResponsePayloadSchema = z.object({
+  content: z.string(),
+  source: z.enum(['file', 'db']),
+  charCount: z.number().int().nonnegative(),
+});
+
 export const MemoryProposalPayloadSchema = z.object({
   proposalId: z.string().min(1),
   content: z.string().min(1),
@@ -957,6 +965,8 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.AUDIT_RESPONSE]: AuditResponsePayloadSchema,
   [MESSAGE_TYPES.PROVIDER_REGISTER]: ProviderRegisterPayloadSchema,
   [MESSAGE_TYPES.CONTEXT_UPDATE]: ContextUpdatePayloadSchema,
+  [MESSAGE_TYPES.CONTEXT_REQUEST]: ContextRequestPayloadSchema,
+  [MESSAGE_TYPES.CONTEXT_RESPONSE]: ContextResponsePayloadSchema,
   [MESSAGE_TYPES.MEMORY_PROPOSAL]: MemoryProposalPayloadSchema,
   [MESSAGE_TYPES.MEMORY_DECISION]: MemoryDecisionPayloadSchema,
   [MESSAGE_TYPES.MEMORY_LIST]: MemoryListPayloadSchema,

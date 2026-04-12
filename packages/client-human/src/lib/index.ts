@@ -70,7 +70,12 @@ export { createMessagesStore } from './stores/messages.js';
 export type { DisplayMessage, MessagesStoreState } from './stores/messages.js';
 
 export { createChallengesStore } from './stores/challenges.js';
-export type { ActiveChallenge, ChallengesStoreState } from './stores/challenges.js';
+export type {
+  ActiveChallenge,
+  AiChallengeEntry,
+  ChallengeHistoryEntry,
+  ChallengesStoreState,
+} from './stores/challenges.js';
 
 export { createChallengeStatsStore } from './stores/challenge-stats.js';
 export type { ChallengeStats, FactorFrequency } from './stores/challenge-stats.js';

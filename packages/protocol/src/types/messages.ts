@@ -193,6 +193,16 @@ export interface ContextUpdatePayload {
   readonly content: string;
 }
 
+/** Human → AI: Request current user context content. Empty payload — just a signal. */
+export type ContextRequestPayload = Record<string, never>;
+
+/** AI → Human: Response with current user context content. */
+export interface ContextResponsePayload {
+  readonly content: string;
+  readonly source: 'file' | 'db';
+  readonly charCount: number;
+}
+
 /** Human → AI (via Relay): Propose a memory to save. Human-initiated via "Remember" button. */
 export interface MemoryProposalPayload {
   readonly proposalId: string;
@@ -1044,6 +1054,8 @@ export type MessagePayload =
   | { type: 'audit_response'; payload: AuditResponsePayload }
   | { type: 'provider_register'; payload: ProviderRegisterPayload }
   | { type: 'context_update'; payload: ContextUpdatePayload }
+  | { type: 'context_request'; payload: ContextRequestPayload }
+  | { type: 'context_response'; payload: ContextResponsePayload }
   | { type: 'memory_proposal'; payload: MemoryProposalPayload }
   | { type: 'memory_decision'; payload: MemoryDecisionPayload }
   | { type: 'memory_list'; payload: MemoryListPayload }

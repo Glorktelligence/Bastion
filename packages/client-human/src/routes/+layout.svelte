@@ -228,6 +228,8 @@ function handleChallengeResponse(decision) {
 		sender: session.getIdentity(),
 		payload: { challengeId: aiChallenge.challengeId, decision },
 	}));
+	// Update challenge history with the user's decision
+	session.challenges.resolveAiChallenge(aiChallenge.challengeId, decision);
 	session.activeAiChallenge.set(null);
 	if (challengeTimerInterval) { clearInterval(challengeTimerInterval); challengeTimerInterval = null; }
 }

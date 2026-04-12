@@ -247,6 +247,12 @@ function validPayloads() {
     context_update: {
       content: 'Harry is the operator. He works on infrastructure and security projects.',
     },
+    context_request: {},
+    context_response: {
+      content: 'Harry is the operator. Loves infrastructure.',
+      source: 'file',
+      charCount: 42,
+    },
     memory_proposal: {
       proposalId: crypto.randomUUID(),
       content: 'Harry prefers concise answers with command examples.',
@@ -448,7 +454,7 @@ async function run() {
       }
     }
     check('all 88 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 95 entries', ALL_MESSAGE_TYPES.length === 95);
+    check('ALL_MESSAGE_TYPES has 97 entries', ALL_MESSAGE_TYPES.length === 97);
   }
   console.log();
 
@@ -484,8 +490,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 95 entries', typeKeys.length === 95);
-    check('PAYLOAD_SCHEMAS has 95 entries', Object.keys(PAYLOAD_SCHEMAS).length === 95);
+    check('MESSAGE_TYPES has 97 entries', typeKeys.length === 97);
+    check('PAYLOAD_SCHEMAS has 97 entries', Object.keys(PAYLOAD_SCHEMAS).length === 97);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
