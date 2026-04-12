@@ -974,6 +974,31 @@ export interface AiMemoryProposalPayload {
   readonly conversationId: string;
 }
 
+/** AI → Human: Batch of memory proposals from dream cycle or recall analysis. */
+export interface AiMemoryProposalBatchPayload {
+  readonly batchId: string;
+  readonly source: 'dream_cycle' | 'recall_analysis' | 'session_summary';
+  readonly conversationId: string | null;
+  readonly proposals: ReadonlyArray<{
+    readonly proposalId: string;
+    readonly content: string;
+    readonly category: 'fact' | 'preference' | 'workflow' | 'project';
+    readonly reason: string;
+    readonly isUpdate: boolean;
+    readonly existingMemoryContent: string | null;
+  }>;
+}
+
+/** Human → AI: Batch decision on memory proposals. */
+export interface MemoryBatchDecisionPayload {
+  readonly batchId: string;
+  readonly decisions: ReadonlyArray<{
+    readonly proposalId: string;
+    readonly decision: 'approved' | 'rejected' | 'edited';
+    readonly editedContent: string | null;
+  }>;
+}
+
 /** Human → AI: Request a dream cycle for memory extraction. */
 export interface DreamCycleRequestPayload {
   readonly conversationId: string;
@@ -1082,6 +1107,8 @@ export type MessagePayload =
   | { type: 'ai_challenge'; payload: AiChallengePayload }
   | { type: 'ai_challenge_response'; payload: AiChallengeResponsePayload }
   | { type: 'ai_memory_proposal'; payload: AiMemoryProposalPayload }
+  | { type: 'ai_memory_proposal_batch'; payload: AiMemoryProposalBatchPayload }
+  | { type: 'memory_batch_decision'; payload: MemoryBatchDecisionPayload }
   | { type: 'dream_cycle_request'; payload: DreamCycleRequestPayload }
   | { type: 'dream_cycle_complete'; payload: DreamCycleCompletePayload }
   | { type: 'skill_scan_result'; payload: SkillScanResultPayload }

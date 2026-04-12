@@ -25,12 +25,21 @@ export interface DreamProposal {
   selected: boolean;
 }
 
+export interface MemoryBatch {
+  readonly batchId: string;
+  readonly source: string;
+  readonly conversationId: string | null;
+  readonly proposals: readonly DreamProposal[];
+  readonly receivedAt: string;
+}
+
 export interface DreamCycleState {
   readonly status: 'idle' | 'running' | 'reviewing' | 'complete';
   readonly conversationId: string | null;
   readonly proposals: readonly DreamProposal[];
   readonly lastResult: DreamCycleCompleteInfo | null;
   readonly history: readonly DreamCycleCompleteInfo[];
+  readonly pendingBatches: readonly MemoryBatch[];
 }
 
 export interface DreamCycleCompleteInfo {
@@ -81,6 +90,7 @@ const DEFAULT_STATE: DreamCycleState = {
   proposals: [],
   lastResult: null,
   history: [],
+  pendingBatches: [],
 };
 
 export function createDreamCyclesStore(): {
@@ -97,6 +107,13 @@ export function createDreamCyclesStore(): {
   completeDreamCycle(info: DreamCycleCompleteInfo): void;
   toggleProposal(proposalId: string): void;
   getSelectedProposals(): DreamProposal[];
+  addBatch(batch: MemoryBatch): void;
+  removeBatch(batchId: string): void;
+  toggleBatchProposal(batchId: string, proposalId: string): void;
+  editBatchProposal(batchId: string, proposalId: string, editedContent: string): void;
+  getBatchDecisions(
+    batchId: string,
+  ): Array<{ proposalId: string; decision: 'approved' | 'rejected' | 'edited'; editedContent: string | null }>;
   dismissAll(): void;
   clearHistory(): void;
   reset(): void;
@@ -166,6 +183,66 @@ export function createDreamCyclesStore(): {
     return store.get().proposals.filter((p) => p.selected);
   }
 
+  function addBatch(batch: MemoryBatch): void {
+    store.update((s) => ({
+      ...s,
+      pendingBatches: [...s.pendingBatches, batch],
+    }));
+    persist();
+  }
+
+  function removeBatch(batchId: string): void {
+    store.update((s) => ({
+      ...s,
+      pendingBatches: s.pendingBatches.filter((b) => b.batchId !== batchId),
+    }));
+    persist();
+  }
+
+  function toggleBatchProposal(batchId: string, proposalId: string): void {
+    store.update((s) => ({
+      ...s,
+      pendingBatches: s.pendingBatches.map((b) =>
+        b.batchId === batchId
+          ? {
+              ...b,
+              proposals: b.proposals.map((p) => (p.proposalId === proposalId ? { ...p, selected: !p.selected } : p)),
+            }
+          : b,
+      ),
+    }));
+    persist();
+  }
+
+  function editBatchProposal(batchId: string, proposalId: string, editedContent: string): void {
+    store.update((s) => ({
+      ...s,
+      pendingBatches: s.pendingBatches.map((b) =>
+        b.batchId === batchId
+          ? {
+              ...b,
+              proposals: b.proposals.map((p) =>
+                p.proposalId === proposalId ? { ...p, content: editedContent, selected: true } : p,
+              ),
+            }
+          : b,
+      ),
+    }));
+    persist();
+  }
+
+  function getBatchDecisions(
+    batchId: string,
+  ): Array<{ proposalId: string; decision: 'approved' | 'rejected' | 'edited'; editedContent: string | null }> {
+    const batch = store.get().pendingBatches.find((b) => b.batchId === batchId);
+    if (!batch) return [];
+    return batch.proposals.map((p) => ({
+      proposalId: p.proposalId,
+      decision: p.selected ? ('approved' as const) : ('rejected' as const),
+      editedContent: null,
+    }));
+  }
+
   function dismissAll(): void {
     store.update((s) => ({
       ...s,
@@ -197,6 +274,11 @@ export function createDreamCyclesStore(): {
     completeDreamCycle,
     toggleProposal,
     getSelectedProposals,
+    addBatch,
+    removeBatch,
+    toggleBatchProposal,
+    editBatchProposal,
+    getBatchDecisions,
     dismissAll,
     clearHistory,
     reset,

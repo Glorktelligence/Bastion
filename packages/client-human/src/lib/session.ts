@@ -610,6 +610,20 @@ export function sendMemoryDecision(proposalId: string, decision: 'approve' | 're
   });
 }
 
+/** Send a batch decision for a group of memory proposals. */
+export function sendMemoryBatchDecision(
+  batchId: string,
+  decisions: Array<{ proposalId: string; decision: 'approved' | 'rejected' | 'edited'; editedContent: string | null }>,
+): void {
+  sendSecure({
+    type: 'memory_batch_decision',
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    sender: getIdentity(),
+    payload: { batchId, decisions },
+  });
+}
+
 /**
  * Attempt to decrypt an incoming message envelope.
  * Returns the envelope with decrypted payload, or the original if not encrypted.
@@ -1346,6 +1360,32 @@ function handleRelayMessage(data: string): void {
         reason: String(p.reason ?? ''),
       });
     }
+    return;
+  }
+
+  // AI memory proposal batch → route to dream store as a batch
+  if (type === 'ai_memory_proposal_batch') {
+    const p = payload as Record<string, unknown>;
+    const batchId = String(p.batchId ?? '');
+    const source = String(p.source ?? 'dream_cycle');
+    const conversationId = p.conversationId ? String(p.conversationId) : null;
+    const proposals = Array.isArray(p.proposals) ? p.proposals : [];
+    dreamCycles.addBatch({
+      batchId,
+      source,
+      conversationId,
+      receivedAt: new Date().toISOString(),
+      proposals: proposals.map((pr: Record<string, unknown>) => ({
+        proposalId: String(pr.proposalId ?? ''),
+        content: String(pr.content ?? ''),
+        category: String(pr.category ?? 'fact'),
+        reason: String(pr.reason ?? ''),
+        isUpdate: Boolean(pr.isUpdate),
+        existingMemoryContent: pr.existingMemoryContent ? String(pr.existingMemoryContent) : null,
+        selected: true,
+      })),
+    });
+    addNotification(`Memory batch received: ${proposals.length} proposals`, 'info');
     return;
   }
 

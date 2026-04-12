@@ -679,7 +679,7 @@ const SENDER_TYPE_RESTRICTIONS = {
   context_update: 'human', tool_approved: 'human', tool_denied: 'human',
   tool_revoke: 'human', tool_register: 'human', challenge_config: 'human', budget_config: 'human',
   memory_proposal: 'human', memory_list: 'human', memory_update: 'human',
-  memory_delete: 'human', project_sync: 'human', project_list: 'human',
+  memory_delete: 'human', memory_batch_decision: 'human', project_sync: 'human', project_list: 'human',
   project_delete: 'human', project_config: 'human',
   data_erasure_request: 'human', data_erasure_confirm: 'human', data_erasure_cancel: 'human',
   ai_challenge_response: 'human', dream_cycle_request: 'human',
@@ -689,7 +689,7 @@ const SENDER_TYPE_RESTRICTIONS = {
   data_export_request: 'human', data_import_confirm: 'human',
   // AI-only messages (AI → human)
   data_erasure_preview: 'ai', data_erasure_complete: 'ai',
-  ai_challenge: 'ai', ai_memory_proposal: 'ai', dream_cycle_complete: 'ai',
+  ai_challenge: 'ai', ai_memory_proposal: 'ai', ai_memory_proposal_batch: 'ai', dream_cycle_complete: 'ai',
   denial: 'ai', challenge: 'ai', result: 'ai', status: 'ai',
   provider_status: 'ai', budget_alert: 'ai', budget_status: 'ai', usage_status: 'ai',
   challenge_status: 'ai', challenge_config_ack: 'ai',
@@ -1236,19 +1236,24 @@ relay.on('message', async (data, info) => {
     return;
   }
 
-  if (msg.type === 'memory_proposal' || msg.type === 'memory_decision' || msg.type === 'memory_list' || msg.type === 'memory_list_response' || msg.type === 'memory_update' || msg.type === 'memory_delete') {
+  if (msg.type === 'memory_proposal' || msg.type === 'memory_decision' || msg.type === 'memory_list' || msg.type === 'memory_list_response' || msg.type === 'memory_update' || msg.type === 'memory_delete' || msg.type === 'ai_memory_proposal_batch' || msg.type === 'memory_batch_decision') {
     const peerId = router.getPeer(connId);
     if (peerId) {
       relay.send(peerId, data);
       console.log(`[→] ${msg.type} forwarded to peer ${peerId.slice(0, 8)}`);
       const sid = sessionIds.get(connId);
       if (sid) {
-        auditLogger.logEvent(msg.type === 'memory_proposal' ? 'memory_proposed' : 'memory_decided', sid, {
-          proposalId: msg.payload?.proposalId || 'unknown',
-          decision: msg.payload?.decision,
-          category: msg.payload?.category,
-          // Content is private — only metadata in audit trail
-        });
+        const auditEventType =
+          msg.type === 'memory_proposal' ? 'memory_proposed' :
+          msg.type === 'ai_memory_proposal_batch' ? 'memory_batch_proposed' :
+          msg.type === 'memory_batch_decision' ? 'memory_batch_decided' :
+          'memory_decided';
+        const auditMeta = msg.type === 'ai_memory_proposal_batch'
+          ? { batchId: msg.payload?.batchId, source: msg.payload?.source, proposalCount: msg.payload?.proposals?.length }
+          : msg.type === 'memory_batch_decision'
+            ? { batchId: msg.payload?.batchId, decisionCount: msg.payload?.decisions?.length }
+            : { proposalId: msg.payload?.proposalId || 'unknown', decision: msg.payload?.decision, category: msg.payload?.category };
+        auditLogger.logEvent(auditEventType, sid, auditMeta);
       }
     }
     return;

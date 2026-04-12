@@ -868,6 +868,40 @@ export const AiMemoryProposalPayloadSchema = z.object({
   conversationId: z.string().min(1),
 });
 
+// --- Bulk Memory Proposals (Atomic Queue) ---
+
+export const AiMemoryProposalBatchPayloadSchema = z.object({
+  batchId: z.string().min(1),
+  source: z.enum(['dream_cycle', 'recall_analysis', 'session_summary']),
+  conversationId: z.string().nullable(),
+  proposals: z
+    .array(
+      z.object({
+        proposalId: z.string().min(1),
+        content: z.string().min(1),
+        category: z.enum(['fact', 'preference', 'workflow', 'project']),
+        reason: z.string().min(1),
+        isUpdate: z.boolean(),
+        existingMemoryContent: z.string().nullable(),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
+export const MemoryBatchDecisionPayloadSchema = z.object({
+  batchId: z.string().min(1),
+  decisions: z
+    .array(
+      z.object({
+        proposalId: z.string().min(1),
+        decision: z.enum(['approved', 'rejected', 'edited']),
+        editedContent: z.string().nullable(),
+      }),
+    )
+    .min(1),
+});
+
 // --- Dream Cycle (Layer 6) ---
 
 export const DreamCycleRequestPayloadSchema = z.object({
@@ -988,6 +1022,8 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.AI_CHALLENGE]: AiChallengePayloadSchema,
   [MESSAGE_TYPES.AI_CHALLENGE_RESPONSE]: AiChallengeResponsePayloadSchema,
   [MESSAGE_TYPES.AI_MEMORY_PROPOSAL]: AiMemoryProposalPayloadSchema,
+  [MESSAGE_TYPES.AI_MEMORY_PROPOSAL_BATCH]: AiMemoryProposalBatchPayloadSchema,
+  [MESSAGE_TYPES.MEMORY_BATCH_DECISION]: MemoryBatchDecisionPayloadSchema,
   [MESSAGE_TYPES.DREAM_CYCLE_REQUEST]: DreamCycleRequestPayloadSchema,
   [MESSAGE_TYPES.DREAM_CYCLE_COMPLETE]: DreamCycleCompletePayloadSchema,
 } as const;

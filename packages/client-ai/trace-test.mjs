@@ -3120,6 +3120,84 @@ async function run() {
   }
 
   // -------------------------------------------------------------------
+  // Batch rate limiter
+  // -------------------------------------------------------------------
+
+  console.log('\n--- Batch Rate Limiter ---');
+  {
+    const batchLimiter = {
+      batchCount: 0, maxBatchesPerSession: 3,
+      lastBatchTime: 0, batchCooldownMs: 5 * 60 * 1000,
+      canBatch() { return this.batchCount < this.maxBatchesPerSession && (Date.now() - this.lastBatchTime) >= this.batchCooldownMs; },
+      recordBatch() { this.batchCount++; this.lastBatchTime = Date.now(); },
+    };
+
+    check('batch allowed initially (count=0, no cooldown)', batchLimiter.canBatch());
+
+    batchLimiter.recordBatch();
+    check('batch blocked after record (cooldown active)', !batchLimiter.canBatch());
+    check('batch count is 1', batchLimiter.batchCount === 1);
+
+    // Simulate cooldown expired
+    batchLimiter.lastBatchTime = Date.now() - 6 * 60 * 1000;
+    check('batch allowed after cooldown expires', batchLimiter.canBatch());
+
+    // Exhaust batches
+    batchLimiter.recordBatch();
+    batchLimiter.lastBatchTime = Date.now() - 6 * 60 * 1000;
+    batchLimiter.recordBatch();
+    check('batch exhausted after 3', !batchLimiter.canBatch());
+    check('batch count is 3', batchLimiter.batchCount === 3);
+  }
+
+  // -------------------------------------------------------------------
+  // Batch decision handler logic
+  // -------------------------------------------------------------------
+
+  console.log('\n--- Batch Decision Handler ---');
+  {
+    // Simulate pendingBatches + decision processing
+    const pendingBatches = new Map();
+    const memoryLog = [];
+
+    const batchId = 'batch-test-001';
+    const proposals = [
+      { proposalId: 'p1', content: 'User likes TypeScript', category: 'preference', reason: 'stated', isUpdate: false, existingMemoryContent: null },
+      { proposalId: 'p2', content: 'Project uses PNPM', category: 'fact', reason: 'observed', isUpdate: false, existingMemoryContent: null },
+      { proposalId: 'p3', content: 'Skip this one', category: 'workflow', reason: 'maybe', isUpdate: false, existingMemoryContent: null },
+    ];
+    pendingBatches.set(batchId, { source: 'dream_cycle', conversationId: 'conv-1', proposals });
+
+    const decisions = [
+      { proposalId: 'p1', decision: 'approved', editedContent: null },
+      { proposalId: 'p2', decision: 'edited', editedContent: 'Project uses PNPM workspaces' },
+      { proposalId: 'p3', decision: 'rejected', editedContent: null },
+    ];
+
+    let approved = 0, rejected = 0, edited = 0;
+    const batch = pendingBatches.get(batchId);
+    for (const d of decisions) {
+      if (d.decision === 'approved' || d.decision === 'edited') {
+        const original = batch?.proposals?.find(pr => pr.proposalId === d.proposalId);
+        const content = d.editedContent || original?.content || d.proposalId;
+        memoryLog.push({ content, category: original?.category || 'fact' });
+        if (d.decision === 'edited') edited++;
+        else approved++;
+      } else {
+        rejected++;
+      }
+    }
+    pendingBatches.delete(batchId);
+
+    check('batch decision: 1 approved', approved === 1);
+    check('batch decision: 1 edited', edited === 1);
+    check('batch decision: 1 rejected', rejected === 1);
+    check('batch decision: 2 memories stored', memoryLog.length === 2);
+    check('batch decision: edited content used', memoryLog[1].content === 'Project uses PNPM workspaces');
+    check('batch decision: pending batch removed', pendingBatches.size === 0);
+  }
+
+  // -------------------------------------------------------------------
   // AI Native Protocol Schemas
   // -------------------------------------------------------------------
 
@@ -3156,6 +3234,41 @@ async function run() {
     check('ai_memory_proposal rejects invalid category', !AiMemoryProposalPayloadSchema.safeParse({
       proposalId: 'p-1', content: 'c', category: 'random',
       reason: 'r', sourceMessageId: 'm-1', conversationId: 'c-1',
+    }).success);
+
+    // Batch schemas
+    const { AiMemoryProposalBatchPayloadSchema, MemoryBatchDecisionPayloadSchema } = await import('@bastion/protocol');
+
+    check('ai_memory_proposal_batch valid', AiMemoryProposalBatchPayloadSchema.safeParse({
+      batchId: 'b-1', source: 'dream_cycle', conversationId: 'c-1',
+      proposals: [{ proposalId: 'p-1', content: 'fact', category: 'fact', reason: 'observed', isUpdate: false, existingMemoryContent: null }],
+    }).success);
+    check('ai_memory_proposal_batch valid with null conversationId', AiMemoryProposalBatchPayloadSchema.safeParse({
+      batchId: 'b-2', source: 'recall_analysis', conversationId: null,
+      proposals: [{ proposalId: 'p-2', content: 'pref', category: 'preference', reason: 'stated', isUpdate: true, existingMemoryContent: 'old' }],
+    }).success);
+    check('ai_memory_proposal_batch rejects empty proposals', !AiMemoryProposalBatchPayloadSchema.safeParse({
+      batchId: 'b-3', source: 'dream_cycle', conversationId: null, proposals: [],
+    }).success);
+    check('ai_memory_proposal_batch rejects invalid source', !AiMemoryProposalBatchPayloadSchema.safeParse({
+      batchId: 'b-4', source: 'invalid_source', conversationId: null,
+      proposals: [{ proposalId: 'p-1', content: 'c', category: 'fact', reason: 'r', isUpdate: false, existingMemoryContent: null }],
+    }).success);
+
+    check('memory_batch_decision valid', MemoryBatchDecisionPayloadSchema.safeParse({
+      batchId: 'b-1',
+      decisions: [{ proposalId: 'p-1', decision: 'approved', editedContent: null }],
+    }).success);
+    check('memory_batch_decision valid with edited', MemoryBatchDecisionPayloadSchema.safeParse({
+      batchId: 'b-1',
+      decisions: [{ proposalId: 'p-1', decision: 'edited', editedContent: 'new content' }],
+    }).success);
+    check('memory_batch_decision rejects empty decisions', !MemoryBatchDecisionPayloadSchema.safeParse({
+      batchId: 'b-1', decisions: [],
+    }).success);
+    check('memory_batch_decision rejects invalid decision', !MemoryBatchDecisionPayloadSchema.safeParse({
+      batchId: 'b-1',
+      decisions: [{ proposalId: 'p-1', decision: 'maybe', editedContent: null }],
     }).success);
   }
 

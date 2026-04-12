@@ -242,6 +242,9 @@ console.log(`[✓] Memory store initialised (${memoryStore.count} memories, max 
 // Pending AI memory proposals — keyed by proposalId, awaiting human decision
 const pendingMemoryProposals = new Map();
 
+// Pending memory proposal batches — keyed by batchId, awaiting human batch decision
+const pendingBatches = new Map();
+
 // Pending memory proposals (proposalId → {content, category, source})
 const pendingProposals = new Map();
 
@@ -871,6 +874,20 @@ const aiActionLimits = {
   recordMessage() {
     this.messagesSinceLastMemory++;
     this.messagesSinceLastRecall++;
+  },
+
+  // Batch rate limiting (dream cycle / recall analysis)
+  batchCount: 0,
+  maxBatchesPerSession: 3,
+  lastBatchTime: 0,
+  batchCooldownMs: 5 * 60 * 1000, // 5 minutes
+  canBatch() {
+    return this.batchCount < this.maxBatchesPerSession &&
+      (Date.now() - this.lastBatchTime) >= this.batchCooldownMs;
+  },
+  recordBatch() {
+    this.batchCount++;
+    this.lastBatchTime = Date.now();
   },
 };
 
@@ -1685,6 +1702,44 @@ client.on('message', async (data) => {
     } else {
       console.log(`[✗] Memory rejected: "${pending.content.substring(0, 60)}..."`);
     }
+    return;
+  }
+
+  // Handle memory_batch_decision — human approves/rejects a batch of memory proposals
+  if (msg.type === 'memory_batch_decision') {
+    const p = msg.payload || {};
+    const { batchId, decisions } = p;
+    if (!batchId || !Array.isArray(decisions)) return;
+
+    const batch = pendingBatches.get(batchId);
+    let approved = 0, rejected = 0, edited = 0;
+
+    for (const d of decisions) {
+      if (d.decision === 'approved' || d.decision === 'edited') {
+        const original = batch?.proposals?.find(pr => pr.proposalId === d.proposalId);
+        const content = d.editedContent || original?.content || d.proposalId;
+        const category = original?.category || 'fact';
+        const scope = batch?.conversationId ? `conv:${String(batch.conversationId).slice(0, 8)}` : 'global';
+        memoryStore.addMemory(content, category, `batch:${batchId.slice(0, 8)}`, batch?.conversationId || undefined);
+        if (d.decision === 'edited') edited++;
+        else approved++;
+      } else {
+        rejected++;
+      }
+    }
+
+    pendingBatches.delete(batchId);
+    console.log(`[✓] Batch ${batchId.slice(0, 8)}: ${approved} approved, ${edited} edited, ${rejected} rejected (${memoryStore.count} total)`);
+    auditLogger.logMemory('batch_resolved', { batchId, approved, edited, rejected, total: decisions.length });
+
+    // Refresh memory list for human client
+    sendSecure({
+      type: 'memory_list_response',
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: IDENTITY,
+      payload: { memories: memoryStore.listAll(), filter: 'all' },
+    });
     return;
   }
 
@@ -2864,31 +2919,40 @@ client.on('message', async (data) => {
       budgetGuard.recordUsage(0, result.cost);
       sendUsageStatusDebounced();
 
-      // Send each candidate as ai_memory_proposal
-      for (const candidate of result.candidates) {
-        client.send(JSON.stringify({
-          type: 'ai_memory_proposal',
+      // Send all dream candidates as a single batch
+      if (result.candidates.length > 0 && aiActionLimits.canBatch()) {
+        aiActionLimits.recordBatch();
+        const batchId = randomUUID();
+        const proposals = result.candidates.map(c => ({
+          proposalId: c.proposalId || randomUUID(),
+          content: String(c.content || ''),
+          category: ['fact', 'preference', 'workflow', 'project'].includes(c.category) ? c.category : 'fact',
+          reason: String(c.reason || ''),
+          isUpdate: Boolean(c.isUpdate),
+          existingMemoryContent: c.existingMemoryContent ? String(c.existingMemoryContent) : null,
+        }));
+        sendSecure({
+          type: 'ai_memory_proposal_batch',
           id: randomUUID(),
           timestamp: new Date().toISOString(),
           sender: IDENTITY,
           payload: {
-            proposalId: candidate.proposalId,
-            content: candidate.content,
-            category: candidate.category,
-            reason: candidate.reason,
-            sourceMessageId: `dream:${convId}`,
-            conversationId: convId,
-            isDreamCandidate: true,
-            isUpdate: candidate.isUpdate,
-            existingMemoryContent: candidate.existingMemoryContent || null,
+            batchId,
+            source: 'dream_cycle',
+            conversationId: convId || null,
+            proposals,
           },
-        }));
-        pendingMemoryProposals.set(candidate.proposalId, {
-          content: candidate.content,
-          category: candidate.category,
-          conversationId: convId,
-          sourceMessageId: `dream:${convId}`,
         });
+        pendingBatches.set(batchId, {
+          source: 'dream_cycle',
+          conversationId: convId,
+          proposals,
+          sentAt: new Date().toISOString(),
+        });
+        console.log(`[→] Memory batch sent: ${proposals.length} proposals (batch ${batchId.slice(0, 8)})`);
+      } else if (result.candidates.length > 0) {
+        console.log(`[!] Batch rate-limited: ${result.candidates.length} dream proposals dropped (batch ${aiActionLimits.batchCount}/${aiActionLimits.maxBatchesPerSession})`);
+        auditLogger.logMemory('batch_rate_limited', { count: result.candidates.length, batchCount: aiActionLimits.batchCount });
       }
 
       // Send dream_cycle_complete summary

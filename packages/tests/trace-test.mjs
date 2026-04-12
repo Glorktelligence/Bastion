@@ -353,6 +353,8 @@ function validPayloads() {
     ai_challenge: { challengeId: 'c-1', reason: 'late night deletion', severity: 'critical', suggestedAction: 'sleep on it', waitSeconds: 30, context: { challengeHoursActive: true, requestedAction: 'delete data' } },
     ai_challenge_response: { challengeId: 'c-1', decision: 'accept' },
     ai_memory_proposal: { proposalId: 'p-1', content: 'User prefers TypeScript', category: 'preference', reason: 'stated', sourceMessageId: 'm-1', conversationId: 'conv-1' },
+    ai_memory_proposal_batch: { batchId: 'batch-1', source: 'dream_cycle', conversationId: 'conv-1', proposals: [{ proposalId: 'p-1', content: 'User prefers TypeScript', category: 'preference', reason: 'stated', isUpdate: false, existingMemoryContent: null }] },
+    memory_batch_decision: { batchId: 'batch-1', decisions: [{ proposalId: 'p-1', decision: 'approved', editedContent: null }] },
     dream_cycle_request: { conversationId: 'conv-1', scope: 'conversation' },
     dream_cycle_complete: { conversationId: 'conv-1', candidateCount: 3, tokensUsed: { input: 10000, output: 500 }, estimatedCost: 0.12, durationMs: 3200 },
   };
@@ -446,7 +448,7 @@ async function run() {
       }
     }
     check('all 88 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 93 entries', ALL_MESSAGE_TYPES.length === 93);
+    check('ALL_MESSAGE_TYPES has 95 entries', ALL_MESSAGE_TYPES.length === 95);
   }
   console.log();
 
@@ -482,8 +484,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 93 entries', typeKeys.length === 93);
-    check('PAYLOAD_SCHEMAS has 93 entries', Object.keys(PAYLOAD_SCHEMAS).length === 93);
+    check('MESSAGE_TYPES has 95 entries', typeKeys.length === 95);
+    check('PAYLOAD_SCHEMAS has 95 entries', Object.keys(PAYLOAD_SCHEMAS).length === 95);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];

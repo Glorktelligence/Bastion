@@ -1,7 +1,7 @@
 <script lang="ts">
 import { onMount } from 'svelte';
 import * as session from '$lib/session.js';
-import type { DreamCycleCompleteInfo, DreamProposal } from '$lib/stores/dream-cycles.js';
+import type { DreamCycleCompleteInfo, DreamProposal, MemoryBatch } from '$lib/stores/dream-cycles.js';
 
 // ---------------------------------------------------------------------------
 // Reactive state from shared session stores
@@ -11,6 +11,7 @@ let status: 'idle' | 'running' | 'reviewing' | 'complete' = $state('idle');
 let proposals: readonly DreamProposal[] = $state([]);
 let lastResult: DreamCycleCompleteInfo | null = $state(null);
 let history: readonly DreamCycleCompleteInfo[] = $state([]);
+let pendingBatches: readonly MemoryBatch[] = $state([]);
 let conversationName: string = $state('Current conversation');
 
 // Use onMount (NOT $effect) to set up store subscriptions.
@@ -21,6 +22,7 @@ onMount(() => {
 			proposals = v.proposals;
 			lastResult = v.lastResult;
 			history = v.history;
+			pendingBatches = v.pendingBatches ?? [];
 		}),
 		session.conversations.store.subscribe((v) => {
 			const active = (v.conversations ?? []).find((c: any) => c.id === v.activeConversationId);
@@ -52,6 +54,37 @@ function dismissAll() {
 		session.sendMemoryDecision(p.proposalId, 'reject');
 	}
 	session.dreamCycles.dismissAll();
+}
+
+function toggleBatchProposal(batchId: string, proposalId: string) {
+	session.dreamCycles.toggleBatchProposal(batchId, proposalId);
+}
+
+function approveBatch(batchId: string) {
+	const decisions = session.dreamCycles.getBatchDecisions(batchId);
+	session.sendMemoryBatchDecision(batchId, decisions);
+	session.dreamCycles.removeBatch(batchId);
+}
+
+function dismissBatch(batchId: string) {
+	const batch = pendingBatches.find(b => b.batchId === batchId);
+	if (batch) {
+		const decisions = batch.proposals.map(p => ({
+			proposalId: p.proposalId,
+			decision: 'rejected' as const,
+			editedContent: null,
+		}));
+		session.sendMemoryBatchDecision(batchId, decisions);
+	}
+	session.dreamCycles.removeBatch(batchId);
+}
+
+function selectAllInBatch(batchId: string) {
+	const batch = pendingBatches.find(b => b.batchId === batchId);
+	if (!batch) return;
+	for (const p of batch.proposals) {
+		if (!p.selected) session.dreamCycles.toggleBatchProposal(batchId, p.proposalId);
+	}
 }
 
 function formatCost(cost: number): string {
@@ -150,6 +183,56 @@ function formatDuration(ms: number): string {
 			</div>
 		</div>
 	{/if}
+
+	{#each pendingBatches as batch}
+		<div class="proposals-panel batch-panel">
+			<div class="proposals-header">
+				<h3>Memory Batch &mdash; {batch.proposals.length} proposal{batch.proposals.length !== 1 ? 's' : ''}</h3>
+				<span class="cost-badge">{batch.source} &middot; {new Date(batch.receivedAt).toLocaleTimeString()}</span>
+			</div>
+
+			<div class="proposals-list">
+				{#each batch.proposals as proposal}
+					<label class="proposal-item" class:update={proposal.isUpdate}>
+						<input
+							type="checkbox"
+							checked={proposal.selected}
+							onchange={() => toggleBatchProposal(batch.batchId, proposal.proposalId)}
+						/>
+						<div class="proposal-content">
+							<span class="proposal-text">{proposal.content}</span>
+							<span class="proposal-meta">
+								<span class="category-badge">{proposal.category}</span>
+								{#if proposal.isUpdate}
+									<span class="update-badge">Updates existing</span>
+								{:else}
+									<span class="new-badge">New memory</span>
+								{/if}
+							</span>
+							{#if proposal.reason}
+								<span class="proposal-reason">{proposal.reason}</span>
+							{/if}
+							{#if proposal.isUpdate && proposal.existingMemoryContent}
+								<span class="existing-text">Replaces: {proposal.existingMemoryContent}</span>
+							{/if}
+						</div>
+					</label>
+				{/each}
+			</div>
+
+			<div class="proposals-actions">
+				<button class="approve-button" onclick={() => approveBatch(batch.batchId)}>
+					Approve Selected ({batch.proposals.filter(p => p.selected).length})
+				</button>
+				<button class="select-all-button" onclick={() => selectAllInBatch(batch.batchId)}>
+					Select All
+				</button>
+				<button class="dismiss-button" onclick={() => dismissBatch(batch.batchId)}>
+					Dismiss All
+				</button>
+			</div>
+		</div>
+	{/each}
 
 	{#if history.length > 0}
 		<div class="history-section">
@@ -289,6 +372,19 @@ function formatDuration(ms: number): string {
 		font-size: 0.875rem;
 	}
 	.dismiss-button:hover { background: var(--color-bg); }
+
+	.select-all-button {
+		padding: 0.5rem 1rem;
+		background: transparent;
+		color: var(--color-primary, #6366f1);
+		border: 1px solid var(--color-primary, #6366f1);
+		border-radius: 0.375rem;
+		cursor: pointer;
+		font-size: 0.875rem;
+	}
+	.select-all-button:hover { background: var(--color-bg); }
+
+	.batch-panel { border-color: #f59e0b; }
 
 	.history-section { margin-top: 1.5rem; }
 	.history-section h3 { margin-bottom: 0.75rem; }

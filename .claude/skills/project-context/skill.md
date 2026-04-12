@@ -30,7 +30,7 @@ bastion/
 ├── start-ai-client.mjs          # AI client startup script (wires all library code)
 ├── docs/                        # Specs, protocol docs, guides, architecture decisions
 ├── packages/
-│   ├── protocol/                # @bastion/protocol — 93 message types, schemas, constants
+│   ├── protocol/                # @bastion/protocol — 95 message types, schemas, constants
 │   ├── crypto/                  # @bastion/crypto — E2E encryption, hashing, key management
 │   ├── relay/                   # @bastion/relay — WSS server, routing, audit, quarantine, admin
 │   ├── client-human/            # @bastion/client-human — Desktop (Tauri + SvelteKit)
@@ -63,7 +63,7 @@ bastion/
 
 ---
 
-## Protocol — 93 Message Types
+## Protocol — 95 Message Types
 
 | Category | Count | Types |
 |----------|-------|-------|
@@ -86,7 +86,7 @@ bastion/
 | AI Disclosure | 1 | ai_disclosure |
 | Data Portability | 6 | data_export_request, data_export_progress, data_export_ready, data_import_validate, data_import_confirm, data_import_complete |
 | Data Erasure | 5 | data_erasure_request, data_erasure_preview, data_erasure_confirm, data_erasure_complete, data_erasure_cancel |
-| AI Native Actions | 3 | ai_challenge, ai_challenge_response, ai_memory_proposal |
+| AI Native Actions | 5 | ai_challenge, ai_challenge_response, ai_memory_proposal, ai_memory_proposal_batch, memory_batch_decision |
 
 ---
 

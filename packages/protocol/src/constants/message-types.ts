@@ -3,7 +3,7 @@
 // See LICENSE file for full terms
 
 /**
- * All 93 message types in the Bastion protocol.
+ * All 95 message types in the Bastion protocol.
  *
  * Core spec (11): task, conversation, challenge, confirmation, denial,
  *   status, result, error, file_manifest, file_offer, file_request, heartbeat
@@ -143,6 +143,8 @@ export const MESSAGE_TYPES = {
   AI_CHALLENGE: 'ai_challenge',
   AI_CHALLENGE_RESPONSE: 'ai_challenge_response',
   AI_MEMORY_PROPOSAL: 'ai_memory_proposal',
+  AI_MEMORY_PROPOSAL_BATCH: 'ai_memory_proposal_batch',
+  MEMORY_BATCH_DECISION: 'memory_batch_decision',
 
   // --- Dream Cycle (Layer 6) ---
   DREAM_CYCLE_REQUEST: 'dream_cycle_request',

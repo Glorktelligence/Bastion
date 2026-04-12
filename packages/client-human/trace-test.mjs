@@ -1861,6 +1861,50 @@ async function run() {
     const ds4 = createDreamCyclesStore();
     check('crash recovery: running resets to idle', ds4.store.get().status === 'idle');
 
+    // --- Batch proposal tests ---
+    storage.clear();
+    const dsB = createDreamCyclesStore();
+    check('batch store starts with no pending batches', (dsB.store.get().pendingBatches ?? []).length === 0);
+
+    dsB.addBatch({
+      batchId: 'batch-001',
+      source: 'dream_cycle',
+      conversationId: 'conv-batch',
+      receivedAt: '2026-04-12T10:00:00Z',
+      proposals: [
+        { proposalId: 'bp-1', content: 'User prefers tabs', category: 'preference', reason: 'observed', isUpdate: false, existingMemoryContent: null, selected: true },
+        { proposalId: 'bp-2', content: 'Project uses PNPM', category: 'fact', reason: 'stated', isUpdate: false, existingMemoryContent: null, selected: true },
+      ],
+    });
+    check('addBatch adds batch', dsB.store.get().pendingBatches.length === 1);
+    check('addBatch has correct proposal count', dsB.store.get().pendingBatches[0].proposals.length === 2);
+    check('addBatch proposals selected by default', dsB.store.get().pendingBatches[0].proposals[0].selected === true);
+
+    // toggleBatchProposal
+    dsB.toggleBatchProposal('batch-001', 'bp-1');
+    check('toggleBatchProposal deselects', dsB.store.get().pendingBatches[0].proposals[0].selected === false);
+    check('toggleBatchProposal leaves other selected', dsB.store.get().pendingBatches[0].proposals[1].selected === true);
+
+    // editBatchProposal
+    dsB.editBatchProposal('batch-001', 'bp-1', 'User prefers spaces actually');
+    check('editBatchProposal updates content', dsB.store.get().pendingBatches[0].proposals[0].content === 'User prefers spaces actually');
+    check('editBatchProposal re-selects', dsB.store.get().pendingBatches[0].proposals[0].selected === true);
+
+    // getBatchDecisions
+    dsB.toggleBatchProposal('batch-001', 'bp-2'); // deselect bp-2
+    const decisions = dsB.getBatchDecisions('batch-001');
+    check('getBatchDecisions returns all proposals', decisions.length === 2);
+    check('getBatchDecisions approved for selected', decisions[0].decision === 'approved');
+    check('getBatchDecisions rejected for unselected', decisions[1].decision === 'rejected');
+
+    // removeBatch
+    dsB.removeBatch('batch-001');
+    check('removeBatch removes batch', dsB.store.get().pendingBatches.length === 0);
+
+    // getBatchDecisions for unknown batch
+    const emptyDecisions = dsB.getBatchDecisions('nonexistent');
+    check('getBatchDecisions returns empty for unknown batch', emptyDecisions.length === 0);
+
     // Clean up mock
     delete globalThis.localStorage;
   }
