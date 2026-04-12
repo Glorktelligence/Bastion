@@ -977,7 +977,7 @@ export interface AiMemoryProposalPayload {
 /** AI → Human: Batch of memory proposals from dream cycle or recall analysis. */
 export interface AiMemoryProposalBatchPayload {
   readonly batchId: string;
-  readonly source: 'dream_cycle' | 'recall_analysis' | 'session_summary';
+  readonly source: 'dream_cycle' | 'recall_analysis' | 'session_summary' | 'inline_response';
   readonly conversationId: string | null;
   readonly proposals: ReadonlyArray<{
     readonly proposalId: string;

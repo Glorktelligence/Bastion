@@ -872,7 +872,7 @@ export const AiMemoryProposalPayloadSchema = z.object({
 
 export const AiMemoryProposalBatchPayloadSchema = z.object({
   batchId: z.string().min(1),
-  source: z.enum(['dream_cycle', 'recall_analysis', 'session_summary']),
+  source: z.enum(['dream_cycle', 'recall_analysis', 'session_summary', 'inline_response']),
   conversationId: z.string().nullable(),
   proposals: z
     .array(

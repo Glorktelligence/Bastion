@@ -52,6 +52,19 @@ export interface DreamCycleCompleteInfo {
 }
 
 // ---------------------------------------------------------------------------
+// Defaults
+// ---------------------------------------------------------------------------
+
+const DEFAULT_STATE: DreamCycleState = {
+  status: 'idle',
+  conversationId: null,
+  proposals: [],
+  lastResult: null,
+  history: [],
+  pendingBatches: [],
+};
+
+// ---------------------------------------------------------------------------
 // localStorage persistence
 // ---------------------------------------------------------------------------
 
@@ -69,11 +82,13 @@ function loadPersistedState(): DreamCycleState | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const data = JSON.parse(raw) as DreamCycleState;
+    const raw_data = JSON.parse(raw) as Partial<DreamCycleState>;
     // Migration: ensure pendingBatches exists (added in v0.8.2)
-    if (!Array.isArray(data.pendingBatches)) {
-      (data as Record<string, unknown>).pendingBatches = [];
-    }
+    const data: DreamCycleState = {
+      ...DEFAULT_STATE,
+      ...raw_data,
+      pendingBatches: Array.isArray(raw_data.pendingBatches) ? raw_data.pendingBatches : [],
+    };
     // Crash recovery: if status was 'running' when browser died, reset to idle
     if (data.status === 'running') {
       return { ...data, status: 'idle' };
@@ -87,15 +102,6 @@ function loadPersistedState(): DreamCycleState | null {
 // ---------------------------------------------------------------------------
 // Store factory
 // ---------------------------------------------------------------------------
-
-const DEFAULT_STATE: DreamCycleState = {
-  status: 'idle',
-  conversationId: null,
-  proposals: [],
-  lastResult: null,
-  history: [],
-  pendingBatches: [],
-};
 
 export function createDreamCyclesStore(): {
   store: Writable<DreamCycleState>;

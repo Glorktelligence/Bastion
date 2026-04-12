@@ -3198,6 +3198,136 @@ async function run() {
   }
 
   // -------------------------------------------------------------------
+  // Inline memory batch routing (single vs multi MEMORY actions)
+  // -------------------------------------------------------------------
+
+  console.log('\n--- Inline Memory Batch Routing ---');
+  {
+    // Simulate the action routing logic from start-ai-client.mjs
+    function routeMemoryActions(actions, limiter) {
+      const memoryActions = actions.filter(a => a.type === 'MEMORY');
+      const otherActions = actions.filter(a => a.type !== 'MEMORY');
+      const result = { route: 'none', batchSource: null, proposalCount: 0, otherCount: otherActions.length };
+
+      if (memoryActions.length === 1 && limiter.canMemory()) {
+        limiter.recordMemory();
+        result.route = 'inline_toast';
+        result.proposalCount = 1;
+      } else if (memoryActions.length === 1 && !limiter.canMemory()) {
+        result.route = 'inline_rate_limited';
+      } else if (memoryActions.length > 1 && limiter.canBatch()) {
+        limiter.recordBatch();
+        result.route = 'batch';
+        result.batchSource = 'inline_response';
+        result.proposalCount = memoryActions.length;
+      } else if (memoryActions.length > 1 && !limiter.canBatch()) {
+        result.route = 'batch_rate_limited';
+      }
+      return result;
+    }
+
+    function freshLimiter() {
+      return {
+        memoryCount: 0, maxMemoriesPerSession: 3,
+        messagesSinceLastMemory: 5, memoryMinMessageGap: 5,
+        batchCount: 0, maxBatchesPerSession: 3,
+        lastBatchTime: 0, batchCooldownMs: 5 * 60 * 1000,
+        canMemory() { return this.memoryCount < this.maxMemoriesPerSession && this.messagesSinceLastMemory >= this.memoryMinMessageGap; },
+        recordMemory() { this.memoryCount++; this.messagesSinceLastMemory = 0; },
+        canBatch() { return this.batchCount < this.maxBatchesPerSession && (Date.now() - this.lastBatchTime) >= this.batchCooldownMs; },
+        recordBatch() { this.batchCount++; this.lastBatchTime = Date.now(); },
+      };
+    }
+
+    // Single MEMORY → inline toast
+    const r1 = routeMemoryActions(
+      [{ type: 'MEMORY', data: { content: 'fact', category: 'fact', reason: 'r' } }],
+      freshLimiter(),
+    );
+    check('single MEMORY → inline toast', r1.route === 'inline_toast');
+    check('single MEMORY → proposal count 1', r1.proposalCount === 1);
+
+    // Single MEMORY rate limited
+    const lim2 = freshLimiter();
+    lim2.memoryCount = 3; // exhaust
+    const r2 = routeMemoryActions(
+      [{ type: 'MEMORY', data: { content: 'fact', category: 'fact', reason: 'r' } }],
+      lim2,
+    );
+    check('single MEMORY rate limited → inline_rate_limited', r2.route === 'inline_rate_limited');
+
+    // Multiple MEMORY → batch
+    const r3 = routeMemoryActions(
+      [
+        { type: 'MEMORY', data: { content: 'a', category: 'fact', reason: 'r' } },
+        { type: 'MEMORY', data: { content: 'b', category: 'preference', reason: 'r' } },
+        { type: 'MEMORY', data: { content: 'c', category: 'workflow', reason: 'r' } },
+      ],
+      freshLimiter(),
+    );
+    check('multi MEMORY → batch', r3.route === 'batch');
+    check('multi MEMORY → source is inline_response', r3.batchSource === 'inline_response');
+    check('multi MEMORY → proposal count 3', r3.proposalCount === 3);
+
+    // Multiple MEMORY batch rate limited
+    const lim4 = freshLimiter();
+    lim4.batchCount = 3; // exhaust
+    const r4 = routeMemoryActions(
+      [
+        { type: 'MEMORY', data: { content: 'a', category: 'fact', reason: 'r' } },
+        { type: 'MEMORY', data: { content: 'b', category: 'fact', reason: 'r' } },
+      ],
+      lim4,
+    );
+    check('multi MEMORY batch rate limited', r4.route === 'batch_rate_limited');
+
+    // Mixed actions: 2 MEMORY + 1 CHALLENGE — correctly separates
+    const r5 = routeMemoryActions(
+      [
+        { type: 'MEMORY', data: { content: 'a', category: 'fact', reason: 'r' } },
+        { type: 'CHALLENGE', data: { reason: 'risky', severity: 'warning' } },
+        { type: 'MEMORY', data: { content: 'b', category: 'fact', reason: 'r' } },
+      ],
+      freshLimiter(),
+    );
+    check('mixed actions: memories → batch', r5.route === 'batch');
+    check('mixed actions: 2 memory proposals', r5.proposalCount === 2);
+    check('mixed actions: 1 other action preserved', r5.otherCount === 1);
+
+    // Inline rate limit does NOT apply to batch flow
+    const lim6 = freshLimiter();
+    lim6.memoryCount = 3; // inline exhausted
+    const r6 = routeMemoryActions(
+      [
+        { type: 'MEMORY', data: { content: 'a', category: 'fact', reason: 'r' } },
+        { type: 'MEMORY', data: { content: 'b', category: 'fact', reason: 'r' } },
+      ],
+      lim6,
+    );
+    check('batch flow ignores inline rate limit', r6.route === 'batch');
+    check('batch flow still works with exhausted inline limit', r6.proposalCount === 2);
+
+    // No MEMORY actions → no routing
+    const r7 = routeMemoryActions(
+      [{ type: 'CHALLENGE', data: {} }],
+      freshLimiter(),
+    );
+    check('no MEMORY actions → route none', r7.route === 'none');
+    check('no MEMORY actions → other preserved', r7.otherCount === 1);
+
+    // Source field validation: inline_response now valid
+    const { AiMemoryProposalBatchPayloadSchema } = await import('@bastion/protocol');
+    check('inline_response source accepted', AiMemoryProposalBatchPayloadSchema.safeParse({
+      batchId: 'b-1', source: 'inline_response', conversationId: null,
+      proposals: [{ proposalId: 'p-1', content: 'c', category: 'fact', reason: 'r', isUpdate: false, existingMemoryContent: null }],
+    }).success);
+    check('dream_cycle source still accepted', AiMemoryProposalBatchPayloadSchema.safeParse({
+      batchId: 'b-2', source: 'dream_cycle', conversationId: 'c-1',
+      proposals: [{ proposalId: 'p-2', content: 'c', category: 'fact', reason: 'r', isUpdate: false, existingMemoryContent: null }],
+    }).success);
+  }
+
+  // -------------------------------------------------------------------
   // AI Native Protocol Schemas
   // -------------------------------------------------------------------
 

@@ -2341,7 +2341,82 @@ client.on('message', async (data) => {
         const { cleanText: responseText, actions } = parseActionBlocks(rawResponseText);
 
         // Process extracted actions — send protocol messages BEFORE response
-        for (const action of actions) {
+        // Separate memory actions for smart routing (single→toast, multi→batch)
+        const memoryActions = actions.filter(a => a.type === 'MEMORY');
+        const otherActions = actions.filter(a => a.type !== 'MEMORY');
+
+        // --- Memory action routing ---
+        if (memoryActions.length === 1 && aiActionLimits.canMemory()) {
+          // Single memory → existing inline toast flow
+          aiActionLimits.recordMemory();
+          const payload = memoryActions[0].data;
+          const proposalId = randomUUID();
+          sendSecure({
+            type: 'ai_memory_proposal',
+            id: randomUUID(),
+            timestamp: new Date().toISOString(),
+            sender: IDENTITY,
+            payload: {
+              proposalId,
+              content: String(payload.content || ''),
+              category: ['fact', 'preference', 'workflow', 'project'].includes(payload.category) ? payload.category : 'fact',
+              reason: String(payload.reason || ''),
+              sourceMessageId: msg.id || '',
+              conversationId: activeConversationId || '',
+            },
+          });
+          pendingMemoryProposals.set(proposalId, {
+            content: String(payload.content || ''),
+            category: ['fact', 'preference', 'workflow', 'project'].includes(payload.category) ? payload.category : 'fact',
+            conversationId: activeConversationId || null,
+            sourceMessageId: msg.id || '',
+          });
+          console.log(`[→] AI memory proposal: "${String(payload.content || '').substring(0, 60)}"`);
+          auditLogger.logMemory('proposed', { proposalId, category: payload.category });
+        } else if (memoryActions.length === 1 && !aiActionLimits.canMemory()) {
+          // Single memory but rate limited
+          console.log(`[!] AI memory proposal rate-limited (${aiActionLimits.memoryCount}/${aiActionLimits.maxMemoriesPerSession} used, ${aiActionLimits.messagesSinceLastMemory}/${aiActionLimits.memoryMinMessageGap} gap)`);
+          auditLogger.logMemory('rate_limited', { messagesSince: aiActionLimits.messagesSinceLastMemory, count: aiActionLimits.memoryCount });
+        } else if (memoryActions.length > 1 && aiActionLimits.canBatch()) {
+          // Multiple memories → batch flow
+          aiActionLimits.recordBatch();
+          const batchId = randomUUID();
+          const proposals = memoryActions.map(a => ({
+            proposalId: randomUUID(),
+            content: String(a.data.content || ''),
+            category: ['fact', 'preference', 'workflow', 'project'].includes(a.data.category) ? a.data.category : 'fact',
+            reason: String(a.data.reason || ''),
+            isUpdate: false,
+            existingMemoryContent: null,
+          }));
+          sendSecure({
+            type: 'ai_memory_proposal_batch',
+            id: randomUUID(),
+            timestamp: new Date().toISOString(),
+            sender: IDENTITY,
+            payload: {
+              batchId,
+              source: 'inline_response',
+              conversationId: activeConversationId || null,
+              proposals,
+            },
+          });
+          pendingBatches.set(batchId, {
+            source: 'inline_response',
+            conversationId: activeConversationId || null,
+            proposals,
+            sentAt: new Date().toISOString(),
+          });
+          console.log(`[→] Memory batch (inline): ${proposals.length} proposals (batch ${batchId.slice(0, 8)})`);
+          auditLogger.logMemory('batch_proposed', { batchId, source: 'inline_response', count: proposals.length });
+        } else if (memoryActions.length > 1 && !aiActionLimits.canBatch()) {
+          // Multiple memories but batch rate limited
+          console.log(`[!] Memory batch rate-limited (${aiActionLimits.batchCount}/${aiActionLimits.maxBatchesPerSession} batches, cooldown: ${Math.round((aiActionLimits.batchCooldownMs - (Date.now() - aiActionLimits.lastBatchTime)) / 1000)}s remaining)`);
+          auditLogger.logMemory('batch_rate_limited', { count: memoryActions.length, batchCount: aiActionLimits.batchCount });
+        }
+
+        // --- Non-memory action processing (CHALLENGE, RECALL, EXEC) ---
+        for (const action of otherActions) {
           if (action.type === 'CHALLENGE' && aiActionLimits.canChallenge()) {
             aiActionLimits.recordChallenge();
             const payload = action.data;
@@ -2370,35 +2445,6 @@ client.on('message', async (data) => {
             });
             console.log(`[→] AI challenge issued: ${payload.severity} — ${String(payload.reason || '').substring(0, 60)}`);
             auditLogger.logChallenge('issued', { severity: payload.severity, reason: String(payload.reason || '') });
-          } else if (action.type === 'MEMORY' && aiActionLimits.canMemory()) {
-            aiActionLimits.recordMemory();
-
-            const payload = action.data;
-            const proposalId = randomUUID();
-            sendSecure({
-              type: 'ai_memory_proposal',
-              id: randomUUID(),
-              timestamp: new Date().toISOString(),
-              sender: IDENTITY,
-              payload: {
-                proposalId,
-                content: String(payload.content || ''),
-                category: ['fact', 'preference', 'workflow', 'project'].includes(payload.category) ? payload.category : 'fact',
-                reason: String(payload.reason || ''),
-                sourceMessageId: msg.id || '',
-                conversationId: activeConversationId || '',
-              },
-            });
-            pendingMemoryProposals.set(proposalId, {
-              content: String(payload.content || ''),
-              category: ['fact', 'preference', 'workflow', 'project'].includes(payload.category) ? payload.category : 'fact',
-              conversationId: activeConversationId || null,
-              sourceMessageId: msg.id || '',
-            });
-            console.log(`[→] AI memory proposal: "${String(payload.content || '').substring(0, 60)}"`);
-          } else if (action.type === 'MEMORY' && !aiActionLimits.canMemory()) {
-            console.log(`[!] AI memory proposal rate-limited (${aiActionLimits.memoryCount}/${aiActionLimits.maxMemoriesPerSession} used, ${aiActionLimits.messagesSinceLastMemory}/${aiActionLimits.memoryMinMessageGap} gap)`);
-            auditLogger.logMemory('rate_limited', { messagesSince: aiActionLimits.messagesSinceLastMemory, count: aiActionLimits.memoryCount });
           } else if (action.type === 'RECALL' && aiActionLimits.canRecall()) {
             aiActionLimits.recordRecall();
             const payload = action.data;
