@@ -1,5 +1,9 @@
 # Getting Started with Bastion
 
+> **Recommended:** Use the `bastion-cli.sh` tool for installation and updates.
+> This guide shows the manual process for understanding the architecture.
+> See the [Deployment Guide](./deployment.md#cli-management-tool) for the production-recommended approach.
+
 This guide walks you through running a complete local Bastion instance — relay server, AI client, and human client all communicating over encrypted WebSocket connections.
 
 By the end, you will have:
@@ -40,7 +44,7 @@ pnpm install
 pnpm build
 ```
 
-The build compiles TypeScript across all 7 packages. Protocol and crypto build first because other packages depend on them.
+The build compiles TypeScript across all 8 packages. Protocol and crypto build first because other packages depend on them.
 
 Verify the build is clean:
 
@@ -77,7 +81,7 @@ Integration: 82 checks passed
 File Transfer Integration: 105 checks passed
 ```
 
-All 2,993 tests should pass.
+All 3,862 tests should pass.
 
 ## Step 1: Generate TLS Certificates
 
@@ -121,7 +125,7 @@ const auditLogger = new AuditLogger({ sessionId: 'relay-main' });
 // Create and start the relay
 const relay = new BastionRelay({
   port: 9443,
-  host: '0.0.0.0',
+  host: '127.0.0.1', // Bastion enforces private binding — 0.0.0.0 is rejected by isPrivateHost()
   tls,
   auditLogger,
 });
@@ -155,7 +159,7 @@ node start-relay.mjs
 You should see:
 
 ```
-Bastion relay listening on wss://0.0.0.0:9443
+Bastion relay listening on wss://127.0.0.1:9443
 Relay is ready. Waiting for connections...
 ```
 
@@ -437,6 +441,6 @@ pnpm build      # Rebuild everything
 ## Next Steps
 
 - **[Deployment Guide](./deployment.md)** — Self-hosting Bastion on a real server with TLS, VLANs, and AI VM isolation.
-- **[Protocol Specification](../protocol/bastion-protocol-v0.5.0.md)** — Complete protocol reference with all 85 message types.
+- **[Protocol Specification](../protocol/bastion-protocol-v0.5.0.md)** — Complete protocol reference with all 93 message types.
 - **[Contributing](../../CONTRIBUTING.md)** — How to contribute to Bastion.
 - **[Security Policy](../../SECURITY.md)** — Reporting vulnerabilities and understanding the threat model.

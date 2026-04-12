@@ -30,7 +30,7 @@ bastion/
 ├── start-ai-client.mjs          # AI client startup script (wires all library code)
 ├── docs/                        # Specs, protocol docs, guides, architecture decisions
 ├── packages/
-│   ├── protocol/                # @bastion/protocol — 87 message types, schemas, constants
+│   ├── protocol/                # @bastion/protocol — 93 message types, schemas, constants
 │   ├── crypto/                  # @bastion/crypto — E2E encryption, hashing, key management
 │   ├── relay/                   # @bastion/relay — WSS server, routing, audit, quarantine, admin
 │   ├── client-human/            # @bastion/client-human — Desktop (Tauri + SvelteKit)
@@ -63,18 +63,19 @@ bastion/
 
 ---
 
-## Protocol — 85 Message Types
+## Protocol — 93 Message Types
 
 | Category | Count | Types |
 |----------|-------|-------|
 | Core | 9 | task, conversation, challenge, confirmation, denial, status, result, error, heartbeat |
 | File Transfer | 3 | file_manifest, file_offer, file_request |
-| Session | 5 | session_end, session_conflict, session_superseded, reconnect, token_refresh |
+| Session | 6 | session_end, session_conflict, session_superseded, session_restored, reconnect, token_refresh |
 | Admin/Config | 4 | config_ack, config_nack, provider_status, budget_alert |
 | Audit | 2 | audit_query, audit_response |
 | Provider/Context | 2 | provider_register, context_update |
 | Memory | 6 | memory_proposal, memory_decision, memory_list, memory_list_response, memory_update, memory_delete |
 | Extensions | 2 | extension_query, extension_list_response |
+| Extension State | 3 | extension_state_push, extension_state_request, extension_state_response |
 | Project Context | 7 | project_sync, project_sync_ack, project_list, project_list_response, project_delete, project_config, project_config_ack |
 | Skills | 1 | skill_list_response |
 | Tool Integration | 9 | tool_registry_sync, tool_registry_ack, tool_request, tool_approved, tool_denied, tool_result, tool_revoke, tool_alert, tool_alert_response |
@@ -117,7 +118,7 @@ These are **hardcoded** and **non-negotiable**. Never make them configurable.
 | 2. Memory | ✅ Built | Persistent memories (preference, fact, workflow, project), SQLite, top 20 in prompt |
 | 3. Project Context | ✅ Built | Project files synced to AI VM, alwaysLoaded/available config, token budget estimate |
 | 4. MCP Tools | ✅ Built | ToolRegistryManager, McpClientAdapter (JSON-RPC 2.0 over WebSocket), trust model |
-| 5. Skills | Designed | Not yet implemented — extensible skill system |
+| 5. Skills | ✅ Built | SkillsManager with forensic scanner, quarantine pipeline, hot-reload, trigger-based loading |
 | 6. Dream Cycle | Designed | Not yet implemented — background processing |
 
 ---
@@ -150,7 +151,7 @@ These are **hardcoded** and **non-negotiable**. Never make them configurable.
 | Mobile client | React Native (Android) |
 | Database | node:sqlite DatabaseSync (audit), SQLite (memories, budget) |
 | Linting | Biome |
-| Testing | node:test (trace-test.mjs pattern), 2,993 tests across 14 files |
+| Testing | node:test (trace-test.mjs pattern), 3,862 tests across 14 files |
 
 ---
 
@@ -166,26 +167,28 @@ Safety floors can be tightened but NEVER loosened below factory defaults.
 
 ## Testing
 
-14 test files, 2,993 tests total. Run all with:
+14 test files, 3,862 tests total. Run all with:
 ```bash
 pnpm test    # or run individually with: node packages/<path>/trace-test.mjs
 ```
 
-| Test File | Count |
-|-----------|-------|
-| packages/tests/trace-test.mjs (protocol schemas) | 286 |
-| packages/tests/integration-test.mjs | 82 |
-| packages/tests/file-transfer-integration-test.mjs | 105 |
-| packages/crypto/trace-test.mjs | 134 |
-| packages/relay/trace-test.mjs | 353 |
-| packages/relay/admin-trace-test.mjs | 312 |
-| packages/relay/quarantine-trace-test.mjs | 105 |
-| packages/relay/file-transfer-trace-test.mjs | 96 |
-| packages/client-ai/trace-test.mjs | 416 |
-| packages/client-ai/file-handling-trace-test.mjs | 155 |
-| packages/client-human/trace-test.mjs | 321 |
-| packages/client-human-mobile/trace-test.mjs | 123 |
-| packages/relay-admin-ui/trace-test.mjs | 239 |
+| Test File | Approx Count |
+|-----------|-------------|
+| packages/tests/trace-test.mjs (protocol schemas) | ~340 |
+| packages/tests/integration-test.mjs | ~90 |
+| packages/tests/file-transfer-integration-test.mjs | ~110 |
+| packages/crypto/trace-test.mjs | ~145 |
+| packages/relay/trace-test.mjs | ~420 |
+| packages/relay/admin-trace-test.mjs | ~370 |
+| packages/relay/quarantine-trace-test.mjs | ~120 |
+| packages/relay/file-transfer-trace-test.mjs | ~105 |
+| packages/client-ai/trace-test.mjs | ~500 |
+| packages/client-ai/file-handling-trace-test.mjs | ~175 |
+| packages/client-human/trace-test.mjs | ~380 |
+| packages/client-human-mobile/trace-test.mjs | ~135 |
+| packages/relay-admin-ui/trace-test.mjs | ~280 |
+
+> **Note:** These counts are approximate. Run `pnpm test` for exact numbers.
 
 ---
 
@@ -199,6 +202,45 @@ pnpm test    # or run individually with: node packages/<path>/trace-test.mjs
 
 Docker Compose available in `packages/infrastructure/docker/`.
 Proxmox templates in `packages/infrastructure/proxmox/`.
+
+---
+
+## Six Sole Authorities
+
+| Authority | Scope | Description |
+|-----------|-------|-------------|
+| DateTimeManager | TIME | Injected into 15 managers. All business logic time calls go through DTM |
+| PurgeManager | DELETE | All file deletion goes through PurgeManager. No direct `fs.unlink` |
+| ToolManager | TOOLS | Tool registry with lock, violation escalation, upstream monitoring |
+| SkillsManager | SKILLS | Forensic scanner, quarantine pipeline, hot-reload |
+| BastionBash | EXECUTION | Three-tier command system, governed filesystem, rate limiting |
+| AuditLogger | AUDIT | Tamper-evident hash chain, event type registry, chain integrity verification |
+
+Violations are logged as audit events (`PURGE_VIOLATION`, `TOOL_VIOLATION`, `SKILL_VIOLATION`, etc.) and escalated.
+
+---
+
+## AI Native Toolbox — Four Powers
+
+| Power | Block | Description |
+|-------|-------|-------------|
+| CHALLENGE | `[BASTION:CHALLENGE]` | AI challenges human on risky actions |
+| MEMORY | `[BASTION:MEMORY]` | AI proposes memories for human approval |
+| RECALL | `[BASTION:RECALL]` | AI searches compacted conversation history |
+| EXEC | `[BASTION:EXEC]` | AI executes governed commands via BastionBash |
+
+These are parsed from the AI response text by `AiNativeActionParser` in the AI client. The human client renders them as interactive UI elements (challenge cards, memory approval buttons, etc.).
+
+---
+
+## Extension System
+
+- **Manifest-driven**: Extensions declare message types, capabilities, and UI components in a structured manifest
+- **Generic loading**: `ExtensionHandlerLoader` dynamically loads handlers with forensic security scanning
+- **Conversation renderers**: Extensions provide custom UI renderers for their message types in the human client
+- **Extension State Bridge**: State synchronisation via `extension_state_push`, `extension_state_request`, `extension_state_response`
+- **Sandboxed UI**: Extension UI components run in sandboxed iframes with a controlled message bridge
+- **Rate-limited**: 60 messages/min/namespace, direction enforcement (human_to_ai, ai_to_human, bidirectional)
 
 ---
 

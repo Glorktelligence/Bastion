@@ -1,9 +1,9 @@
 # Project Bastion
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-3%2C398_passing-brightgreen.svg)](#run-tests)
+[![Tests](https://img.shields.io/badge/Tests-3%2C862_passing-brightgreen.svg)](#run-tests)
 [![Packages](https://img.shields.io/badge/Packages-8-purple.svg)](#packages)
-[![Protocol](https://img.shields.io/badge/Protocol-89_message_types-orange.svg)](#protocol)
+[![Protocol](https://img.shields.io/badge/Protocol-93_message_types-orange.svg)](#protocol)
 [![Node](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-339933.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-3178C6.svg)](https://www.typescriptlang.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -89,6 +89,41 @@ Most Human-AI interaction today happens through chat interfaces with no structur
                                 │  └────────────────┘  │
                                 └──────────────────────┘
 ```
+
+## Six Sole Authorities
+
+Bastion enforces single-responsibility through six components with exclusive sovereignty over their domain. No other code may perform these operations — violations are logged and escalated.
+
+| Authority | Scope | Description |
+|-----------|-------|-------------|
+| DateTimeManager | TIME | Injected into 15 managers. All business logic time calls go through DTM |
+| PurgeManager | DELETE | All file deletion goes through PurgeManager. No direct `fs.unlink` |
+| ToolManager | TOOLS | Tool registry with lock, violation escalation, upstream monitoring |
+| SkillsManager | SKILLS | Forensic scanner, quarantine pipeline, hot-reload |
+| BastionBash | EXECUTION | Three-tier command system, governed filesystem, rate limiting |
+| AuditLogger | AUDIT | Tamper-evident hash chain, event type registry, chain integrity verification |
+
+## AI Native Toolbox
+
+The AI client can issue structured actions parsed from its response text — these are the four "powers" that make Bastion a true Human-AI protocol, not just a chat interface:
+
+| Power | Block Syntax | Description |
+|-------|-------------|-------------|
+| CHALLENGE | `[BASTION:CHALLENGE]` | AI challenges human on risky actions during vulnerable hours |
+| MEMORY | `[BASTION:MEMORY]` | AI proposes memories for human approval (preference, fact, workflow) |
+| RECALL | `[BASTION:RECALL]` | AI searches compacted conversation history for relevant context |
+| EXEC | `[BASTION:EXEC]` | AI executes governed commands via BastionBash with human oversight |
+
+## Extension System
+
+Bastion supports protocol extensions for adding custom functionality without modifying the core:
+
+- **Manifest-driven**: Extensions declare their message types, capabilities, and UI components in a structured manifest
+- **Generic loading**: ExtensionHandlerLoader dynamically loads extension handlers with security scanning
+- **Conversation renderers**: Extensions can provide custom UI renderers for their message types in the human client
+- **Extension State Bridge**: Extensions can push, request, and synchronise state across the protocol chain via `extension_state_push`, `extension_state_request`, and `extension_state_response` messages
+- **Sandboxed UI**: Extension UI components run in sandboxed iframes with a controlled message bridge
+- **Rate-limited**: Extension messages are rate-limited (60/min/namespace) with direction enforcement
 
 ## Packages
 
@@ -181,32 +216,34 @@ pnpm dev
 ### Run Tests
 
 ```bash
-pnpm test    # All 3,398+ tests across 14 files
+pnpm test    # All 3,862 tests across 14 files
 pnpm lint    # Biome linting
 ```
 
 ## Protocol
 
-Bastion defines 87 message types across structured categories:
+Bastion defines 93 message types across structured categories:
 
 - **Core** (9): `task`, `conversation`, `challenge`, `confirmation`, `denial`, `status`, `result`, `error`, `heartbeat`
 - **File Transfer** (3): `file_manifest`, `file_offer`, `file_request`
-- **Session** (5): `session_end`, `session_conflict`, `session_superseded`, `reconnect`, `token_refresh`
+- **Session** (6): `session_end`, `session_conflict`, `session_superseded`, `session_restored`, `reconnect`, `token_refresh`
 - **Admin/Config** (4): `config_ack`, `config_nack`, `provider_status`, `budget_alert`
 - **Audit** (2): `audit_query`, `audit_response`
 - **Provider/Context** (2): `provider_register`, `context_update`
 - **Memory** (6): `memory_proposal`, `memory_decision`, `memory_list`, `memory_list_response`, `memory_update`, `memory_delete`
 - **Extensions** (2): `extension_query`, `extension_list_response`
+- **Extension State** (3): `extension_state_push`, `extension_state_request`, `extension_state_response`
 - **Project Context** (7): `project_sync`, `project_sync_ack`, `project_list`, `project_list_response`, `project_delete`, `project_config`, `project_config_ack`
 - **Skills** (1): `skill_list_response`
 - **Tool Integration** (9): `tool_registry_sync`, `tool_registry_ack`, `tool_request`, `tool_approved`, `tool_denied`, `tool_result`, `tool_revoke`, `tool_alert`, `tool_alert_response`
 - **Challenge Me More** (3): `challenge_status`, `challenge_config`, `challenge_config_ack`
-- **Budget Guard** (2): `budget_status`, `budget_config`
+- **Budget Guard** (3): `budget_status`, `budget_config`, `usage_status`
 - **E2E Encryption** (1): `key_exchange`
 - **Multi-Conversation** (13): `conversation_list`, `conversation_list_response`, `conversation_create`, `conversation_create_ack`, `conversation_switch`, `conversation_switch_ack`, `conversation_history`, `conversation_history_response`, `conversation_archive`, `conversation_delete`, `conversation_compact`, `conversation_compact_ack`, `conversation_stream`
 - **AI Disclosure** (1): `ai_disclosure`
 - **Data Erasure** (5): `data_erasure_request`, `data_erasure_preview`, `data_erasure_confirm`, `data_erasure_complete`, `data_erasure_cancel`
 - **AI Native Actions** (3): `ai_challenge`, `ai_challenge_response`, `ai_memory_proposal`
+- **Data Portability** (6): `data_export_request`, `data_export_progress`, `data_export_ready`, `data_import_validate`, `data_import_confirm`, `data_import_complete`
 
 All messages are validated against Zod schemas at every boundary. Unknown message types are rejected. The protocol version is checked on session establishment.
 
@@ -233,7 +270,7 @@ Bastion includes deployment templates for self-hosted environments:
 
 - [Getting Started Guide](docs/guides/getting-started.md) — Clone to running local instance walkthrough
 - [Deployment Guide](docs/guides/deployment.md) — Self-hosting with TLS, VLANs, and AI VM isolation
-- [Protocol Specification](docs/protocol/bastion-protocol-v0.5.0.md) — All 87 message types, envelope structure, E2E encryption, safety evaluation
+- [Protocol Specification](docs/protocol/bastion-protocol-v0.5.0.md) — All 93 message types, envelope structure, E2E encryption, safety evaluation
 - [Core Specification](docs/spec/Project-Bastion-Spec-v0.1.0.docx) — The full product specification
 - [Supplementary Specification](docs/spec/bastion-supplementary-spec.md) — Architectural decisions, session lifecycle, error codes, GDPR considerations
 - [Project Structure](docs/spec/bastion-project-structure.md) — Package layout and task breakdown
@@ -299,9 +336,9 @@ These cannot be disabled, bypassed, or configured away:
 
 ## Status
 
-**Pre-Release (v0.8.1).** The protocol, crypto layer, relay, AI client, desktop client, admin UI, adapter template, and infrastructure templates are all implemented and tested across 2,974+ passing tests in 14 test files. All components run as a single `bastion` user with VM-level isolation providing security separation.
+**Pre-Release (v0.8.1).** The protocol, crypto layer, relay, AI client, desktop client, admin UI, adapter template, and infrastructure templates are all implemented and tested across 3,862 passing tests in 14 test files. All components run as a single `bastion` user with VM-level isolation providing security separation.
 
-The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. E2E encryption is active with interoperable tweetnacl (browser) and libsodium (Node.js) implementations. The protocol is stable at 87 message types with 48 error codes across 8 categories. Three official Anthropic adapters — Sonnet 4.6 (1M context), Haiku 4.5 (200k context), Opus 4.6 (1M context) — provide role-based model selection. The AI native toolbox allows Claude to issue challenges during vulnerable hours and propose memories. GDPR Articles 17 (Right to Erasure) and 20 (Data Portability) are fully implemented. The CLI tool (`bastion doctor|install|update|restart|status|audit|migrate`) provides one-stop deployment and management. The reference implementation works.
+The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. E2E encryption is active with interoperable tweetnacl (browser) and libsodium (Node.js) implementations. The protocol is stable at 93 message types with 48 error codes across 8 categories. Three official Anthropic adapters — Sonnet 4.6 (1M context), Haiku 4.5 (200k context), Opus 4.6 (1M context) — provide role-based model selection. The AI native toolbox allows Claude to issue challenges during vulnerable hours and propose memories. GDPR Articles 17 (Right to Erasure) and 20 (Data Portability) are fully implemented. The CLI tool (`bastion doctor|install|update|restart|status|audit|migrate`) provides one-stop deployment and management. The reference implementation works.
 
 > **Mobile client note:** The React Native mobile client (`packages/client-human-mobile`) was built during the initial development phases and builds successfully, but has not been updated with Layer 2-4 features, the setup wizard, or Challenge Me More. Mobile client modernisation is on the roadmap.
 

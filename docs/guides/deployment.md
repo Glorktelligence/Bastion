@@ -1,5 +1,9 @@
 # Deployment Guide — Self-Hosting Bastion
 
+> **Recommended:** Use the `bastion-cli.sh` CLI tool for installation and updates.
+> Run `sudo bash scripts/bastion-cli.sh install --vm relay` or `--vm ai` for automated setup.
+> See the [CLI Management Tool](#cli-management-tool) section below.
+
 This guide covers deploying Bastion on your own infrastructure. It assumes a Proxmox-based virtualisation environment with OPNSense firewall (matching the Glorktelligence Naval Fleet architecture), but the principles apply to any server topology with network segmentation.
 
 ## Architecture Overview

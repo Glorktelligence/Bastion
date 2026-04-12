@@ -53,7 +53,7 @@
 
 ## Before Marking "Tested"
 ```
-□ All test files pass (3,651+ tests, 0 failures)
+□ All test files pass (3,862+ tests, 0 failures)
 □ Console output suppressed for expected-failure tests
 □ Safety floor tests included
 □ MaliClaw tests included

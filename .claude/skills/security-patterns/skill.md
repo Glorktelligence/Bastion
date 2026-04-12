@@ -57,7 +57,7 @@ const sharedSecret = sodium.crypto_box_beforenm(peerPublicKey, ownKeyPair.privat
 
 ### Plaintext Exceptions
 These message types are NEVER encrypted (relay needs to read them):
-`session_init`, `session_established`, `key_exchange`, `token_refresh`, `provider_register`, `ping`, `pong`, `peer_status`, `error`, `config_ack`, `config_nack`, `file_manifest`, `file_offer`, `file_request`, `file_data`
+`session_init`, `session_established`, `session_restored`, `key_exchange`, `token_refresh`, `provider_register`, `ping`, `pong`, `peer_status`, `error`, `config_ack`, `config_nack`, `file_manifest`, `file_offer`, `file_request`, `file_data`
 
 ### E2E Status Indicator
 - Session.ts exposes `e2eStatus` writable: `{ available: boolean, active: boolean }`

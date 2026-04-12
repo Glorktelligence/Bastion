@@ -24,7 +24,7 @@ pnpm build && pnpm test
 
 ## Current Test Suite
 
-**14 test files, 3,651+ tests.** This count grows — always verify the actual number.
+**14 test files, 3,862+ tests.** This count grows — always verify the actual number.
 
 ```!
 cd G:\Glorktelligence\Projects\Bastion && pnpm test 2>&1 | tail -5
