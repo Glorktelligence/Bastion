@@ -707,6 +707,7 @@ const SENDER_TYPE_RESTRICTIONS = {
 function validateSenderType(connId, msgType) {
   const expectedType = SENDER_TYPE_RESTRICTIONS[msgType];
   if (!expectedType) return true; // No restriction for this message type
+  if (expectedType === 'any') return true; // Accept from either human or AI
   const client = router.getClient(connId);
   if (!client) return false; // Not registered
   return client.identity.type === expectedType;
@@ -973,6 +974,17 @@ relay.on('message', async (data, info) => {
             sendProviderStatus(humanConnectionId);
             console.log(`[→] provider_status sent to human: ${providerName}`);
           }
+
+          // Send tool_registry_sync to AI client — even with empty providers,
+          // so the AI client can lock its tool registry immediately instead of
+          // waiting 30s for a message that never arrives (governance gap fix).
+          relay.send(connId, JSON.stringify({
+            type: 'tool_registry_sync',
+            id: randomUUID(),
+            timestamp: new Date().toISOString(),
+            payload: { providers: [] },
+          }));
+          console.log(`[→] tool_registry_sync sent to AI client (lock registry)`);
         } else {
           console.log(`[!] Provider registration rejected: ${result.body.error}`);
           relay.send(connId, JSON.stringify({
