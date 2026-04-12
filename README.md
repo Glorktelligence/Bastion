@@ -35,6 +35,8 @@ Bastion is an open-source protocol and reference implementation for a communicat
   <img src="docs/screenshots/4.png" alt="Bastion — hash verification and encryption discussion" width="720" />
   <br/><br/>
   <img src="docs/screenshots/6.png" alt="Bastion — industrial cyber aesthetic" width="720" />
+  <br/><br/>
+  <img src="docs/screenshots/challenge-activated.png" alt="Bastion — AI Challenge: Claude pushes back on removing a safety feature" width="720" />
 </p>
 
 </details>
@@ -113,6 +115,12 @@ The AI client can issue structured actions parsed from its response text — the
 | MEMORY | `[BASTION:MEMORY]` | AI proposes memories for human approval (preference, fact, workflow) |
 | RECALL | `[BASTION:RECALL]` | AI searches compacted conversation history for relevant context |
 | EXEC | `[BASTION:EXEC]` | AI executes governed commands via BastionBash with human oversight |
+
+> **The AI has infrastructure to push back.** When Claude detects a risky action — like removing a safety feature at 2am — Bastion's challenge system gives it the tools to object with a proper dialog, suggested alternatives, and three choices: Accept, Override (with receipt), or Cancel.
+
+<p align="center">
+  <img src="docs/screenshots/challenge-activated.png" alt="Bastion — AI Challenge in action: Claude pushes back on removing rate limiting" width="720" />
+</p>
 
 ## Extension System
 
