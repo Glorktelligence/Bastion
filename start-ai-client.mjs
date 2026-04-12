@@ -1738,7 +1738,11 @@ client.on('message', async (data) => {
       id: randomUUID(),
       timestamp: new Date().toISOString(),
       sender: IDENTITY,
-      payload: { memories: memoryStore.listAll(), filter: 'all' },
+      payload: {
+        memories: memoryStore.getMemories().map(m => ({ id: m.id, content: m.content, category: m.category, createdAt: m.createdAt, updatedAt: m.updatedAt, conversationId: m.conversationId })),
+        totalCount: memoryStore.count,
+        filter: 'all',
+      },
     });
     return;
   }
