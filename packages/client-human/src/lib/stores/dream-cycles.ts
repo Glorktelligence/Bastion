@@ -70,6 +70,10 @@ function loadPersistedState(): DreamCycleState | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw) as DreamCycleState;
+    // Migration: ensure pendingBatches exists (added in v0.8.2)
+    if (!Array.isArray(data.pendingBatches)) {
+      (data as Record<string, unknown>).pendingBatches = [];
+    }
     // Crash recovery: if status was 'running' when browser died, reset to idle
     if (data.status === 'running') {
       return { ...data, status: 'idle' };
