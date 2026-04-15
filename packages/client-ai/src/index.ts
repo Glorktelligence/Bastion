@@ -178,6 +178,19 @@ export type {
 } from './provider/index.js';
 
 // ---------------------------------------------------------------------------
+// BastionGuardian Phase 1 — Identity Announcement
+// ---------------------------------------------------------------------------
+export {
+  getBastionVersion,
+  getIdentityHeaders,
+  verifyIdentityHeaders,
+  detectForeignHarness,
+  enforceForeignHarnessCheck,
+  FOREIGN_HARNESS_VARS,
+} from './provider/index.js';
+export type { BastionIdentityHeaders } from './provider/index.js';
+
+// ---------------------------------------------------------------------------
 // File Handling
 // ---------------------------------------------------------------------------
 export {

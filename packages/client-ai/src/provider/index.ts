@@ -168,3 +168,14 @@ export type { AuditEvent, AiClientAuditLoggerConfig } from './audit-logger.js';
 // Bastion Bash (Governed Execution)
 export { BastionBash } from './bastion-bash.js';
 export type { BastionBashConfig, CommandResult, AuditLogger as BashAuditLogger } from './bastion-bash.js';
+
+// BastionGuardian Phase 1 — Identity Announcement
+export {
+  getBastionVersion,
+  getIdentityHeaders,
+  verifyIdentityHeaders,
+  detectForeignHarness,
+  enforceForeignHarnessCheck,
+  FOREIGN_HARNESS_VARS,
+} from './bastion-guardian.js';
+export type { BastionIdentityHeaders } from './bastion-guardian.js';

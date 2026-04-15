@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ensureSodium } from './packages/crypto/dist/index.js';
 import { createHash } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import {
   BastionAiClient,
   createApiKeyManager,
@@ -42,6 +42,49 @@ import {
   BastionBash,
   AiClientAuditLogger,
 } from './packages/client-ai/dist/index.js';
+
+// ---------------------------------------------------------------------------
+// BastionGuardian Phase 1 — Foreign harness detection (MUST run before anything else)
+// ---------------------------------------------------------------------------
+
+const FOREIGN_HARNESS_VARS = [
+  'CLAUDE_CODE_ENTRY_POINT',
+  'CLAUDE_CODE_VERSION',
+  'CLAUDE_CODE_PROJECT_DIR',
+  'OPENCLAW_HOME',
+  'OPENHARNESS_HOME',
+  'OH_HOME',
+  'OPENHARNESS_API_FORMAT',
+  'CURSOR_TRACE_ID',
+  'CURSOR_SESSION_ID',
+  'AGENT_HARNESS_MODE',
+  'CLINE_DIR',
+];
+
+for (const envVar of FOREIGN_HARNESS_VARS) {
+  if (process.env[envVar]) {
+    console.error('[✗] BASTION-9002: Foreign harness environment detected: ' + envVar);
+    console.error('[✗] Bastion is a sovereign system — it does not run inside another harness.');
+    console.error('[✗] Remove the foreign harness or run Bastion independently.');
+    process.exit(99);
+  }
+}
+console.log('[✓] Environment clean — no foreign harness detected');
+
+// ---------------------------------------------------------------------------
+// BastionGuardian Phase 1 — Identity announcement
+// ---------------------------------------------------------------------------
+
+function getBastionVersionStartup() {
+  try {
+    return readFileSync('VERSION', 'utf-8').trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+const BASTION_VERSION_ID = getBastionVersionStartup();
+console.log(`[✓] Bastion Identity: Bastion/${BASTION_VERSION_ID} (+https://bastion.glorktelligence.co.uk)`);
 
 // ---------------------------------------------------------------------------
 // Env var parsing helpers — validates range, warns on invalid values

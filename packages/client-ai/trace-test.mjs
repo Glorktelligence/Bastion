@@ -41,6 +41,11 @@ import {
   BastionBash,
   AiClientAuditLogger,
   AI_AUDIT_EVENT_TYPES,
+  getBastionVersion,
+  getIdentityHeaders,
+  verifyIdentityHeaders,
+  detectForeignHarness,
+  FOREIGN_HARNESS_VARS,
 } from './dist/index.js';
 import {
   BastionRelay,
@@ -52,7 +57,7 @@ import {
 import { verifyChain } from '@bastion/crypto';
 import { PROTOCOL_VERSION, MESSAGE_TYPES, SAFETY_FLOORS, SAFETY_OUTCOMES, DreamCycleRequestPayloadSchema, DreamCycleCompletePayloadSchema } from '@bastion/protocol';
 import { randomUUID, randomBytes } from 'node:crypto';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -5052,6 +5057,188 @@ async function run() {
     check('relay audit: violation has attemptedType', re2.detail.attemptedType === 'totally_unregistered_fake');
 
     relayLogger.close();
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: BastionGuardian Phase 1 — Identity Headers
+  // -------------------------------------------------------------------
+  console.log('--- Test: BastionGuardian — Identity Headers ---');
+  {
+    // getBastionVersion reads from VERSION file at repo root
+    const version = getBastionVersion();
+    check('getBastionVersion reads VERSION file', version !== 'unknown' && version.length > 0);
+
+    // getBastionVersion with explicit root
+    const versionExplicit = getBastionVersion(process.cwd());
+    check('getBastionVersion with explicit root', versionExplicit === version);
+
+    // getBastionVersion falls back to CWD when rootDir is invalid
+    const versionFallback = getBastionVersion('/nonexistent/path/that/does/not/exist');
+    check('getBastionVersion falls back to CWD for missing dir', versionFallback === version);
+
+    // Verify VERSION file content matches what getBastionVersion reads
+    const rawVersion = readFileSync('VERSION', 'utf-8').trim();
+    check('getBastionVersion matches raw VERSION file', version === rawVersion);
+
+    // getIdentityHeaders returns correct structure
+    const headers = getIdentityHeaders('1.2.3');
+    check('identity User-Agent starts with Bastion/', headers['User-Agent'].startsWith('Bastion/'));
+    check('identity User-Agent contains version', headers['User-Agent'].includes('1.2.3'));
+    check('identity User-Agent contains URL', headers['User-Agent'].includes('bastion.glorktelligence.co.uk'));
+    check('identity X-Client-Name is Bastion', headers['X-Client-Name'] === 'Bastion');
+    check('identity X-Client-Version is correct', headers['X-Client-Version'] === '1.2.3');
+
+    // getIdentityHeaders uses cached version when no arg
+    const headersDefault = getIdentityHeaders();
+    check('identity default uses version', headersDefault['X-Client-Version'].length > 0);
+
+    // verifyIdentityHeaders passes with correct headers
+    let verifyPassed = false;
+    try {
+      verifyIdentityHeaders(headers);
+      verifyPassed = true;
+    } catch { /* expected to pass */ }
+    check('verifyIdentityHeaders passes with correct headers', verifyPassed);
+
+    // verifyIdentityHeaders throws on missing User-Agent
+    let missingUaThrew = false;
+    try {
+      verifyIdentityHeaders({ 'X-Client-Name': 'Bastion', 'X-Client-Version': '1.0.0' });
+    } catch (e) {
+      missingUaThrew = e.message.includes('BASTION-9001');
+    }
+    check('verifyIdentityHeaders throws on missing User-Agent', missingUaThrew);
+
+    // verifyIdentityHeaders throws on tampered User-Agent
+    let tamperedUaThrew = false;
+    try {
+      verifyIdentityHeaders({
+        'User-Agent': 'NotBastion/1.0',
+        'X-Client-Name': 'Bastion',
+        'X-Client-Version': '1.0.0',
+      });
+    } catch (e) {
+      tamperedUaThrew = e.message.includes('BASTION-9001');
+    }
+    check('verifyIdentityHeaders throws on tampered User-Agent', tamperedUaThrew);
+
+    // verifyIdentityHeaders throws on missing X-Client-Name
+    let missingNameThrew = false;
+    try {
+      verifyIdentityHeaders({
+        'User-Agent': 'Bastion/1.0.0 (+https://bastion.glorktelligence.co.uk)',
+        'X-Client-Version': '1.0.0',
+      });
+    } catch (e) {
+      missingNameThrew = e.message.includes('BASTION-9001');
+    }
+    check('verifyIdentityHeaders throws on missing X-Client-Name', missingNameThrew);
+
+    // verifyIdentityHeaders throws on tampered X-Client-Name
+    let tamperedNameThrew = false;
+    try {
+      verifyIdentityHeaders({
+        'User-Agent': 'Bastion/1.0.0 (+https://bastion.glorktelligence.co.uk)',
+        'X-Client-Name': 'SomethingElse',
+        'X-Client-Version': '1.0.0',
+      });
+    } catch (e) {
+      tamperedNameThrew = e.message.includes('BASTION-9001');
+    }
+    check('verifyIdentityHeaders throws on tampered X-Client-Name', tamperedNameThrew);
+
+    // verifyIdentityHeaders throws on missing X-Client-Version
+    let missingVersionThrew = false;
+    try {
+      verifyIdentityHeaders({
+        'User-Agent': 'Bastion/1.0.0 (+https://bastion.glorktelligence.co.uk)',
+        'X-Client-Name': 'Bastion',
+      });
+    } catch (e) {
+      missingVersionThrew = e.message.includes('BASTION-9001');
+    }
+    check('verifyIdentityHeaders throws on missing X-Client-Version', missingVersionThrew);
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: BastionGuardian Phase 1 — Foreign Harness Detection
+  // -------------------------------------------------------------------
+  console.log('--- Test: BastionGuardian — Foreign Harness Detection ---');
+  {
+    // FOREIGN_HARNESS_VARS is exported and non-empty
+    check('FOREIGN_HARNESS_VARS is array', Array.isArray(FOREIGN_HARNESS_VARS));
+    check('FOREIGN_HARNESS_VARS has entries', FOREIGN_HARNESS_VARS.length >= 11);
+    check('FOREIGN_HARNESS_VARS includes CLAUDE_CODE_ENTRY_POINT', FOREIGN_HARNESS_VARS.includes('CLAUDE_CODE_ENTRY_POINT'));
+    check('FOREIGN_HARNESS_VARS includes CURSOR_TRACE_ID', FOREIGN_HARNESS_VARS.includes('CURSOR_TRACE_ID'));
+    check('FOREIGN_HARNESS_VARS includes CLINE_DIR', FOREIGN_HARNESS_VARS.includes('CLINE_DIR'));
+
+    // detectForeignHarness returns null for clean env
+    const cleanResult = detectForeignHarness({});
+    check('detectForeignHarness clean env → null', cleanResult === null);
+
+    // detectForeignHarness detects CLAUDE_CODE_ENTRY_POINT
+    const ccResult = detectForeignHarness({ CLAUDE_CODE_ENTRY_POINT: '/usr/local/bin/claude' });
+    check('detectForeignHarness detects CLAUDE_CODE_ENTRY_POINT', ccResult === 'CLAUDE_CODE_ENTRY_POINT');
+
+    // detectForeignHarness detects CURSOR_SESSION_ID
+    const cursorResult = detectForeignHarness({ CURSOR_SESSION_ID: 'abc123' });
+    check('detectForeignHarness detects CURSOR_SESSION_ID', cursorResult === 'CURSOR_SESSION_ID');
+
+    // detectForeignHarness detects AGENT_HARNESS_MODE
+    const agentResult = detectForeignHarness({ AGENT_HARNESS_MODE: 'true' });
+    check('detectForeignHarness detects AGENT_HARNESS_MODE', agentResult === 'AGENT_HARNESS_MODE');
+
+    // detectForeignHarness detects OH_HOME
+    const ohResult = detectForeignHarness({ OH_HOME: '/opt/openharness' });
+    check('detectForeignHarness detects OH_HOME', ohResult === 'OH_HOME');
+
+    // detectForeignHarness ignores empty/undefined values
+    const emptyResult = detectForeignHarness({ CLAUDE_CODE_ENTRY_POINT: '', CURSOR_TRACE_ID: undefined });
+    check('detectForeignHarness ignores empty values', emptyResult === null);
+
+    // detectForeignHarness returns first match when multiple present
+    const multiResult = detectForeignHarness({ CURSOR_TRACE_ID: 'x', CLINE_DIR: '/y' });
+    check('detectForeignHarness returns first match', multiResult !== null);
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: BastionGuardian Phase 1 — Identity Headers in Adapter
+  // -------------------------------------------------------------------
+  console.log('--- Test: BastionGuardian — Adapter Identity Headers ---');
+  {
+    const km = createApiKeyManager('sk-guardian-test');
+    const registry = createToolRegistry([makeToolDef()]);
+
+    const mockResp = mockAnthropicResponse(
+      [{ type: 'text', text: 'Guardian test response' }],
+      { input_tokens: 10, output_tokens: 5 },
+    );
+    const mockFetch = createMockFetch(mockResp);
+    const adapter = createAnthropicAdapter(km, registry, {
+      model: 'claude-sonnet-4-20250514',
+      maxTokens: 4096,
+      apiBaseUrl: 'https://mock.api',
+    }, mockFetch);
+
+    const task = makeTask({ action: 'test identity', target: 'guardian' });
+    await adapter.executeTask(task);
+
+    check('adapter fetch was called', mockFetch.calls.length === 1);
+    const call = mockFetch.calls[0];
+    const h = call.init.headers;
+
+    // Identity headers present
+    check('adapter sends User-Agent', h['User-Agent'] && h['User-Agent'].startsWith('Bastion/'));
+    check('adapter sends X-Client-Name', h['X-Client-Name'] === 'Bastion');
+    check('adapter sends X-Client-Version', h['X-Client-Version'] && h['X-Client-Version'].length > 0);
+
+    // Original headers still present
+    check('adapter still sends x-api-key', h['x-api-key'] === 'sk-guardian-test');
+    check('adapter still sends anthropic-version', h['anthropic-version'] === '2023-06-01');
+    check('adapter still sends Content-Type', h['Content-Type'] === 'application/json');
   }
   console.log();
 

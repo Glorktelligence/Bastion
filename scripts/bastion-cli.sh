@@ -363,6 +363,7 @@ WorkingDirectory=/opt/bastion
 ExecStart=/usr/bin/node /opt/bastion/start-relay.mjs
 Restart=always
 RestartSec=5
+RestartPreventExitStatus=99
 EnvironmentFile=-/opt/bastion/.env
 Environment=NODE_ENV=production
 
@@ -390,6 +391,7 @@ WorkingDirectory=/opt/bastion/packages/relay-admin-ui
 ExecStart=/usr/bin/node /opt/bastion/packages/relay-admin-ui/build/index.js
 Restart=always
 RestartSec=5
+RestartPreventExitStatus=99
 EnvironmentFile=-/opt/bastion/.env
 Environment=NODE_ENV=production
 Environment=PORT=9445
@@ -431,6 +433,7 @@ WorkingDirectory=/opt/bastion
 ExecStart=/usr/bin/node --env-file=.env /opt/bastion/start-ai-client.mjs
 Restart=always
 RestartSec=5
+RestartPreventExitStatus=99
 EnvironmentFile=-/opt/bastion/.env
 Environment=NODE_ENV=production
 

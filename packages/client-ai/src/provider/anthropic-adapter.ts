@@ -13,6 +13,7 @@
 import type { AdapterOptions, AdapterResult, ModelPricing, ProviderAdapter, TaskPayload } from '@bastion/protocol';
 import { ERROR_CODES } from '@bastion/protocol';
 import type { ApiKeyManager } from './api-key-manager.js';
+import { getIdentityHeaders, verifyIdentityHeaders } from './bastion-guardian.js';
 import type { ToolDefinition, ToolRegistry } from './tool-registry.js';
 
 // ---------------------------------------------------------------------------
@@ -308,18 +309,33 @@ export function createAnthropicAdapter(
   // Use injected fetch or global fetch
   const doFetch: FetchFn = fetchFn ?? (globalThis.fetch as unknown as FetchFn);
 
+  // Identity headers — added to every outbound API request
+  const identityHeaders = getIdentityHeaders();
+  let identityAnnounced = false;
+
   async function callApi(body: Record<string, unknown>, apiKey: string): Promise<AdapterResult> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': version,
+      ...identityHeaders,
+    };
+
+    // Pre-request identity verification — if tampered, the request does NOT fire
+    verifyIdentityHeaders(headers);
+
+    if (!identityAnnounced) {
+      console.log(`[→] API identity announced: ${identityHeaders['User-Agent']}`);
+      identityAnnounced = true;
+    }
+
     try {
       const response = await doFetch(`${baseUrl}/v1/messages`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': version,
-        },
+        headers,
         body: JSON.stringify(body),
         signal: controller.signal,
       });
@@ -362,14 +378,25 @@ export function createAnthropicAdapter(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+    const streamHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': version,
+      ...identityHeaders,
+    };
+
+    // Pre-request identity verification — if tampered, the request does NOT fire
+    verifyIdentityHeaders(streamHeaders);
+
+    if (!identityAnnounced) {
+      console.log(`[→] API identity announced: ${identityHeaders['User-Agent']}`);
+      identityAnnounced = true;
+    }
+
     try {
       const response = await (globalThis.fetch as (...args: unknown[]) => Promise<Response>)(`${baseUrl}/v1/messages`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': version,
-        },
+        headers: streamHeaders,
         body: JSON.stringify({ ...body, stream: true }),
         signal: controller.signal,
       });
