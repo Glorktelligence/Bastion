@@ -39,6 +39,9 @@ const FOREIGN_HARNESS_VARS: readonly string[] = [
 // Types
 // ---------------------------------------------------------------------------
 
+/** System session ID for Guardian audit events (Guardian has no session — it IS the system). */
+const GUARDIAN_SESSION = 'guardian-system';
+
 /** Minimal audit logger interface — decoupled from relay AuditLogger. */
 export interface GuardianAuditLogger {
   logEvent(type: string, sessionId: string | null, data: Record<string, unknown>): unknown;
@@ -93,7 +96,7 @@ export class BastionGuardian {
     const allPassed = checks.every((c) => c.passed);
 
     // Audit log the check run
-    this.config.auditLogger?.logEvent('guardian_check', null, {
+    this.config.auditLogger?.logEvent('guardian_check', GUARDIAN_SESSION, {
       passed: allPassed,
       checks: checks.map((c) => ({ name: c.name, passed: c.passed, detail: c.detail })),
     });
@@ -140,7 +143,7 @@ export class BastionGuardian {
   trigger(code: string, reason: string, severity: 'critical' | 'severe' | 'warning'): void {
     console.error(`[✗] GUARDIAN: ${code} — ${reason} (${severity})`);
 
-    this.config.auditLogger?.logEvent('guardian_violation', null, { code, reason, severity });
+    this.config.auditLogger?.logEvent('guardian_violation', GUARDIAN_SESSION, { code, reason, severity });
 
     if (severity === 'critical') {
       this.status = 'shutdown';
