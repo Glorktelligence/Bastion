@@ -5,7 +5,8 @@
 /**
  * Protocol error codes following the format BASTION-CXXX.
  * Categories: 1XXX=Connection, 2XXX=Auth, 3XXX=Protocol,
- * 4XXX=Safety, 5XXX=File, 6XXX=Provider, 7XXX=Config, 8XXX=Budget
+ * 4XXX=Safety, 5XXX=File, 6XXX=Provider, 7XXX=Config, 8XXX=Budget,
+ * 9XXX=Guardian
  */
 export const ERROR_CODES = {
   // --- 1XXX: Connection Errors ---
@@ -71,6 +72,17 @@ export const ERROR_CODES = {
   BUDGET_SESSION_EXHAUSTED: 'BASTION-8003',
   BUDGET_CONFIG_COOLDOWN: 'BASTION-8004',
   BUDGET_CONFIG_CHALLENGE_HOURS: 'BASTION-8005',
+
+  // --- 9XXX: Guardian Errors ---
+  GUARDIAN_IDENTITY_VIOLATION: 'BASTION-9001',
+  GUARDIAN_FOREIGN_HARNESS: 'BASTION-9002',
+  GUARDIAN_API_KEY_MISMATCH: 'BASTION-9003',
+  GUARDIAN_AUDIT_INTEGRITY: 'BASTION-9004',
+  GUARDIAN_PROCESS_IDENTITY: 'BASTION-9005',
+  GUARDIAN_DATA_PERMISSIONS: 'BASTION-9006',
+  GUARDIAN_SAFETY_BYPASS: 'BASTION-9007',
+  GUARDIAN_TLS_VIOLATION: 'BASTION-9008',
+  GUARDIAN_COMPONENT_MISMATCH: 'BASTION-9009',
 } as const;
 
 /** Union type of all error code strings. */

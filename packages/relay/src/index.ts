@@ -225,6 +225,12 @@ export type {
 } from './session/reconnection-manager.js';
 
 // ---------------------------------------------------------------------------
+// Guardian: BastionGuardian (7th Sole Authority)
+// ---------------------------------------------------------------------------
+export { BastionGuardian } from './guardian/bastion-guardian.js';
+export type { GuardianConfig, GuardianAuditLogger, GuardianTriggerCallback } from './guardian/bastion-guardian.js';
+
+// ---------------------------------------------------------------------------
 // Extensions (types re-exported from @bastion/protocol — Protocol First)
 // ---------------------------------------------------------------------------
 export { ExtensionRegistry } from './extensions/extension-registry.js';

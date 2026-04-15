@@ -100,6 +100,11 @@ export const AUDIT_EVENT_TYPES = {
   STREAM_STARTED: 'stream_started',
   STREAM_COMPLETED: 'stream_completed',
   CONTEXT_UPDATE: 'context_update',
+
+  // Guardian (7th Sole Authority)
+  GUARDIAN_CHECK: 'guardian_check',
+  GUARDIAN_VIOLATION: 'guardian_violation',
+  GUARDIAN_STATUS_QUERIED: 'guardian_status_queried',
 } as const;
 
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[keyof typeof AUDIT_EVENT_TYPES];
@@ -298,6 +303,20 @@ export class AuditLogger {
     this.registerEventType(AUDIT_EVENT_TYPES.CONTEXT_UPDATE, {
       severity: 'info',
       description: 'Context update forwarded',
+    });
+
+    // Guardian (7th Sole Authority)
+    this.registerEventType(AUDIT_EVENT_TYPES.GUARDIAN_CHECK, {
+      severity: 'info',
+      description: 'Guardian environment check completed',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.GUARDIAN_VIOLATION, {
+      severity: 'critical',
+      description: 'Guardian detected a security violation',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.GUARDIAN_STATUS_QUERIED, {
+      severity: 'info',
+      description: 'Guardian status requested',
     });
   }
 

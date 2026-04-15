@@ -138,6 +138,15 @@ export type {
   MemoryBatchDecisionPayload,
   DreamCycleRequestPayload,
   DreamCycleCompletePayload,
+  GuardianSeverity,
+  GuardianAction,
+  GuardianStatus,
+  GuardianAlertPayload,
+  GuardianShutdownPayload,
+  GuardianCheckResult,
+  GuardianConnectedComponent,
+  GuardianStatusPayload,
+  GuardianStatusRequestPayload,
   MessagePayload,
 } from './types/messages.js';
 
@@ -348,6 +357,15 @@ export {
   MemoryBatchDecisionPayloadSchema,
   DreamCycleRequestPayloadSchema,
   DreamCycleCompletePayloadSchema,
+  GuardianSeveritySchema,
+  GuardianActionSchema,
+  GuardianStatusValueSchema,
+  GuardianAlertPayloadSchema,
+  GuardianShutdownPayloadSchema,
+  GuardianCheckResultSchema,
+  GuardianConnectedComponentSchema,
+  GuardianStatusPayloadSchema,
+  GuardianStatusRequestPayloadSchema,
   PAYLOAD_SCHEMAS,
 } from './schemas/message.schema.js';
 

@@ -106,7 +106,7 @@ export const ResultPayloadSchema = z.object({
   transparency: TransparencyMetadataSchema,
 });
 
-export const ErrorCodeSchema = z.string().regex(/^BASTION-[1-8]\d{3}$/, 'Must match format BASTION-CXXX');
+export const ErrorCodeSchema = z.string().regex(/^BASTION-[1-9]\d{3}$/, 'Must match format BASTION-CXXX');
 
 export const ErrorPayloadSchema = z.object({
   code: ErrorCodeSchema,
@@ -928,6 +928,53 @@ export const DreamCycleCompletePayloadSchema = z.object({
   durationMs: z.number().int().min(0),
 });
 
+// --- BastionGuardian (7th Sole Authority) ---
+
+export const GuardianSeveritySchema = z.enum(['critical', 'severe', 'warning']);
+export const GuardianActionSchema = z.enum(['shutdown', 'alert', 'monitor']);
+export const GuardianStatusValueSchema = z.enum(['active', 'alert', 'shutdown']);
+
+export const GuardianAlertPayloadSchema = z.object({
+  code: z.string().min(1),
+  severity: GuardianSeveritySchema,
+  reason: z.string().min(1),
+  action: GuardianActionSchema,
+  timestamp: z.string().min(1),
+  component: z.string().min(1),
+});
+
+export const GuardianShutdownPayloadSchema = z.object({
+  code: z.string().min(1),
+  reason: z.string().min(1),
+  auditSealed: z.boolean(),
+  shutdownId: z.string().min(1),
+});
+
+export const GuardianCheckResultSchema = z.object({
+  name: z.string().min(1),
+  passed: z.boolean(),
+  detail: z.string().nullable(),
+});
+
+export const GuardianConnectedComponentSchema = z.object({
+  id: z.string().min(1),
+  type: z.string().min(1),
+  identity: z.string().min(1),
+  connectedAt: z.string().min(1),
+});
+
+export const GuardianStatusPayloadSchema = z.object({
+  status: GuardianStatusValueSchema,
+  version: z.string().min(1),
+  uptimeSeconds: z.number().int().min(0),
+  lastCheckAt: z.string(),
+  environmentClean: z.boolean(),
+  checks: z.array(GuardianCheckResultSchema).readonly(),
+  connectedComponents: z.array(GuardianConnectedComponentSchema).readonly(),
+});
+
+export const GuardianStatusRequestPayloadSchema = z.object({});
+
 // ---------------------------------------------------------------------------
 // Payload schema lookup map (message type → Zod schema)
 // ---------------------------------------------------------------------------
@@ -1036,4 +1083,8 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.MEMORY_BATCH_DECISION]: MemoryBatchDecisionPayloadSchema,
   [MESSAGE_TYPES.DREAM_CYCLE_REQUEST]: DreamCycleRequestPayloadSchema,
   [MESSAGE_TYPES.DREAM_CYCLE_COMPLETE]: DreamCycleCompletePayloadSchema,
+  [MESSAGE_TYPES.GUARDIAN_ALERT]: GuardianAlertPayloadSchema,
+  [MESSAGE_TYPES.GUARDIAN_SHUTDOWN]: GuardianShutdownPayloadSchema,
+  [MESSAGE_TYPES.GUARDIAN_STATUS]: GuardianStatusPayloadSchema,
+  [MESSAGE_TYPES.GUARDIAN_STATUS_REQUEST]: GuardianStatusRequestPayloadSchema,
 } as const;

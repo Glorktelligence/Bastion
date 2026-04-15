@@ -499,6 +499,10 @@ const PLAINTEXT_TYPES = new Set([
   'file_request',
   'file_reject',
   'file_data',
+  'guardian_alert',
+  'guardian_shutdown',
+  'guardian_status',
+  'guardian_status_request',
 ]);
 
 /**

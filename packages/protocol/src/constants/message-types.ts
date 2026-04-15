@@ -3,7 +3,7 @@
 // See LICENSE file for full terms
 
 /**
- * All 97 message types in the Bastion protocol.
+ * All 101 message types in the Bastion protocol.
  *
  * Core spec (11): task, conversation, challenge, confirmation, denial,
  *   status, result, error, file_manifest, file_offer, file_request, heartbeat
@@ -151,6 +151,12 @@ export const MESSAGE_TYPES = {
   // --- Dream Cycle (Layer 6) ---
   DREAM_CYCLE_REQUEST: 'dream_cycle_request',
   DREAM_CYCLE_COMPLETE: 'dream_cycle_complete',
+
+  // --- BastionGuardian (7th Sole Authority) ---
+  GUARDIAN_ALERT: 'guardian_alert',
+  GUARDIAN_SHUTDOWN: 'guardian_shutdown',
+  GUARDIAN_STATUS: 'guardian_status',
+  GUARDIAN_STATUS_REQUEST: 'guardian_status_request',
 } as const;
 
 /** Union type of all valid message type strings. */

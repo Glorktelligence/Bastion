@@ -22,6 +22,7 @@ import {
   ChainIntegrityMonitor,
   AUDIT_EVENT_TYPES,
   ReconnectionManager,
+  BastionGuardian,
 } from './dist/index.js';
 import { verifyChain, verifyRange, verifySingleEntry, GENESIS_SEED } from '@bastion/crypto';
 import { PROTOCOL_VERSION, MESSAGE_TYPES } from '@bastion/protocol';
@@ -1721,6 +1722,140 @@ async function run() {
     check('H13: 2 sessions before destroy', rm9.activeCount === 2);
     rm9.destroy();
     check('H13: 0 sessions after destroy', rm9.activeCount === 0);
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: BastionGuardian — 7th Sole Authority
+  // -------------------------------------------------------------------
+  console.log('--- Test: BastionGuardian ---');
+  {
+    // Constructor creates guardian in 'active' status
+    const g1 = new BastionGuardian({
+      version: '0.8.1',
+      dataDir: '/nonexistent/path',
+      bastionUser: 'bastion',
+      checkIntervalMs: 60000,
+    });
+    check('Guardian: initial status is active', g1.getOperationalStatus() === 'active');
+
+    // getStatus returns correct structure
+    const status = g1.getStatus();
+    check('Guardian: status.status is active', status.status === 'active');
+    check('Guardian: status.version', status.version === '0.8.1');
+    check('Guardian: status.uptimeSeconds >= 0', status.uptimeSeconds >= 0);
+    check('Guardian: status.checks initially empty', status.checks.length === 0);
+    check('Guardian: status.connectedComponents initially empty', status.connectedComponents.length === 0);
+    check('Guardian: status.environmentClean false before checks', status.environmentClean === false); // No checks run yet → not clean
+
+    // runChecks returns all checks with passed/failed status
+    const result = g1.runChecks();
+    check('Guardian: runChecks returns checks array', Array.isArray(result.checks));
+    check('Guardian: runChecks has 3 checks', result.checks.length === 3);
+    check('Guardian: check names correct', result.checks.map(c => c.name).includes('foreign_harness'));
+    check('Guardian: check names include process_identity', result.checks.map(c => c.name).includes('process_identity'));
+    check('Guardian: check names include data_permissions', result.checks.map(c => c.name).includes('data_permissions'));
+
+    // checkForeignHarness passes on clean environment (current test env should be clean)
+    const foreignCheck = result.checks.find(c => c.name === 'foreign_harness');
+    check('Guardian: foreign_harness passes in clean env', foreignCheck.passed);
+
+    // After runChecks, getStatus includes check results
+    const statusAfter = g1.getStatus();
+    check('Guardian: status has checks after run', statusAfter.checks.length === 3);
+    check('Guardian: lastCheckAt is set', statusAfter.lastCheckAt.length > 0);
+
+    // On Windows: process_identity and data_permissions are skipped
+    const processCheck = result.checks.find(c => c.name === 'process_identity');
+    const dataCheck = result.checks.find(c => c.name === 'data_permissions');
+    if (process.platform === 'win32') {
+      check('Guardian: process_identity skipped on Windows', processCheck.passed && processCheck.detail === 'skipped on Windows');
+      check('Guardian: data_permissions skipped on Windows', dataCheck.passed && dataCheck.detail === 'skipped on Windows');
+    } else {
+      check('Guardian: process_identity ran on Linux', processCheck.detail !== 'skipped on Windows');
+      check('Guardian: data_permissions ran on Linux', dataCheck.detail !== 'skipped on Windows');
+    }
+
+    // trigger with 'warning' sets status to 'alert' but no callbacks
+    const g2 = new BastionGuardian({
+      version: '0.8.1',
+      dataDir: '/tmp',
+      bastionUser: 'bastion',
+      checkIntervalMs: 60000,
+    });
+    let callbackCalled = false;
+    g2.onTrigger(() => { callbackCalled = true; });
+    g2.trigger('BASTION-9008', 'TLS cert expired', 'warning');
+    check('Guardian: warning sets status to alert', g2.getOperationalStatus() === 'alert');
+    check('Guardian: warning does NOT call callbacks', !callbackCalled);
+
+    // trigger with 'severe' sets status to 'alert' and calls callbacks
+    const g3 = new BastionGuardian({
+      version: '0.8.1',
+      dataDir: '/tmp',
+      bastionUser: 'bastion',
+      checkIntervalMs: 60000,
+    });
+    let severeCbCode = null;
+    let severeCbSeverity = null;
+    g3.onTrigger((code, _reason, severity) => { severeCbCode = code; severeCbSeverity = severity; });
+    g3.trigger('BASTION-9006', 'Data dir world-readable', 'severe');
+    check('Guardian: severe sets status to alert', g3.getOperationalStatus() === 'alert');
+    check('Guardian: severe calls callback with code', severeCbCode === 'BASTION-9006');
+    check('Guardian: severe callback gets severity', severeCbSeverity === 'severe');
+
+    // onTrigger registers callback correctly — multiple callbacks
+    const g4 = new BastionGuardian({
+      version: '0.8.1',
+      dataDir: '/tmp',
+      bastionUser: 'bastion',
+      checkIntervalMs: 60000,
+    });
+    let cb1 = false, cb2 = false;
+    g4.onTrigger(() => { cb1 = true; });
+    g4.onTrigger(() => { cb2 = true; });
+    g4.trigger('BASTION-9005', 'Wrong user', 'severe');
+    check('Guardian: multiple callbacks both called (cb1)', cb1);
+    check('Guardian: multiple callbacks both called (cb2)', cb2);
+
+    // registerComponent and removeComponent
+    const g5 = new BastionGuardian({
+      version: '0.8.1',
+      dataDir: '/tmp',
+      bastionUser: 'bastion',
+      checkIntervalMs: 60000,
+    });
+    g5.registerComponent({ id: 'ai-001', type: 'ai-client', identity: 'bastion/0.8.1', connectedAt: new Date().toISOString() });
+    g5.registerComponent({ id: 'human-001', type: 'human-client', identity: 'bastion-human/0.8.1', connectedAt: new Date().toISOString() });
+    check('Guardian: 2 components registered', g5.getStatus().connectedComponents.length === 2);
+    g5.removeComponent('ai-001');
+    check('Guardian: 1 component after removal', g5.getStatus().connectedComponents.length === 1);
+    check('Guardian: correct component removed', g5.getStatus().connectedComponents[0].id === 'human-001');
+
+    // startPeriodicChecks and stopPeriodicChecks
+    const g6 = new BastionGuardian({
+      version: '0.8.1',
+      dataDir: '/tmp',
+      bastionUser: 'bastion',
+      checkIntervalMs: 60000,
+    });
+    check('Guardian: not monitoring initially', !g6.isMonitoring());
+    g6.startPeriodicChecks();
+    check('Guardian: monitoring after start', g6.isMonitoring());
+    g6.stopPeriodicChecks();
+    check('Guardian: not monitoring after stop', !g6.isMonitoring());
+
+    // startPeriodicChecks replaces previous interval
+    g6.startPeriodicChecks();
+    g6.startPeriodicChecks(); // should not create duplicate
+    check('Guardian: still monitoring after double start', g6.isMonitoring());
+    g6.stopPeriodicChecks();
+    check('Guardian: clean stop after double start', !g6.isMonitoring());
+
+    // Guardian audit event types exist
+    check('Guardian: AUDIT_EVENT_TYPES.GUARDIAN_CHECK', AUDIT_EVENT_TYPES.GUARDIAN_CHECK === 'guardian_check');
+    check('Guardian: AUDIT_EVENT_TYPES.GUARDIAN_VIOLATION', AUDIT_EVENT_TYPES.GUARDIAN_VIOLATION === 'guardian_violation');
+    check('Guardian: AUDIT_EVENT_TYPES.GUARDIAN_STATUS_QUERIED', AUDIT_EVENT_TYPES.GUARDIAN_STATUS_QUERIED === 'guardian_status_queried');
   }
   console.log();
 

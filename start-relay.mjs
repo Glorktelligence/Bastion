@@ -19,7 +19,36 @@ import {
   Allowlist,
   ReconnectionManager,
   isPrivateHost,
+  BastionGuardian,
 } from './packages/relay/dist/index.js';
+
+// ---------------------------------------------------------------------------
+// BastionGuardian Phase 2 — Foreign harness detection (MUST run before anything else)
+// ---------------------------------------------------------------------------
+
+const RELAY_FOREIGN_HARNESS_VARS = [
+  'CLAUDE_CODE_ENTRY_POINT',
+  'CLAUDE_CODE_VERSION',
+  'CLAUDE_CODE_PROJECT_DIR',
+  'OPENCLAW_HOME',
+  'OPENHARNESS_HOME',
+  'OH_HOME',
+  'OPENHARNESS_API_FORMAT',
+  'CURSOR_TRACE_ID',
+  'CURSOR_SESSION_ID',
+  'AGENT_HARNESS_MODE',
+  'CLINE_DIR',
+];
+
+for (const envVar of RELAY_FOREIGN_HARNESS_VARS) {
+  if (process.env[envVar]) {
+    console.error('[✗] BASTION-9002: Foreign harness environment detected on RELAY: ' + envVar);
+    console.error('[✗] Bastion relay is the fortress gate — it CANNOT run inside another harness.');
+    console.error('[✗] Remove the foreign harness or run Bastion independently.');
+    process.exit(99);
+  }
+}
+console.log('[✓] Environment clean — no foreign harness detected');
 
 // ---------------------------------------------------------------------------
 // Env var parsing helpers — validates range, warns on invalid values
@@ -172,6 +201,38 @@ const chainIntegrityMonitor = new ChainIntegrityMonitor(auditLogger, (result) =>
 chainIntegrityMonitor.start();
 console.log('[✓] Chain integrity monitor started (full check on startup, incremental every 5 min)');
 
+// ---------------------------------------------------------------------------
+// BastionGuardian — 7th Sole Authority
+// ---------------------------------------------------------------------------
+
+const GUARDIAN_DATA_DIR = process.env.BASTION_DATA || '/var/lib/bastion';
+const GUARDIAN_USER = process.env.BASTION_USER || 'bastion';
+const GUARDIAN_CHECK_INTERVAL = parseIntEnv('BASTION_GUARDIAN_CHECK_INTERVAL', 5 * 60 * 1000, 30000, 3600000);
+
+const guardian = new BastionGuardian({
+  version: CURRENT_VERSION,
+  dataDir: GUARDIAN_DATA_DIR,
+  bastionUser: GUARDIAN_USER,
+  checkIntervalMs: GUARDIAN_CHECK_INTERVAL,
+  auditLogger,
+});
+
+// Run initial checks
+const guardianInitResult = guardian.runChecks();
+if (guardianInitResult.passed) {
+  console.log('[✓] Guardian: all environment checks passed');
+} else {
+  const guardianFailed = guardianInitResult.checks.filter(c => !c.passed);
+  for (const f of guardianFailed) {
+    console.log('[!] Guardian check failed: ' + f.name + ' — ' + f.detail);
+  }
+}
+
+// Start periodic monitoring
+guardian.startPeriodicChecks();
+console.log(`[✓] BastionGuardian active — 7th sole authority armed`);
+console.log(`[✓] Guardian checks: ${guardianInitResult.checks.filter(c => c.passed).length}/${guardianInitResult.checks.length} passed`);
+
 const JWT_ISSUER = process.env.BASTION_JWT_ISSUER || 'bastion-relay';
 const REVOKED_JTI_DB = process.env.BASTION_REVOKED_JTI_DB || '/var/lib/bastion/relay/revoked-jtis.db';
 const jwtService = new JwtService({
@@ -263,6 +324,48 @@ const router = new MessageRouter({
   },
 });
 console.log('[✓] Message router initialised');
+
+// Guardian shutdown handler — broadcasts guardian_shutdown to ALL connected clients
+guardian.onTrigger((code, reason, severity) => {
+  if (severity === 'critical') {
+    const shutdownMsg = JSON.stringify({
+      type: 'guardian_shutdown',
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: { id: 'relay', type: 'relay', displayName: 'Bastion Relay' },
+      payload: {
+        code,
+        reason,
+        auditSealed: true,
+        shutdownId: randomUUID(),
+      },
+    });
+    for (const connId of relay.getConnectionIds()) {
+      try { relay.send(connId, shutdownMsg); } catch {}
+    }
+    for (const connId of relay.getConnectionIds()) {
+      try { relay.close(connId, 4999, 'Guardian shutdown: ' + code); } catch {}
+    }
+  } else if (severity === 'severe') {
+    const alertMsg = JSON.stringify({
+      type: 'guardian_alert',
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: { id: 'relay', type: 'relay', displayName: 'Bastion Relay' },
+      payload: {
+        code,
+        severity,
+        reason,
+        action: 'alert',
+        timestamp: new Date().toISOString(),
+        component: 'relay',
+      },
+    });
+    for (const connId of relay.getConnectionIds()) {
+      try { relay.send(connId, alertMsg); } catch {}
+    }
+  }
+});
 
 // MaliClaw Clause — instantiate Allowlist for connection-time enforcement
 const allowlist = new Allowlist();
@@ -724,6 +827,9 @@ const SENDER_TYPE_RESTRICTIONS = {
   conversation_history_response: 'ai', conversation_compact_ack: 'ai', conversation_stream: 'ai',
   data_export_progress: 'ai', data_export_ready: 'ai',
   data_import_validate: 'ai', data_import_complete: 'ai',
+  // Guardian messages
+  guardian_status_request: 'any',
+  // guardian_alert, guardian_shutdown, guardian_status are relay-generated — not inbound
 };
 
 /** Check if a message's sender type matches the expected type for that message. */
@@ -1063,6 +1169,21 @@ relay.on('message', async (data, info) => {
       },
     }));
     console.log(`[→] extension_list_response sent to ${connId.slice(0, 8)} (${exts.length} extensions)`);
+    return;
+  }
+
+  // ----- guardian_status_request: respond with Guardian's current state -----
+  if (msg.type === 'guardian_status_request') {
+    relay.send(connId, JSON.stringify({
+      type: 'guardian_status',
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: { id: 'relay', type: 'relay', displayName: 'Bastion Relay' },
+      payload: guardian.getStatus(),
+    }));
+    const sid = sessionIds.get(connId);
+    if (sid) auditLogger.logEvent('guardian_status_queried', sid, { requestedBy: connId.slice(0, 8) });
+    console.log(`[→] guardian_status sent to ${connId.slice(0, 8)}`);
     return;
   }
 

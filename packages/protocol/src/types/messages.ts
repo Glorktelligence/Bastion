@@ -1025,6 +1025,66 @@ export interface DreamCycleCompletePayload {
 }
 
 // ---------------------------------------------------------------------------
+// BastionGuardian (7th Sole Authority)
+// ---------------------------------------------------------------------------
+
+/** Guardian severity levels for violations and alerts. */
+export type GuardianSeverity = 'critical' | 'severe' | 'warning';
+
+/** Guardian enforcement action in response to a violation. */
+export type GuardianAction = 'shutdown' | 'alert' | 'monitor';
+
+/** Guardian operational status. */
+export type GuardianStatus = 'active' | 'alert' | 'shutdown';
+
+/** Relay → All: Guardian broadcasts a warning or violation notice. PLAINTEXT. */
+export interface GuardianAlertPayload {
+  readonly code: string;
+  readonly severity: GuardianSeverity;
+  readonly reason: string;
+  readonly action: GuardianAction;
+  readonly timestamp: string;
+  readonly component: string;
+}
+
+/** Relay → All: Guardian orders all components to cease operations. PLAINTEXT. */
+export interface GuardianShutdownPayload {
+  readonly code: string;
+  readonly reason: string;
+  readonly auditSealed: boolean;
+  readonly shutdownId: string;
+}
+
+/** An individual environment check result from the Guardian. */
+export interface GuardianCheckResult {
+  readonly name: string;
+  readonly passed: boolean;
+  readonly detail: string | null;
+}
+
+/** Identity of a connected component as seen by the Guardian. */
+export interface GuardianConnectedComponent {
+  readonly id: string;
+  readonly type: string;
+  readonly identity: string;
+  readonly connectedAt: string;
+}
+
+/** Relay → Requester: Guardian reports its current state. */
+export interface GuardianStatusPayload {
+  readonly status: GuardianStatus;
+  readonly version: string;
+  readonly uptimeSeconds: number;
+  readonly lastCheckAt: string;
+  readonly environmentClean: boolean;
+  readonly checks: readonly GuardianCheckResult[];
+  readonly connectedComponents: readonly GuardianConnectedComponent[];
+}
+
+/** Any → Relay: Request Guardian's current status. */
+export type GuardianStatusRequestPayload = Record<string, never>;
+
+// ---------------------------------------------------------------------------
 // Discriminated union of all payload types
 // ---------------------------------------------------------------------------
 
@@ -1124,4 +1184,8 @@ export type MessagePayload =
   | { type: 'dream_cycle_request'; payload: DreamCycleRequestPayload }
   | { type: 'dream_cycle_complete'; payload: DreamCycleCompletePayload }
   | { type: 'skill_scan_result'; payload: SkillScanResultPayload }
-  | { type: 'skill_list_response'; payload: SkillListResponsePayload };
+  | { type: 'skill_list_response'; payload: SkillListResponsePayload }
+  | { type: 'guardian_alert'; payload: GuardianAlertPayload }
+  | { type: 'guardian_shutdown'; payload: GuardianShutdownPayload }
+  | { type: 'guardian_status'; payload: GuardianStatusPayload }
+  | { type: 'guardian_status_request'; payload: GuardianStatusRequestPayload };

@@ -81,6 +81,14 @@ import {
   ExtensionStateRequestPayloadSchema,
   ExtensionStateResponsePayloadSchema,
 
+  // Schemas — BastionGuardian (7th Sole Authority)
+  GuardianAlertPayloadSchema,
+  GuardianShutdownPayloadSchema,
+  GuardianStatusPayloadSchema,
+  GuardianStatusRequestPayloadSchema,
+  GuardianCheckResultSchema,
+  GuardianConnectedComponentSchema,
+
   // Constants
   RESERVED_NAMESPACES,
 
@@ -363,6 +371,10 @@ function validPayloads() {
     memory_batch_decision: { batchId: 'batch-1', decisions: [{ proposalId: 'p-1', decision: 'approved', editedContent: null }] },
     dream_cycle_request: { conversationId: 'conv-1', scope: 'conversation' },
     dream_cycle_complete: { conversationId: 'conv-1', candidateCount: 3, tokensUsed: { input: 10000, output: 500 }, estimatedCost: 0.12, durationMs: 3200 },
+    guardian_alert: { code: 'BASTION-9002', severity: 'critical', reason: 'Foreign harness detected', action: 'shutdown', timestamp: new Date().toISOString(), component: 'relay' },
+    guardian_shutdown: { code: 'BASTION-9002', reason: 'Foreign harness detected', auditSealed: true, shutdownId: uuid() },
+    guardian_status: { status: 'active', version: '0.8.1', uptimeSeconds: 3600, lastCheckAt: new Date().toISOString(), environmentClean: true, checks: [{ name: 'foreign_harness', passed: true, detail: null }], connectedComponents: [{ id: 'ai-001', type: 'ai-client', identity: 'bastion/0.8.1', connectedAt: new Date().toISOString() }] },
+    guardian_status_request: {},
   };
 }
 
@@ -453,8 +465,8 @@ async function run() {
         break;
       }
     }
-    check('all 88 message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 97 entries', ALL_MESSAGE_TYPES.length === 97);
+    check('all message types accepted in envelope', allTypesValid);
+    check('ALL_MESSAGE_TYPES has 97 entries', ALL_MESSAGE_TYPES.length === 101);
   }
   console.log();
 
@@ -490,8 +502,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 97 entries', typeKeys.length === 97);
-    check('PAYLOAD_SCHEMAS has 97 entries', Object.keys(PAYLOAD_SCHEMAS).length === 97);
+    check('MESSAGE_TYPES has 97 entries', typeKeys.length === 101);
+    check('PAYLOAD_SCHEMAS has 97 entries', Object.keys(PAYLOAD_SCHEMAS).length === 101);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -658,7 +670,7 @@ async function run() {
     // Invalid error code formats
     check('BASTION-0001 fails (category 0)', !ErrorPayloadSchema.safeParse({ ...payloads.error, code: 'BASTION-0001' }).success);
     check('BASTION-8001 passes (budget category)', ErrorPayloadSchema.safeParse({ ...payloads.error, code: 'BASTION-8001' }).success);
-    check('BASTION-9001 fails (category 9)', !ErrorPayloadSchema.safeParse({ ...payloads.error, code: 'BASTION-9001' }).success);
+    check('BASTION-9001 passes (Guardian category)', ErrorPayloadSchema.safeParse({ ...payloads.error, code: 'BASTION-9001' }).success);
     check('ERROR-1001 fails (wrong prefix)', !ErrorPayloadSchema.safeParse({ ...payloads.error, code: 'ERROR-1001' }).success);
     check('BASTION-100 fails (too short)', !ErrorPayloadSchema.safeParse({ ...payloads.error, code: 'BASTION-100' }).success);
 
@@ -897,7 +909,7 @@ async function run() {
         console.log(`    FAIL round-trip: ${type}`, err.message);
       }
     }
-    check('all 88 message types survive serialisation round-trip', allPassed);
+    check('all message types survive serialisation round-trip', allPassed);
   }
   console.log();
 
@@ -944,8 +956,8 @@ async function run() {
 
     // Error codes have correct format
     const allCodes = Object.values(ERROR_CODES);
-    check('all error codes match BASTION-CXXX', allCodes.every(c => /^BASTION-[1-8]\d{3}$/.test(c)));
-    check('error codes span 8 categories', new Set(allCodes.map(c => c[8])).size === 8);
+    check('all error codes match BASTION-CXXX', allCodes.every(c => /^BASTION-[1-9]\d{3}$/.test(c)));
+    check('error codes span 9 categories', new Set(allCodes.map(c => c[8])).size === 9);
   }
   console.log();
 
@@ -1173,6 +1185,134 @@ async function run() {
     check('M14: ALL_MESSAGE_TYPES includes extension_state_update', ALL_MESSAGE_TYPES.includes('extension_state_update'));
     check('M14: ALL_MESSAGE_TYPES includes extension_state_request', ALL_MESSAGE_TYPES.includes('extension_state_request'));
     check('M14: ALL_MESSAGE_TYPES includes extension_state_response', ALL_MESSAGE_TYPES.includes('extension_state_response'));
+  }
+  console.log();
+
+  // =========================================================================
+  // M15: BastionGuardian protocol types
+  // =========================================================================
+  console.log('--- M15: BastionGuardian protocol types ---');
+  {
+    // Guardian message types exist
+    check('M15: MESSAGE_TYPES.GUARDIAN_ALERT', MESSAGE_TYPES.GUARDIAN_ALERT === 'guardian_alert');
+    check('M15: MESSAGE_TYPES.GUARDIAN_SHUTDOWN', MESSAGE_TYPES.GUARDIAN_SHUTDOWN === 'guardian_shutdown');
+    check('M15: MESSAGE_TYPES.GUARDIAN_STATUS', MESSAGE_TYPES.GUARDIAN_STATUS === 'guardian_status');
+    check('M15: MESSAGE_TYPES.GUARDIAN_STATUS_REQUEST', MESSAGE_TYPES.GUARDIAN_STATUS_REQUEST === 'guardian_status_request');
+    check('M15: ALL_MESSAGE_TYPES includes guardian_alert', ALL_MESSAGE_TYPES.includes('guardian_alert'));
+    check('M15: ALL_MESSAGE_TYPES includes guardian_shutdown', ALL_MESSAGE_TYPES.includes('guardian_shutdown'));
+    check('M15: ALL_MESSAGE_TYPES includes guardian_status', ALL_MESSAGE_TYPES.includes('guardian_status'));
+    check('M15: ALL_MESSAGE_TYPES includes guardian_status_request', ALL_MESSAGE_TYPES.includes('guardian_status_request'));
+    check('M15: total message types >= 101', ALL_MESSAGE_TYPES.length >= 101);
+
+    // Guardian error codes exist
+    check('M15: ERROR_CODES.GUARDIAN_IDENTITY_VIOLATION', ERROR_CODES.GUARDIAN_IDENTITY_VIOLATION === 'BASTION-9001');
+    check('M15: ERROR_CODES.GUARDIAN_FOREIGN_HARNESS', ERROR_CODES.GUARDIAN_FOREIGN_HARNESS === 'BASTION-9002');
+    check('M15: ERROR_CODES.GUARDIAN_API_KEY_MISMATCH', ERROR_CODES.GUARDIAN_API_KEY_MISMATCH === 'BASTION-9003');
+    check('M15: ERROR_CODES.GUARDIAN_AUDIT_INTEGRITY', ERROR_CODES.GUARDIAN_AUDIT_INTEGRITY === 'BASTION-9004');
+    check('M15: ERROR_CODES.GUARDIAN_PROCESS_IDENTITY', ERROR_CODES.GUARDIAN_PROCESS_IDENTITY === 'BASTION-9005');
+    check('M15: ERROR_CODES.GUARDIAN_DATA_PERMISSIONS', ERROR_CODES.GUARDIAN_DATA_PERMISSIONS === 'BASTION-9006');
+    check('M15: ERROR_CODES.GUARDIAN_SAFETY_BYPASS', ERROR_CODES.GUARDIAN_SAFETY_BYPASS === 'BASTION-9007');
+    check('M15: ERROR_CODES.GUARDIAN_TLS_VIOLATION', ERROR_CODES.GUARDIAN_TLS_VIOLATION === 'BASTION-9008');
+    check('M15: ERROR_CODES.GUARDIAN_COMPONENT_MISMATCH', ERROR_CODES.GUARDIAN_COMPONENT_MISMATCH === 'BASTION-9009');
+
+    // Guardian schemas in PAYLOAD_SCHEMAS
+    check('M15: PAYLOAD_SCHEMAS has guardian_alert', PAYLOAD_SCHEMAS['guardian_alert'] === GuardianAlertPayloadSchema);
+    check('M15: PAYLOAD_SCHEMAS has guardian_shutdown', PAYLOAD_SCHEMAS['guardian_shutdown'] === GuardianShutdownPayloadSchema);
+    check('M15: PAYLOAD_SCHEMAS has guardian_status', PAYLOAD_SCHEMAS['guardian_status'] === GuardianStatusPayloadSchema);
+    check('M15: PAYLOAD_SCHEMAS has guardian_status_request', PAYLOAD_SCHEMAS['guardian_status_request'] === GuardianStatusRequestPayloadSchema);
+
+    // guardian_alert schema validation
+    const validAlert = GuardianAlertPayloadSchema.safeParse({
+      code: 'BASTION-9002',
+      severity: 'critical',
+      reason: 'Foreign harness detected: CLAUDE_CODE_ENTRY_POINT',
+      action: 'shutdown',
+      timestamp: new Date().toISOString(),
+      component: 'relay',
+    });
+    check('M15: guardian_alert valid payload passes', validAlert.success);
+
+    const badAlert = GuardianAlertPayloadSchema.safeParse({
+      code: 'BASTION-9002',
+      severity: 'invalid_severity',
+      reason: 'test',
+      action: 'shutdown',
+      timestamp: new Date().toISOString(),
+      component: 'relay',
+    });
+    check('M15: guardian_alert rejects invalid severity', !badAlert.success);
+
+    // guardian_shutdown schema validation
+    const validShutdown = GuardianShutdownPayloadSchema.safeParse({
+      code: 'BASTION-9002',
+      reason: 'Foreign harness detected',
+      auditSealed: true,
+      shutdownId: randomUUID(),
+    });
+    check('M15: guardian_shutdown valid payload passes', validShutdown.success);
+
+    const badShutdown = GuardianShutdownPayloadSchema.safeParse({
+      code: 'BASTION-9002',
+      reason: 'test',
+      auditSealed: 'yes', // should be boolean
+      shutdownId: randomUUID(),
+    });
+    check('M15: guardian_shutdown rejects non-boolean auditSealed', !badShutdown.success);
+
+    // guardian_status schema validation
+    const validStatus = GuardianStatusPayloadSchema.safeParse({
+      status: 'active',
+      version: '0.8.1',
+      uptimeSeconds: 3600,
+      lastCheckAt: new Date().toISOString(),
+      environmentClean: true,
+      checks: [
+        { name: 'foreign_harness', passed: true, detail: null },
+        { name: 'process_identity', passed: true, detail: 'skipped on Windows' },
+      ],
+      connectedComponents: [
+        { id: 'ai-001', type: 'ai-client', identity: 'bastion-ai/0.8.1', connectedAt: new Date().toISOString() },
+      ],
+    });
+    check('M15: guardian_status valid payload passes', validStatus.success);
+
+    const badStatus = GuardianStatusPayloadSchema.safeParse({
+      status: 'running', // invalid
+      version: '0.8.1',
+      uptimeSeconds: 3600,
+      lastCheckAt: '',
+      environmentClean: true,
+      checks: [],
+      connectedComponents: [],
+    });
+    check('M15: guardian_status rejects invalid status value', !badStatus.success);
+
+    // guardian_status_request schema validation (empty object)
+    const validReq = GuardianStatusRequestPayloadSchema.safeParse({});
+    check('M15: guardian_status_request empty object passes', validReq.success);
+
+    // GuardianCheckResult schema
+    const validCheck = GuardianCheckResultSchema.safeParse({ name: 'test', passed: true, detail: null });
+    check('M15: GuardianCheckResult valid passes', validCheck.success);
+    const badCheck = GuardianCheckResultSchema.safeParse({ name: '', passed: true, detail: null });
+    check('M15: GuardianCheckResult rejects empty name', !badCheck.success);
+
+    // GuardianConnectedComponent schema
+    const validComp = GuardianConnectedComponentSchema.safeParse({
+      id: 'ai-001', type: 'ai-client', identity: 'bastion/0.8.1', connectedAt: new Date().toISOString(),
+    });
+    check('M15: GuardianConnectedComponent valid passes', validComp.success);
+
+    // validatePayload works with guardian types
+    const alertValidation = validatePayload('guardian_alert', {
+      code: 'BASTION-9001',
+      severity: 'warning',
+      reason: 'Identity header tampered',
+      action: 'alert',
+      timestamp: new Date().toISOString(),
+      component: 'ai-client',
+    });
+    check('M15: validatePayload works for guardian_alert', alertValidation.valid);
   }
   console.log();
 
