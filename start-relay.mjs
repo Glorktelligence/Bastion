@@ -188,18 +188,29 @@ console.log('[✓] Audit logger initialised with hash chain');
 const chainIntegrityMonitor = new ChainIntegrityMonitor(auditLogger, (result) => {
   if (!result.verification.valid) {
     console.error(`[!!!] CHAIN INTEGRITY VIOLATION — ${result.mode} check failed at entry ${result.verification.brokenAtIndex ?? 'unknown'}`);
-    // Log the violation into the chain itself (this entry becomes part of the chain)
-    auditLogger.logEvent('chain_integrity_violation', null, {
-      mode: result.mode,
-      entriesChecked: result.entriesChecked,
-      brokenAtIndex: result.verification.brokenAtIndex ?? null,
-      detectedAt: result.checkedAt,
-      durationMs: result.durationMs,
-    });
+    // Try to log the violation — but don't let a logging failure crash the relay
+    try {
+      auditLogger.logEvent('chain_integrity_violation', 'guardian-system', {
+        mode: result.mode,
+        entriesChecked: result.entriesChecked,
+        brokenAtIndex: result.verification.brokenAtIndex ?? null,
+        detectedAt: result.checkedAt,
+        durationMs: result.durationMs,
+      });
+    } catch (logErr) {
+      console.error(`[!!!] Could not log chain integrity violation (chain may be corrupted): ${logErr.message}`);
+    }
   }
 }, { intervalMs: 5 * 60 * 1000, verifyOnStart: true });
-chainIntegrityMonitor.start();
-console.log('[✓] Chain integrity monitor started (full check on startup, incremental every 5 min)');
+try {
+  chainIntegrityMonitor.start();
+  console.log('[✓] Chain integrity monitor started (full check on startup, incremental every 5 min)');
+} catch (chainErr) {
+  console.error(`[!!!] Chain integrity monitor failed to start: ${chainErr.message}`);
+  console.error('[!!!] The audit chain may be corrupted — manual investigation required');
+  console.error('[!!!] Relay will continue operating but chain verification is DISABLED');
+  // Don't crash — the relay must operate. Guardian will flag this.
+}
 
 // ---------------------------------------------------------------------------
 // BastionGuardian — 7th Sole Authority
