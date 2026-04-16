@@ -1960,6 +1960,12 @@ async function run() {
     }
 
     // trigger('critical', ...) writes state file BEFORE exit(99)
+    //
+    // trigger() arms `setTimeout(() => process.exit(99), 500)`. Without care
+    // that timer fires AFTER the test block restores process.exit, taking down
+    // the whole node test harness with status 99 (CI treats this as failure,
+    // even though all assertions pass). Fix: intercept setTimeout during the
+    // trigger so we can capture the handle, then clearTimeout it.
     {
       const tmpDir = mkdtempSync(pathJoin(tmpdir(), 'bastion-guardian-test-'));
       try {
@@ -1971,18 +1977,26 @@ async function run() {
         });
         gt.runChecks();
 
-        // Stub process.exit so the test harness doesn't terminate on the 500ms
-        // setTimeout that trigger() schedules. We only need to verify the
-        // state file is written synchronously BEFORE that timeout is armed.
         const originalExit = process.exit;
-        process.exit = (() => {});
-
-        // Suppress expected GUARDIAN stderr
+        const originalSetTimeout = globalThis.setTimeout;
         const originalError = console.error;
+        const armedTimers = [];
+
+        // Belt: process.exit no-op, so if a timer fires before we can clear it,
+        // it does nothing. Suspenders: clear every timer armed during trigger().
+        process.exit = (() => {});
+        globalThis.setTimeout = (fn, delay, ...rest) => {
+          const handle = originalSetTimeout(fn, delay, ...rest);
+          armedTimers.push(handle);
+          return handle;
+        };
         console.error = () => {};
 
         gt.trigger('BASTION-9007', 'Safety engine bypass', 'critical');
 
+        // Cancel the armed exit(99) timer and restore everything.
+        for (const h of armedTimers) clearTimeout(h);
+        globalThis.setTimeout = originalSetTimeout;
         console.error = originalError;
         process.exit = originalExit;
 
