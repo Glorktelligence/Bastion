@@ -31,6 +31,14 @@ import {
   conversationRendererRegistry,
   ExtensionBridgeManager,
   ExtensionStateCache,
+  GUARDIAN_LOCKOUT_KEY,
+  buildLockoutFromShutdown,
+  clearGuardianLockout,
+  createGuardianLockoutStore,
+  createGuardianStatusStore,
+  getGuardianLockout,
+  incrementRestartCount,
+  setGuardianLockout,
 } from './dist/index.js';
 
 let pass = 0, fail = 0;
@@ -2388,6 +2396,183 @@ async function run() {
     // Without cached state, returns null for unknown namespace
     check('M14: bridge returns null for unknown namespace', replies[0]?.value === null);
     mgr.destroy();
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Phase 4: Guardian lockout (localStorage persistence + helpers)
+  // -------------------------------------------------------------------
+  console.log('\n--- Phase 4: Guardian lockout ---');
+  {
+    // Mock localStorage for Node.js environment
+    const storage = new Map();
+    globalThis.localStorage = {
+      getItem: (key) => storage.get(key) ?? null,
+      setItem: (key, value) => storage.set(key, value),
+      removeItem: (key) => storage.delete(key),
+      clear: () => storage.clear(),
+      get length() { return storage.size; },
+      key: (i) => [...storage.keys()][i] ?? null,
+    };
+    storage.clear();
+
+    // --- setGuardianLockout + getGuardianLockout round-trip ---
+    check('Phase 4: getGuardianLockout returns null when storage empty', getGuardianLockout() === null);
+
+    const sample = {
+      active: true,
+      shutdownId: 'shutdown-123',
+      code: 'BASTION-9002',
+      reason: 'Foreign harness detected: CLAUDE_CODE_ENTRY_POINT',
+      receivedAt: '2026-04-16T10:00:00Z',
+      restartCount: 0,
+    };
+    setGuardianLockout(sample);
+    check('Phase 4: setGuardianLockout writes to localStorage', storage.get(GUARDIAN_LOCKOUT_KEY) !== undefined);
+
+    const restored = getGuardianLockout();
+    check('Phase 4: getGuardianLockout round-trips payload', restored !== null && restored.shutdownId === 'shutdown-123');
+    check('Phase 4: restored active flag preserved', restored?.active === true);
+    check('Phase 4: restored code preserved', restored?.code === 'BASTION-9002');
+    check('Phase 4: restored restartCount preserved', restored?.restartCount === 0);
+
+    // --- clearGuardianLockout ---
+    clearGuardianLockout();
+    check('Phase 4: clearGuardianLockout removes from storage', storage.get(GUARDIAN_LOCKOUT_KEY) === undefined);
+    check('Phase 4: getGuardianLockout returns null after clear', getGuardianLockout() === null);
+
+    // --- getGuardianLockout resilience ---
+    storage.set(GUARDIAN_LOCKOUT_KEY, 'not-valid-json{');
+    check('Phase 4: getGuardianLockout returns null on parse error', getGuardianLockout() === null);
+    storage.set(GUARDIAN_LOCKOUT_KEY, JSON.stringify({ active: 'not-a-bool' }));
+    check('Phase 4: getGuardianLockout rejects malformed active field', getGuardianLockout() === null);
+    storage.clear();
+
+    // --- buildLockoutFromShutdown pure function ---
+    const fresh = buildLockoutFromShutdown('sid-1', 'BASTION-9004', 'Chain integrity failed', null, '2026-04-16T10:00:00Z');
+    check('Phase 4: buildLockout from no existing — restartCount 0', fresh.restartCount === 0);
+    check('Phase 4: buildLockout sets active true', fresh.active === true);
+    check('Phase 4: buildLockout uses provided shutdownId', fresh.shutdownId === 'sid-1');
+    check('Phase 4: buildLockout uses provided nowIso', fresh.receivedAt === '2026-04-16T10:00:00Z');
+
+    const replacing = buildLockoutFromShutdown(
+      'sid-2',
+      'BASTION-9007',
+      'Repeated violations',
+      { ...sample, restartCount: 3 },
+      '2026-04-16T10:05:00Z',
+    );
+    check(
+      'Phase 4: buildLockout preserves restartCount across new shutdown',
+      replacing.restartCount === 3,
+    );
+    check('Phase 4: buildLockout updates shutdownId', replacing.shutdownId === 'sid-2');
+
+    // --- incrementRestartCount ---
+    const bumped = incrementRestartCount(sample);
+    check('Phase 4: incrementRestartCount bumps counter', bumped.restartCount === 1);
+    check('Phase 4: incrementRestartCount leaves sample untouched', sample.restartCount === 0);
+
+    const doubleBumped = incrementRestartCount(incrementRestartCount(sample));
+    check('Phase 4: double increment → 2', doubleBumped.restartCount === 2);
+
+    // --- restartCount escalation (simulated restart loop) ---
+    {
+      storage.clear();
+      // First cascade
+      const first = buildLockoutFromShutdown('s', 'C', 'R', null);
+      setGuardianLockout(first);
+      check('Phase 4: first cascade restartCount=0', first.restartCount === 0);
+
+      // Simulate restart #1 — reload the page, connect() runs
+      const readBack1 = getGuardianLockout();
+      const afterRestart1 = incrementRestartCount(readBack1);
+      setGuardianLockout(afterRestart1);
+      check('Phase 4: restart #1 → restartCount=1', getGuardianLockout()?.restartCount === 1);
+
+      // Simulate restart #5 (nuclear tier)
+      let current = getGuardianLockout();
+      for (let i = 0; i < 4; i++) {
+        current = incrementRestartCount(current);
+        setGuardianLockout(current);
+      }
+      check('Phase 4: restart #5 → restartCount=5 (nuclear)', getGuardianLockout()?.restartCount === 5);
+      storage.clear();
+    }
+
+    // --- Writable stores ---
+    {
+      const lockoutStore = createGuardianLockoutStore();
+      let seen = 'initial';
+      const unsub = lockoutStore.subscribe((v) => { seen = v; });
+      check('Phase 4: lockout store starts null', seen === null);
+      lockoutStore.set(sample);
+      check('Phase 4: lockout store notifies on set', seen?.shutdownId === 'shutdown-123');
+      lockoutStore.set(null);
+      check('Phase 4: lockout store accepts null (unlock)', seen === null);
+      unsub();
+    }
+
+    {
+      const statusStore = createGuardianStatusStore();
+      let seen = 'initial';
+      const unsub = statusStore.subscribe((v) => { seen = v; });
+      check('Phase 4: status store starts null', seen === null);
+      statusStore.set({
+        status: 'active',
+        lastCheckAt: '2026-04-16T10:00:00Z',
+        environmentClean: true,
+        violationCount: 0,
+        updatedAt: '2026-04-16T10:01:00Z',
+      });
+      check('Phase 4: status store notifies on set', seen?.status === 'active');
+      unsub();
+    }
+
+    // --- Simulated guardian_shutdown → lockout state + guardian_status 'active' unlock ---
+    {
+      storage.clear();
+      const lockoutStore = createGuardianLockoutStore();
+      const statusStore = createGuardianStatusStore();
+
+      // Shutdown arrives
+      const existing = getGuardianLockout();
+      const lockout = buildLockoutFromShutdown('S1', 'BASTION-9002', 'Foreign harness', existing);
+      setGuardianLockout(lockout);
+      lockoutStore.set(lockout);
+      check('Phase 4: shutdown handler set lockout store', lockoutStore.get()?.active === true);
+      check('Phase 4: shutdown handler persisted lockout', getGuardianLockout()?.active === true);
+
+      // Later, guardian_status 'active' arrives — should clear
+      statusStore.set({
+        status: 'active',
+        lastCheckAt: '2026-04-16T10:10:00Z',
+        environmentClean: true,
+        violationCount: 0,
+        updatedAt: '2026-04-16T10:10:00Z',
+      });
+      const currentLockout = getGuardianLockout();
+      if (currentLockout && currentLockout.active && statusStore.get()?.status === 'active') {
+        clearGuardianLockout();
+        lockoutStore.set(null);
+      }
+      check('Phase 4: guardian_status active clears lockout store', lockoutStore.get() === null);
+      check('Phase 4: guardian_status active clears localStorage', getGuardianLockout() === null);
+    }
+
+    // --- Lockout state survives simulated restart ---
+    {
+      storage.clear();
+      const lockout = buildLockoutFromShutdown('S2', 'BASTION-9004', 'Chain broken', null);
+      setGuardianLockout(lockout);
+
+      // Simulate process restart — fresh module state, same localStorage
+      const restored = getGuardianLockout();
+      check('Phase 4: lockout survives restart', restored !== null && restored.active === true);
+      check('Phase 4: lockout preserves code across restart', restored?.code === 'BASTION-9004');
+    }
+
+    delete globalThis.localStorage;
   }
   console.log();
 

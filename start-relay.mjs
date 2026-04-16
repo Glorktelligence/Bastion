@@ -903,7 +903,7 @@ const SENDER_TYPE_RESTRICTIONS = {
   data_import_validate: 'ai', data_import_complete: 'ai',
   // Guardian messages
   guardian_status_request: 'any',
-  // guardian_alert, guardian_shutdown, guardian_status are relay-generated — not inbound
+  // guardian_alert, guardian_shutdown, guardian_status, guardian_clear are relay-generated — not inbound
 };
 
 /** Check if a message's sender type matches the expected type for that message. */

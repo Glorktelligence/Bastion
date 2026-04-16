@@ -1050,7 +1050,7 @@ const PLAINTEXT_TYPES = new Set([
   'provider_register', 'ping', 'pong', 'peer_status', 'error',
   'config_ack', 'config_nack',
   'file_manifest', 'file_offer', 'file_request', 'file_data',
-  'guardian_alert', 'guardian_shutdown', 'guardian_status', 'guardian_status_request',
+  'guardian_alert', 'guardian_shutdown', 'guardian_status', 'guardian_status_request', 'guardian_clear',
 ]);
 
 /**

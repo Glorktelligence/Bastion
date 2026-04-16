@@ -1094,6 +1094,25 @@ export interface GuardianStatusPayload {
 /** Any → Relay: Request Guardian's current status. */
 export type GuardianStatusRequestPayload = Record<string, never>;
 
+/**
+ * Relay → All: Guardian violation has been resolved by an operator.
+ *
+ * Sent by the relay after the bastion-cli `guardian` command clears a
+ * cascade-shutdown flag. Clients receiving this MUST exit any lockout state
+ * created by a prior `guardian_shutdown`. PLAINTEXT — must be readable even
+ * when E2E is broken, same contract as `guardian_alert` and `guardian_shutdown`.
+ */
+export interface GuardianClearPayload {
+  /** Correlates to the guardian_shutdown shutdownId that triggered the lockout. */
+  readonly shutdownId: string;
+  /** Who resolved it — operator username, or 'cli' for the CLI command. */
+  readonly clearedBy: string;
+  /** Action taken (e.g. 'acknowledged', 'flag_cleared'). */
+  readonly resolution: string;
+  /** ISO 8601 timestamp when the clear was issued. */
+  readonly clearedAt: string;
+}
+
 // ---------------------------------------------------------------------------
 // Discriminated union of all payload types
 // ---------------------------------------------------------------------------
@@ -1198,4 +1217,5 @@ export type MessagePayload =
   | { type: 'guardian_alert'; payload: GuardianAlertPayload }
   | { type: 'guardian_shutdown'; payload: GuardianShutdownPayload }
   | { type: 'guardian_status'; payload: GuardianStatusPayload }
-  | { type: 'guardian_status_request'; payload: GuardianStatusRequestPayload };
+  | { type: 'guardian_status_request'; payload: GuardianStatusRequestPayload }
+  | { type: 'guardian_clear'; payload: GuardianClearPayload };

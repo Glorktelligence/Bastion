@@ -86,6 +86,7 @@ import {
   GuardianShutdownPayloadSchema,
   GuardianStatusPayloadSchema,
   GuardianStatusRequestPayloadSchema,
+  GuardianClearPayloadSchema,
   GuardianCheckResultSchema,
   GuardianConnectedComponentSchema,
 
@@ -375,6 +376,7 @@ function validPayloads() {
     guardian_shutdown: { code: 'BASTION-9002', reason: 'Foreign harness detected', auditSealed: true, shutdownId: uuid() },
     guardian_status: { status: 'active', version: '0.8.1', uptimeSeconds: 3600, lastCheckAt: new Date().toISOString(), environmentClean: true, checks: [{ name: 'foreign_harness', passed: true, detail: null }], connectedComponents: [{ id: 'ai-001', type: 'ai-client', identity: 'bastion/0.8.1', connectedAt: new Date().toISOString() }] },
     guardian_status_request: {},
+    guardian_clear: { shutdownId: uuid(), clearedBy: 'cli', resolution: 'acknowledged', clearedAt: new Date().toISOString() },
   };
 }
 
@@ -466,7 +468,7 @@ async function run() {
       }
     }
     check('all message types accepted in envelope', allTypesValid);
-    check('ALL_MESSAGE_TYPES has 97 entries', ALL_MESSAGE_TYPES.length === 101);
+    check('ALL_MESSAGE_TYPES has 102 entries', ALL_MESSAGE_TYPES.length === 102);
   }
   console.log();
 
@@ -502,8 +504,8 @@ async function run() {
   console.log('--- Test 4: All 33 payload schemas accept valid data ---');
   {
     const typeKeys = Object.keys(MESSAGE_TYPES);
-    check('MESSAGE_TYPES has 97 entries', typeKeys.length === 101);
-    check('PAYLOAD_SCHEMAS has 97 entries', Object.keys(PAYLOAD_SCHEMAS).length === 101);
+    check('MESSAGE_TYPES has 102 entries', typeKeys.length === 102);
+    check('PAYLOAD_SCHEMAS has 102 entries', Object.keys(PAYLOAD_SCHEMAS).length === 102);
 
     for (const [key, type] of Object.entries(MESSAGE_TYPES)) {
       const payload = payloads[type];
@@ -1313,6 +1315,81 @@ async function run() {
       component: 'ai-client',
     });
     check('M15: validatePayload works for guardian_alert', alertValidation.valid);
+  }
+  console.log();
+
+  // =========================================================================
+  // Phase 4: guardian_clear protocol
+  // =========================================================================
+  console.log('--- Phase 4: guardian_clear protocol ---');
+  {
+    // Message type constant + enumeration
+    check('Phase 4: MESSAGE_TYPES.GUARDIAN_CLEAR', MESSAGE_TYPES.GUARDIAN_CLEAR === 'guardian_clear');
+    check('Phase 4: ALL_MESSAGE_TYPES includes guardian_clear', ALL_MESSAGE_TYPES.includes('guardian_clear'));
+    check('Phase 4: total message types >= 102', ALL_MESSAGE_TYPES.length >= 102);
+
+    // Schema registered in PAYLOAD_SCHEMAS
+    check('Phase 4: PAYLOAD_SCHEMAS has guardian_clear', PAYLOAD_SCHEMAS['guardian_clear'] === GuardianClearPayloadSchema);
+
+    // Valid payload
+    const validClear = GuardianClearPayloadSchema.safeParse({
+      shutdownId: randomUUID(),
+      clearedBy: 'operator',
+      resolution: 'acknowledged',
+      clearedAt: new Date().toISOString(),
+    });
+    check('Phase 4: guardian_clear valid payload passes', validClear.success);
+
+    // Missing fields rejected
+    const missingShutdownId = GuardianClearPayloadSchema.safeParse({
+      clearedBy: 'cli',
+      resolution: 'flag_cleared',
+      clearedAt: new Date().toISOString(),
+    });
+    check('Phase 4: guardian_clear rejects missing shutdownId', !missingShutdownId.success);
+
+    const emptyClearedBy = GuardianClearPayloadSchema.safeParse({
+      shutdownId: randomUUID(),
+      clearedBy: '',
+      resolution: 'flag_cleared',
+      clearedAt: new Date().toISOString(),
+    });
+    check('Phase 4: guardian_clear rejects empty clearedBy', !emptyClearedBy.success);
+
+    const emptyResolution = GuardianClearPayloadSchema.safeParse({
+      shutdownId: randomUUID(),
+      clearedBy: 'cli',
+      resolution: '',
+      clearedAt: new Date().toISOString(),
+    });
+    check('Phase 4: guardian_clear rejects empty resolution', !emptyResolution.success);
+
+    // validatePayload end-to-end
+    const clearValidation = validatePayload('guardian_clear', {
+      shutdownId: randomUUID(),
+      clearedBy: 'cli',
+      resolution: 'acknowledged',
+      clearedAt: new Date().toISOString(),
+    });
+    check('Phase 4: validatePayload works for guardian_clear', clearValidation.valid);
+
+    // GuardianStatusPayload accepts optional runtimeMonitoring (Phase 3 carry-over sanity check)
+    const statusWithRuntime = GuardianStatusPayloadSchema.safeParse({
+      status: 'active',
+      version: '0.8.1',
+      uptimeSeconds: 10,
+      lastCheckAt: new Date().toISOString(),
+      environmentClean: true,
+      checks: [],
+      connectedComponents: [],
+      runtimeMonitoring: {
+        violationTrackerActive: true,
+        rateMonitorActive: true,
+        activeViolationWindows: 0,
+        trackedConnections: 0,
+      },
+    });
+    check('Phase 4: guardian_status accepts runtimeMonitoring field', statusWithRuntime.success);
   }
   console.log();
 

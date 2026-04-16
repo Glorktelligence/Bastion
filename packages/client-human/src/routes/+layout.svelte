@@ -9,6 +9,8 @@ import { type UserPreferences, DEFAULT_USER_PREFERENCES } from '$lib/config/conf
 import SetupWizard from '$lib/components/SetupWizard.svelte';
 import AiDisclosureBanner from '$lib/components/AiDisclosureBanner.svelte';
 import FileOfferBanner from '$lib/components/FileOfferBanner.svelte';
+import GuardianLockout from '$lib/components/GuardianLockout.svelte';
+import GuardianStatusBadge from '$lib/components/GuardianStatusBadge.svelte';
 
 const { children } = $props();
 
@@ -95,6 +97,20 @@ let disclosureDismissed = $state(false);
 // File offer banner state (global — file offers can arrive on any page)
 let pendingFileOffer = $state(null);
 
+// Guardian lockout state — when present, replaces the entire UI
+/** @type {import('$lib/session.js').GuardianLockoutState | null} */
+let guardianLockout = $state(null);
+
+// Guardian status summary — shown as a subtle nav badge when not in lockout
+/** @type {import('$lib/session.js').GuardianStatusSummary | null} */
+let guardianStatus = $state(null);
+
+// Connection state for Guardian lockout "services available" hint
+let servicesAvailable = $state(false);
+
+// Guardian status polling timer
+let guardianPollInterval = $state(null);
+
 // Use onMount (NOT $effect) to set up store subscriptions.
 // $effect tracks reactive reads inside synchronous callbacks — our custom
 // store.subscribe() calls the callback immediately with the current value,
@@ -106,12 +122,36 @@ onMount(() => {
 	// Auto-connect once
 	const cfg = session.getConfigStore();
 	setupComplete = cfg.get('setupComplete');
+
+	// Restore Guardian lockout from localStorage BEFORE connect — if a prior
+	// guardian_shutdown left us locked, show the screen immediately rather than
+	// flashing the normal UI while the relay comes up.
+	const existingLockout = session.getGuardianLockout();
+	if (existingLockout && existingLockout.active) {
+		guardianLockout = existingLockout;
+		session.guardianLockoutStore.set(existingLockout);
+	}
+
 	if (setupComplete) {
 		session.tryAutoConnect();
 	}
 
+	// Periodic Guardian status refresh — every 5 minutes
+	guardianPollInterval = setInterval(() => {
+		session.requestGuardianStatus();
+	}, 5 * 60 * 1000);
+
 	// Store subscriptions — callbacks update $state but onMount won't re-run
 	const subs = [
+		session.guardianLockoutStore.subscribe((v) => {
+			guardianLockout = v;
+		}),
+		session.guardianStatusStore.subscribe((v) => {
+			guardianStatus = v;
+		}),
+		session.connection.subscribe((v) => {
+			servicesAvailable = v.status === 'authenticated' || v.status === 'connected';
+		}),
 		session.conversations.store.subscribe((s) => {
 			convList = s.conversations.filter((c) => !c.archived);
 			activeConvId = s.activeConversationId;
@@ -167,6 +207,10 @@ onMount(() => {
 
 	return () => {
 		for (const u of subs) u();
+		if (guardianPollInterval) {
+			clearInterval(guardianPollInterval);
+			guardianPollInterval = null;
+		}
 	};
 });
 
@@ -287,7 +331,18 @@ function relativeTime(iso) {
 }
 </script>
 
-{#if !setupComplete}
+{#if guardianLockout && guardianLockout.active}
+	<!-- Guardian lockout takes over the entire viewport and cannot be dismissed
+	     from the UI. It is cleared only by guardian_clear from the relay or a
+	     guardian_status response showing status === 'active'. -->
+	<GuardianLockout
+		code={guardianLockout.code}
+		reason={guardianLockout.reason}
+		restartCount={guardianLockout.restartCount}
+		receivedAt={guardianLockout.receivedAt}
+		servicesAvailable={servicesAvailable}
+	/>
+{:else if !setupComplete}
 	<SetupWizard onComplete={handleSetupComplete} />
 {:else}
 <div class="app-layout">
@@ -387,6 +442,7 @@ function relativeTime(iso) {
 			{/if}
 		</nav>
 		<div class="sidebar-footer">
+			<GuardianStatusBadge status={guardianStatus} />
 			<span class="version-label">Bastion v{__BASTION_VERSION__}</span>
 		</div>
 	</aside>

@@ -3,7 +3,7 @@
 // See LICENSE file for full terms
 
 /**
- * All 101 message types in the Bastion protocol.
+ * All 102 message types in the Bastion protocol.
  *
  * Core spec (11): task, conversation, challenge, confirmation, denial,
  *   status, result, error, file_manifest, file_offer, file_request, heartbeat
@@ -157,6 +157,7 @@ export const MESSAGE_TYPES = {
   GUARDIAN_SHUTDOWN: 'guardian_shutdown',
   GUARDIAN_STATUS: 'guardian_status',
   GUARDIAN_STATUS_REQUEST: 'guardian_status_request',
+  GUARDIAN_CLEAR: 'guardian_clear',
 } as const;
 
 /** Union type of all valid message type strings. */

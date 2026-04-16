@@ -339,6 +339,48 @@ export const connection: Writable<ConnectionStoreState> = hmrStore('__bastionCon
 );
 
 // ---------------------------------------------------------------------------
+// Guardian lockout — persists across restarts via localStorage
+// When the relay emits guardian_shutdown, the client enters a full-viewport
+// lockout that survives browser restarts. The lockout is only cleared when:
+//   (a) the relay sends guardian_clear (operator resolved via CLI), or
+//   (b) a guardian_status response reports status === 'active'
+// Each reconnect while locked increments restartCount for escalating UI.
+// ---------------------------------------------------------------------------
+
+// Re-export lockout helpers + types from the standalone module so consumers
+// can import everything from $lib/session.js.
+export {
+  GUARDIAN_LOCKOUT_KEY,
+  buildLockoutFromShutdown,
+  clearGuardianLockout,
+  getGuardianLockout,
+  incrementRestartCount,
+  setGuardianLockout,
+} from './stores/guardian-lockout.js';
+export type { GuardianLockoutState, GuardianStatusSummary } from './stores/guardian-lockout.js';
+
+import {
+  type GuardianLockoutState as _GuardianLockoutState,
+  type GuardianStatusSummary as _GuardianStatusSummary,
+  buildLockoutFromShutdown as _buildLockout,
+  clearGuardianLockout as _clearLockout,
+  getGuardianLockout as _getLockout,
+  incrementRestartCount as _incRestartCount,
+  setGuardianLockout as _setLockout,
+  createGuardianLockoutStore,
+  createGuardianStatusStore,
+} from './stores/guardian-lockout.js';
+
+/**
+ * Writable lockout store — subscribed by +layout.svelte to render the lockout
+ * overlay. null = no lockout active.
+ */
+export const guardianLockoutStore: Writable<_GuardianLockoutState | null> = createGuardianLockoutStore();
+
+/** Most recent guardian_status received — subscribed by the nav indicator. */
+export const guardianStatusStore: Writable<_GuardianStatusSummary | null> = createGuardianStatusStore();
+
+// ---------------------------------------------------------------------------
 // Client management (also on globalThis — see _g above)
 // ---------------------------------------------------------------------------
 
@@ -355,6 +397,16 @@ export async function connect(): Promise<void> {
     return;
   }
   console.log('[Bastion] connect() — creating new WebSocket client');
+
+  // Check for persisted Guardian lockout — each restart while locked escalates
+  // the on-screen messaging. We still connect so the relay can report its
+  // actual Guardian status; if Guardian is clear, we unlock below.
+  const existingLockout = _getLockout();
+  if (existingLockout?.active) {
+    const updated = _incRestartCount(existingLockout);
+    _setLockout(updated);
+    guardianLockoutStore.set(updated);
+  }
 
   // Initialise crypto subsystem and generate X25519 keypair
   await initE2E();
@@ -503,6 +555,7 @@ const PLAINTEXT_TYPES = new Set([
   'guardian_shutdown',
   'guardian_status',
   'guardian_status_request',
+  'guardian_clear',
 ]);
 
 /**
@@ -774,6 +827,35 @@ function sendHydrationQueries(): void {
       payload: { includeArchived: true },
     }),
   );
+
+  // Request Guardian status — populates the nav indicator and clears any
+  // stale lockout if the operator has resolved the violation via CLI.
+  client.send(
+    JSON.stringify({
+      type: 'guardian_status_request',
+      id: crypto.randomUUID(),
+      timestamp: ts,
+      sender: identity,
+      payload: {},
+    }),
+  );
+}
+
+/**
+ * Send a single guardian_status_request. Subscribed-to externally for
+ * periodic refresh (e.g. layout polls every 5 minutes or on tab focus).
+ */
+export function requestGuardianStatus(): void {
+  if (!client || !client.isConnected) return;
+  client.send(
+    JSON.stringify({
+      type: 'guardian_status_request',
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      sender: getIdentity(),
+      payload: {},
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -825,6 +907,66 @@ function handleRelayMessage(data: string): void {
   // Relay errors
   if (type === 'error') {
     console.error('[Bastion] Relay error:', envelope.message);
+    return;
+  }
+
+  // -----------------------------------------------------------------------
+  // Guardian — plaintext, relay-originated. Must be handled even if E2E broken.
+  // -----------------------------------------------------------------------
+
+  if (type === 'guardian_shutdown') {
+    const p = (envelope.payload ?? envelope) as Record<string, unknown>;
+    const existing = _getLockout();
+    const lockout = _buildLockout(
+      String(p.shutdownId ?? ''),
+      String(p.code ?? 'UNKNOWN'),
+      String(p.reason ?? 'Guardian shutdown triggered'),
+      existing,
+    );
+    _setLockout(lockout);
+    guardianLockoutStore.set(lockout);
+    console.error(`[Bastion] GUARDIAN SHUTDOWN: ${lockout.code} — ${lockout.reason}`);
+    return;
+  }
+
+  if (type === 'guardian_clear') {
+    const p = (envelope.payload ?? envelope) as Record<string, unknown>;
+    _clearLockout();
+    guardianLockoutStore.set(null);
+    addNotification(`Guardian resolved by ${String(p.clearedBy ?? 'operator')}. Welcome back.`, 'info');
+    console.log(`[Bastion] guardian_clear received (${String(p.resolution ?? '')})`);
+    return;
+  }
+
+  if (type === 'guardian_alert') {
+    const p = (envelope.payload ?? envelope) as Record<string, unknown>;
+    const severity = String(p.severity ?? 'warning');
+    const reason = String(p.reason ?? 'Guardian alert');
+    addNotification(`Guardian: ${reason}`, severity === 'critical' ? 'error' : 'warning');
+    return;
+  }
+
+  if (type === 'guardian_status') {
+    const p = (envelope.payload ?? envelope) as Record<string, unknown>;
+    const statusVal = String(p.status ?? 'active') as _GuardianStatusSummary['status'];
+
+    guardianStatusStore.set({
+      status: statusVal,
+      lastCheckAt: String(p.lastCheckAt ?? ''),
+      environmentClean: p.environmentClean === true,
+      violationCount: Array.isArray(p.checks)
+        ? p.checks.filter((c) => (c as { passed?: boolean }).passed === false).length
+        : 0,
+      updatedAt: new Date().toISOString(),
+    });
+
+    // If we were locked out and Guardian is now active, clear the lockout.
+    const lockout = _getLockout();
+    if (lockout?.active && statusVal === 'active') {
+      _clearLockout();
+      guardianLockoutStore.set(null);
+      addNotification('Guardian resolved. Client unlocked.', 'info');
+    }
     return;
   }
 

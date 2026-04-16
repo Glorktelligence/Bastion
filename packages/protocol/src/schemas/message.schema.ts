@@ -983,6 +983,13 @@ export const GuardianStatusPayloadSchema = z.object({
 
 export const GuardianStatusRequestPayloadSchema = z.object({});
 
+export const GuardianClearPayloadSchema = z.object({
+  shutdownId: z.string().min(1),
+  clearedBy: z.string().min(1),
+  resolution: z.string().min(1),
+  clearedAt: z.string().min(1),
+});
+
 // ---------------------------------------------------------------------------
 // Payload schema lookup map (message type → Zod schema)
 // ---------------------------------------------------------------------------
@@ -1095,4 +1102,5 @@ export const PAYLOAD_SCHEMAS = {
   [MESSAGE_TYPES.GUARDIAN_SHUTDOWN]: GuardianShutdownPayloadSchema,
   [MESSAGE_TYPES.GUARDIAN_STATUS]: GuardianStatusPayloadSchema,
   [MESSAGE_TYPES.GUARDIAN_STATUS_REQUEST]: GuardianStatusRequestPayloadSchema,
+  [MESSAGE_TYPES.GUARDIAN_CLEAR]: GuardianClearPayloadSchema,
 } as const;

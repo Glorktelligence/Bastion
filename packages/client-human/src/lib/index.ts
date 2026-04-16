@@ -157,3 +157,16 @@ export type { BridgeComponent, BridgeMessage } from './extensions/bridge.js';
 // Extension state cache (M14)
 export { ExtensionStateCache, extensionStateCache } from './extensions/extension-state-cache.js';
 export type { ExtensionTier1, ExtensionStateInfo, ExtensionStateSummary } from './extensions/extension-state-cache.js';
+
+// Guardian lockout (Phase 4)
+export {
+  GUARDIAN_LOCKOUT_KEY,
+  buildLockoutFromShutdown,
+  clearGuardianLockout,
+  createGuardianLockoutStore,
+  createGuardianStatusStore,
+  getGuardianLockout,
+  incrementRestartCount,
+  setGuardianLockout,
+} from './stores/guardian-lockout.js';
+export type { GuardianLockoutState, GuardianStatusSummary } from './stores/guardian-lockout.js';
