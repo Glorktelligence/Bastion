@@ -20,6 +20,7 @@
 #   bastion stop --component relay|ai|admin|all
 #   bastion audit <component> [--live|--full] View service logs
 #   bastion migrate --vm relay|ai            One-time migration (run as root)
+#   bastion guardian --component <target>    Resolve Guardian violations (relay only)
 #   bastion help                             Show this help
 
 set -euo pipefail
@@ -96,6 +97,19 @@ check_svc() {
         echo -e "  $name: ${YELLOW}inactive${NC}"
     else
         echo -e "  $name: ${RED}$status${NC}"
+    fi
+}
+
+# Detect which Bastion components are installed on this VM.
+# Used to gate relay-only commands (e.g. `guardian`) and to scope updates.
+# Echoes: "relay" | "ai" | "unknown"
+detect_vm_role() {
+    if systemctl list-unit-files --no-legend --type=service 2>/dev/null | grep -q '^bastion-relay\.service'; then
+        echo "relay"
+    elif systemctl list-unit-files --no-legend --type=service 2>/dev/null | grep -q '^bastion-ai-client\.service'; then
+        echo "ai"
+    else
+        echo "unknown"
     fi
 }
 
@@ -476,6 +490,183 @@ install_cli() {
     fi
 }
 
+# ---------------------------------------------------------------------------
+# Systemd service template generator + differential updater
+# ---------------------------------------------------------------------------
+#
+# generate_service_template emits the SAME content that `install_systemd_*`
+# writes on a fresh install. `update_systemd_service` diffs the installed
+# unit file against the freshly-generated template and replaces it if the
+# template has changed upstream. Backups are kept with timestamp suffix.
+
+generate_service_template() {
+    local service_name="$1"
+    case "$service_name" in
+        bastion-relay)
+            cat <<'RELAYEOF'
+[Unit]
+Description=Bastion Relay Server
+After=network.target
+
+[Service]
+Type=simple
+User=bastion
+Group=bastion
+WorkingDirectory=/opt/bastion
+ExecStart=/usr/bin/node /opt/bastion/start-relay.mjs
+Restart=always
+RestartSec=5
+RestartPreventExitStatus=99
+EnvironmentFile=-/opt/bastion/.env
+Environment=NODE_ENV=production
+
+# Security hardening
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+RELAYEOF
+            ;;
+        bastion-admin-ui)
+            cat <<'ADMINEOF'
+[Unit]
+Description=Bastion Admin UI
+After=bastion-relay.service
+Requires=bastion-relay.service
+
+[Service]
+Type=simple
+User=bastion
+Group=bastion
+WorkingDirectory=/opt/bastion/packages/relay-admin-ui
+ExecStart=/usr/bin/node /opt/bastion/packages/relay-admin-ui/build/index.js
+Restart=always
+RestartSec=5
+RestartPreventExitStatus=99
+EnvironmentFile=-/opt/bastion/.env
+Environment=NODE_ENV=production
+Environment=PORT=9445
+Environment=HOST=127.0.0.1
+Environment=ORIGIN=http://127.0.0.1:9445
+
+# Security hardening
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+ADMINEOF
+            ;;
+        bastion-ai-client)
+            cat <<'AIEOF'
+[Unit]
+Description=Bastion AI Client
+After=network.target
+
+[Service]
+Type=simple
+User=bastion
+Group=bastion
+WorkingDirectory=/opt/bastion
+ExecStart=/usr/bin/node --env-file=.env /opt/bastion/start-ai-client.mjs
+Restart=always
+RestartSec=5
+RestartPreventExitStatus=99
+EnvironmentFile=-/opt/bastion/.env
+Environment=NODE_ENV=production
+
+# Security hardening
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+
+# Data directory access
+ReadWritePaths=/var/lib/bastion
+
+[Install]
+WantedBy=multi-user.target
+AIEOF
+            ;;
+        *)
+            log_error "Unknown service template: $service_name"
+            return 1
+            ;;
+    esac
+}
+
+# Compare the installed unit file with the generated template; replace + reload if different.
+# Silent no-op when the service isn't installed (lets callers iterate over all candidates).
+update_systemd_service() {
+    local service_name="$1"
+    local installed="/etc/systemd/system/${service_name}.service"
+
+    if [[ ! -f "$installed" ]]; then
+        return 0
+    fi
+
+    local tmp_service
+    tmp_service=$(mktemp)
+    if ! generate_service_template "$service_name" > "$tmp_service"; then
+        rm -f "$tmp_service"
+        return 1
+    fi
+
+    if ! diff -q "$installed" "$tmp_service" &>/dev/null; then
+        log_step "systemd service changed: ${service_name}.service"
+        local backup="${installed}.bak.$(date +%Y%m%d%H%M%S)"
+        if ! sudo cp "$installed" "$backup" 2>/dev/null; then
+            log_warn "Could not back up ${service_name}.service (sudo required) — skipping"
+            rm -f "$tmp_service"
+            return 0
+        fi
+        if sudo cp "$tmp_service" "$installed" 2>/dev/null; then
+            sudo systemctl daemon-reload
+            log_info "systemd service updated: ${service_name}.service (backup: ${backup##*/})"
+        else
+            log_warn "Could not update ${service_name}.service (sudo required)"
+        fi
+    else
+        log_info "systemd service unchanged: ${service_name}.service"
+    fi
+
+    rm -f "$tmp_service"
+}
+
+# Self-update the installed CLI from the repo source.
+# Separate from the existing inline block in cmd_update so we can keep the
+# behaviour consistent across commands (doctor, migrate, install, etc.).
+update_cli_self() {
+    local installed="/usr/local/bin/bastion"
+    local repo_cli="$BASTION_ROOT/scripts/bastion-cli.sh"
+
+    if [[ ! -f "$repo_cli" ]]; then
+        log_warn "CLI source not found at $repo_cli — skipping CLI update"
+        return 0
+    fi
+
+    if [[ ! -f "$installed" ]]; then
+        log_warn "CLI not installed at $installed — skipping self-update"
+        return 0
+    fi
+
+    if ! diff -q "$installed" "$repo_cli" &>/dev/null; then
+        log_step "CLI has changed"
+        local backup="${installed}.bak.$(date +%Y%m%d%H%M%S)"
+        if sudo cp "$installed" "$backup" 2>/dev/null \
+            && sudo cp "$repo_cli" "$installed" 2>/dev/null \
+            && sudo chmod +x "$installed" 2>/dev/null; then
+            log_info "CLI updated ($installed, backup: ${backup##*/})"
+        else
+            log_warn "CLI update needs root: sudo cp $repo_cli $installed"
+        fi
+    else
+        log_info "CLI unchanged"
+    fi
+}
+
 verify_migration() {
     local vm_type="$1"
     log_header "Verification"
@@ -598,18 +789,28 @@ cmd_update() {
         log_info "Admin UI built"
     fi
 
-    # Self-update CLI if installed globally
-    if [[ -x /usr/local/bin/bastion && -f "$BASTION_ROOT/scripts/bastion-cli.sh" ]]; then
-        if ! diff -q "$BASTION_ROOT/scripts/bastion-cli.sh" /usr/local/bin/bastion &>/dev/null; then
-            log_step "CLI update available..."
-            if sudo cp "$BASTION_ROOT/scripts/bastion-cli.sh" /usr/local/bin/bastion 2>/dev/null && \
-               sudo chmod +x /usr/local/bin/bastion 2>/dev/null; then
-                log_info "CLI updated at /usr/local/bin/bastion"
-            else
-                log_warn "CLI update needs root: sudo cp $BASTION_ROOT/scripts/bastion-cli.sh /usr/local/bin/bastion"
-            fi
-        fi
-    fi
+    # Reconcile installed systemd services against repo templates. We scope
+    # this by the --component flag, and each update_systemd_service is a
+    # no-op when the unit isn't installed — so "all" is safe even if only
+    # a subset of services live on this VM.
+    log_step "Checking systemd services..."
+    case "$component" in
+        relay)
+            update_systemd_service "$SVC_RELAY"
+            update_systemd_service "$SVC_ADMIN"
+            ;;
+        ai)
+            update_systemd_service "$SVC_AI"
+            ;;
+        all)
+            update_systemd_service "$SVC_RELAY"
+            update_systemd_service "$SVC_ADMIN"
+            update_systemd_service "$SVC_AI"
+            ;;
+    esac
+
+    log_step "Checking CLI..."
+    update_cli_self
 
     local current_version
     current_version=$(get_version)
@@ -727,6 +928,152 @@ cmd_audit() {
             sudo journalctl -u "$svc" -n 50 --no-pager
             ;;
     esac
+}
+
+# ---------------------------------------------------------------------------
+# Guardian — Relay-only interactive violation resolution
+# ---------------------------------------------------------------------------
+#
+# Guardian brain lives on the relay; this command is only available there.
+# The relay writes /var/lib/bastion/guardian-state.json immediately before
+# exit(99) so the operator has a complete record of what tripped Guardian.
+# Resolution requires typing the FULL phrase — no number shortcuts — because
+# Guardian does not accept casual dismissal of security incidents.
+#
+# Requires: jq (documented in bastion doctor)
+
+guardian_cmd() {
+    local component="${1:-all}"
+    local role
+    role=$(detect_vm_role)
+
+    if [[ "$role" != "relay" ]]; then
+        log_error "Guardian CLI is only available on the relay VM."
+        echo "    Guardian brain lives on the relay — SSH into your relay to resolve violations."
+        exit 1
+    fi
+
+    local guardian_state_file="$BASTION_DATA/guardian-state.json"
+
+    clear
+    echo "=========== Bastion Guardian ==========="
+    echo ""
+
+    # No state file → nothing to resolve.
+    if [[ ! -f "$guardian_state_file" ]]; then
+        echo "Bastion Health: HEALTHY"
+        echo ""
+        echo "No Guardian violations recorded."
+        echo "All components operating normally."
+        echo ""
+        echo "==========================================="
+        exit 0
+    fi
+
+    if ! command -v jq &>/dev/null; then
+        log_error "jq is required to parse Guardian state. Install it with: sudo apt install jq"
+        exit 1
+    fi
+
+    local health code reason component_status suggested timestamp
+    health=$(jq -r '.health // "UNKNOWN"' "$guardian_state_file")
+    code=$(jq -r '.code // "UNKNOWN"' "$guardian_state_file")
+    reason=$(jq -r '.reason // "No reason recorded"' "$guardian_state_file")
+    component_status=$(jq -r '.componentStatus // "unavailable"' "$guardian_state_file")
+    suggested=$(jq -r '.suggestedActions // "Review the audit log for details"' "$guardian_state_file")
+    timestamp=$(jq -r '.timestamp // "unknown"' "$guardian_state_file")
+
+    echo "Bastion Health: $health"
+    echo ""
+
+    # Live systemd status for relay + admin UI (both on this VM).
+    local relay_status admin_status
+    relay_status=$(systemctl is-active "$SVC_RELAY" 2>/dev/null || echo 'UNKNOWN')
+    admin_status=$(systemctl is-active "$SVC_ADMIN" 2>/dev/null || echo 'UNKNOWN')
+    echo "Relay:          $relay_status"
+    echo "Admin UI:       $admin_status"
+    # AI client runs on a different VM — report what the state file recorded.
+    echo "AI Client:      $component_status"
+    echo ""
+
+    echo "=========== Violation Details ==========="
+    echo ""
+    echo "Code:      $code"
+    echo "Reason:    $reason"
+    echo "Triggered: $timestamp"
+    echo "Scope:     $component"
+    echo ""
+    echo "Suggested actions:"
+    echo "  $suggested"
+    echo ""
+    echo "==========================================="
+    echo ""
+    echo "Type one of the following options:"
+    echo "  1. Acknowledge report and exit"
+    echo "  2. Bastion Guardian clear $component flag"
+    echo "  3. Exit Bastion Guardian"
+    echo ""
+
+    # Type-it-out input — NO number shortcuts. Guardian does not negotiate.
+    while true; do
+        read -rp "> " response
+        case "$response" in
+            "Acknowledge report and exit")
+                echo ""
+                log_info "Report acknowledged. Guardian state preserved for review."
+                echo "    Violation remains active until explicitly cleared."
+                exit 0
+                ;;
+            "Bastion Guardian clear "*" flag")
+                local clear_target="${response#Bastion Guardian clear }"
+                clear_target="${clear_target% flag}"
+                echo ""
+                log_step "Clearing Guardian flag for: $clear_target"
+
+                # Remove the state file — the Human Client unlocks on the next
+                # guardian_status response showing status === 'active'.
+                if ! rm -f "$guardian_state_file"; then
+                    log_error "Failed to remove $guardian_state_file — check permissions"
+                    exit 1
+                fi
+
+                # If the relay is stopped (exit 99), start it so Guardian can
+                # re-run environment checks and publish guardian_status.
+                if ! systemctl is-active --quiet "$SVC_RELAY"; then
+                    log_step "Relay is stopped (Guardian shutdown). Restarting..."
+                    if sudo systemctl start "$SVC_RELAY"; then
+                        sleep 2
+                        if systemctl is-active --quiet "$SVC_RELAY"; then
+                            log_info "Relay restarted successfully."
+                            log_info "Guardian will re-check environment on startup."
+                        else
+                            log_error "Relay failed to start. Check: bastion audit relay --full"
+                            exit 1
+                        fi
+                    else
+                        log_error "Could not start relay (sudo required?)"
+                        exit 1
+                    fi
+                fi
+
+                echo ""
+                log_info "Guardian flag cleared. Components should resume normal operation."
+                echo "    The Human Client will unlock on next guardian_status check."
+                exit 0
+                ;;
+            "Exit Bastion Guardian")
+                echo ""
+                log_step "Exiting Guardian CLI. No changes made."
+                exit 0
+                ;;
+            *)
+                echo ""
+                log_warn "Invalid option. Type the FULL phrase exactly as shown."
+                echo "    Guardian does not accept shortcuts."
+                echo ""
+                ;;
+        esac
+    done
 }
 
 # ---------------------------------------------------------------------------
@@ -1195,6 +1542,14 @@ cmd_help() {
     echo "  bastion stop --component relay|ai|admin|all"
     echo "  bastion audit <component> [--live|--full]"
     echo "  bastion migrate --vm relay|ai                  One-time migration (root)"
+
+    # Guardian only shown on the relay — it's relay-only and doesn't work elsewhere.
+    local role
+    role=$(detect_vm_role)
+    if [[ "$role" == "relay" ]]; then
+        echo "  bastion guardian --component <target>          Resolve Guardian violations (relay only)"
+    fi
+
     echo ""
     echo "Components: relay, admin, ai, all"
     echo ""
@@ -1291,6 +1646,16 @@ case "$COMMAND" in
             esac
         done
         cmd_migrate "$VM_TYPE"
+        ;;
+    guardian)
+        GUARDIAN_COMPONENT="all"
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --component) GUARDIAN_COMPONENT="$2"; shift 2 ;;
+                *) log_error "Unknown flag for guardian: $1"; exit 1 ;;
+            esac
+        done
+        guardian_cmd "$GUARDIAN_COMPONENT"
         ;;
     help|--help|-h)
         cmd_help

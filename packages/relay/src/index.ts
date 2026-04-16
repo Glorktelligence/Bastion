@@ -227,13 +227,14 @@ export type {
 // ---------------------------------------------------------------------------
 // Guardian: BastionGuardian (7th Sole Authority)
 // ---------------------------------------------------------------------------
-export { BastionGuardian } from './guardian/bastion-guardian.js';
+export { BastionGuardian, GUARDIAN_STATE_FILENAME } from './guardian/bastion-guardian.js';
 export type {
   GuardianConfig,
   GuardianAuditLogger,
   GuardianTriggerCallback,
   GuardianViolationTrackerHandle,
   GuardianRateMonitorHandle,
+  GuardianShutdownState,
 } from './guardian/bastion-guardian.js';
 
 // ---------------------------------------------------------------------------

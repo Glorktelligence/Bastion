@@ -13,8 +13,9 @@
  * (AI client has its Phase 1 agent for identity headers).
  */
 
-import { statSync } from 'node:fs';
+import { statSync, writeFileSync } from 'node:fs';
 import { platform, userInfo } from 'node:os';
+import { join } from 'node:path';
 import type {
   GuardianCheckResult,
   GuardianConnectedComponent,
@@ -46,6 +47,20 @@ const FOREIGN_HARNESS_VARS: readonly string[] = [
 
 /** System session ID for Guardian audit events (Guardian has no session — it IS the system). */
 const GUARDIAN_SESSION = 'guardian-system';
+
+/** Filename written to dataDir on cascade shutdown — read by the bastion-cli guardian command. */
+export const GUARDIAN_STATE_FILENAME = 'guardian-state.json';
+
+/** Shape persisted to guardian-state.json when a critical trigger fires. */
+export interface GuardianShutdownState {
+  readonly health: 'COMPROMISED';
+  readonly code: string;
+  readonly reason: string;
+  readonly timestamp: string;
+  readonly componentStatus: string;
+  readonly suggestedActions: string;
+  readonly checks: readonly GuardianCheckResult[];
+}
 
 /** Minimal audit logger interface — decoupled from relay AuditLogger. */
 export interface GuardianAuditLogger {
@@ -189,6 +204,10 @@ export class BastionGuardian {
 
     if (severity === 'critical') {
       this.status = 'shutdown';
+      // Persist state BEFORE callbacks fire — if a callback crashes, the CLI
+      // still has a record of what tripped Guardian. Callbacks may broadcast
+      // guardian_shutdown to clients, which takes time we don't want to lose.
+      this.writeShutdownState(code, reason);
       for (const cb of this.triggerCallbacks) {
         try {
           cb(code, reason, severity);
@@ -270,6 +289,64 @@ export class BastionGuardian {
   /** Whether periodic checks are running. */
   isMonitoring(): boolean {
     return this.checkInterval !== null;
+  }
+
+  /**
+   * Persist Guardian state to disk immediately before a cascade shutdown.
+   *
+   * The CLI (`bastion guardian` on the relay) reads this file to show the
+   * operator why Guardian tripped and what to do. Writing is best-effort —
+   * a failed write must never block the actual shutdown, because that is
+   * the whole point of the critical trigger.
+   */
+  writeShutdownState(code: string, reason: string): GuardianShutdownState {
+    const state: GuardianShutdownState = {
+      health: 'COMPROMISED',
+      code,
+      reason,
+      timestamp: new Date().toISOString(),
+      componentStatus: 'OFFLINE - COMPROMISED',
+      suggestedActions: this.getSuggestedActions(code),
+      checks: this.lastChecks,
+    };
+
+    try {
+      const statePath = join(this.config.dataDir, GUARDIAN_STATE_FILENAME);
+      writeFileSync(statePath, JSON.stringify(state, null, 2));
+    } catch (err) {
+      console.error('[!] Failed to write Guardian state:', err);
+    }
+
+    return state;
+  }
+
+  /**
+   * Human-readable remediation advice for each BASTION-9XXX code.
+   * Exposed for the CLI; callers can also format their own advice from this.
+   */
+  getSuggestedActions(code: string): string {
+    switch (code) {
+      case 'BASTION-9001':
+        return 'Check adapter identity headers. Verify no proxy is stripping/modifying headers.';
+      case 'BASTION-9002':
+        return 'Remove foreign harness environment variables. Bastion must run independently.';
+      case 'BASTION-9003':
+        return 'Verify API key in .env matches the key being used. Check for inherited env vars.';
+      case 'BASTION-9004':
+        return 'Audit chain is corrupted. Back up audit.db and delete it for a fresh chain.';
+      case 'BASTION-9005':
+        return 'Bastion must not run as root. Check systemd User= directive and file ownership.';
+      case 'BASTION-9006':
+        return 'Fix data directory permissions: chmod 750 /var/lib/bastion';
+      case 'BASTION-9007':
+        return 'Safety engine bypass detected. Review recent messages in audit log.';
+      case 'BASTION-9008':
+        return 'TLS certificate invalid or expired. Renew certificates.';
+      case 'BASTION-9009':
+        return 'Component identity mismatch. Verify all components are same version.';
+      default:
+        return 'Review the audit log for details: bastion audit --last 50';
+    }
   }
 
   // -----------------------------------------------------------------------

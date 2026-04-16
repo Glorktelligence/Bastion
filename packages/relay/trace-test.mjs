@@ -23,11 +23,15 @@ import {
   AUDIT_EVENT_TYPES,
   ReconnectionManager,
   BastionGuardian,
+  GUARDIAN_STATE_FILENAME,
   ViolationTracker,
   DEFAULT_VIOLATION_THRESHOLDS,
   RateMonitor,
   RATE_EXEMPT_TYPES,
 } from './dist/index.js';
+import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join as pathJoin } from 'node:path';
 import { verifyChain, verifyRange, verifySingleEntry, GENESIS_SEED } from '@bastion/crypto';
 import { PROTOCOL_VERSION, MESSAGE_TYPES } from '@bastion/protocol';
 import { WebSocket } from 'ws';
@@ -1860,6 +1864,161 @@ async function run() {
     check('Guardian: AUDIT_EVENT_TYPES.GUARDIAN_CHECK', AUDIT_EVENT_TYPES.GUARDIAN_CHECK === 'guardian_check');
     check('Guardian: AUDIT_EVENT_TYPES.GUARDIAN_VIOLATION', AUDIT_EVENT_TYPES.GUARDIAN_VIOLATION === 'guardian_violation');
     check('Guardian: AUDIT_EVENT_TYPES.GUARDIAN_STATUS_QUERIED', AUDIT_EVENT_TYPES.GUARDIAN_STATUS_QUERIED === 'guardian_status_queried');
+
+    // ------ Phase 5: Guardian state persistence + suggested actions ------
+    check('Guardian: GUARDIAN_STATE_FILENAME exported', GUARDIAN_STATE_FILENAME === 'guardian-state.json');
+
+    // writeShutdownState writes valid JSON file with expected fields
+    {
+      const tmpDir = mkdtempSync(pathJoin(tmpdir(), 'bastion-guardian-test-'));
+      try {
+        const gw = new BastionGuardian({
+          version: '0.8.1',
+          dataDir: tmpDir,
+          bastionUser: 'bastion',
+          checkIntervalMs: 60000,
+        });
+        // Populate lastChecks so state includes them
+        gw.runChecks();
+
+        const returned = gw.writeShutdownState('BASTION-9002', 'Foreign harness: OPENCLAW_HOME');
+        check('Guardian: writeShutdownState returns state object', returned && returned.code === 'BASTION-9002');
+        check('Guardian: writeShutdownState returns health=COMPROMISED', returned.health === 'COMPROMISED');
+        check('Guardian: writeShutdownState returns componentStatus', returned.componentStatus === 'OFFLINE - COMPROMISED');
+
+        const statePath = pathJoin(tmpDir, GUARDIAN_STATE_FILENAME);
+        check('Guardian: writeShutdownState creates file on disk', existsSync(statePath));
+
+        const parsed = JSON.parse(readFileSync(statePath, 'utf-8'));
+        check('Guardian: persisted state has code', parsed.code === 'BASTION-9002');
+        check('Guardian: persisted state has reason', parsed.reason === 'Foreign harness: OPENCLAW_HOME');
+        check('Guardian: persisted state has timestamp (ISO)', typeof parsed.timestamp === 'string' && parsed.timestamp.length > 0);
+        check('Guardian: persisted state has health=COMPROMISED', parsed.health === 'COMPROMISED');
+        check('Guardian: persisted state has componentStatus', parsed.componentStatus === 'OFFLINE - COMPROMISED');
+        check('Guardian: persisted state includes suggestedActions', typeof parsed.suggestedActions === 'string' && parsed.suggestedActions.length > 0);
+        check('Guardian: persisted state includes checks array', Array.isArray(parsed.checks));
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    }
+
+    // writeShutdownState tolerates a missing dataDir — does not throw
+    {
+      const missingDir = pathJoin(tmpdir(), 'bastion-guardian-missing-' + Date.now());
+      const gm = new BastionGuardian({
+        version: '0.8.1',
+        dataDir: missingDir,
+        bastionUser: 'bastion',
+        checkIntervalMs: 60000,
+      });
+      // Suppress expected write-error stderr
+      const originalError = console.error;
+      console.error = () => {};
+      let threw = false;
+      try {
+        gm.writeShutdownState('BASTION-9004', 'Chain broken');
+      } catch {
+        threw = true;
+      }
+      console.error = originalError;
+      check('Guardian: writeShutdownState does not throw on missing dataDir', !threw);
+    }
+
+    // getSuggestedActions returns specific advice for each BASTION-9XXX code
+    {
+      const gs = new BastionGuardian({
+        version: '0.8.1',
+        dataDir: '/tmp',
+        bastionUser: 'bastion',
+        checkIntervalMs: 60000,
+      });
+      const codes = [
+        'BASTION-9001',
+        'BASTION-9002',
+        'BASTION-9003',
+        'BASTION-9004',
+        'BASTION-9005',
+        'BASTION-9006',
+        'BASTION-9007',
+        'BASTION-9008',
+        'BASTION-9009',
+      ];
+      for (const c of codes) {
+        const advice = gs.getSuggestedActions(c);
+        check(`Guardian: getSuggestedActions has advice for ${c}`, typeof advice === 'string' && advice.length > 0);
+      }
+
+      // Default branch for unknown codes
+      const unknown = gs.getSuggestedActions('BASTION-9999');
+      check('Guardian: getSuggestedActions default branch is non-empty', typeof unknown === 'string' && unknown.length > 0);
+      check('Guardian: default advice mentions audit log', unknown.toLowerCase().includes('audit'));
+
+      // Known codes get distinct advice from the default
+      check('Guardian: BASTION-9002 advice distinct from default', gs.getSuggestedActions('BASTION-9002') !== unknown);
+      check('Guardian: BASTION-9006 advice mentions chmod', gs.getSuggestedActions('BASTION-9006').includes('chmod'));
+      check('Guardian: BASTION-9002 advice mentions foreign harness', gs.getSuggestedActions('BASTION-9002').toLowerCase().includes('harness'));
+    }
+
+    // trigger('critical', ...) writes state file BEFORE exit(99)
+    {
+      const tmpDir = mkdtempSync(pathJoin(tmpdir(), 'bastion-guardian-test-'));
+      try {
+        const gt = new BastionGuardian({
+          version: '0.8.1',
+          dataDir: tmpDir,
+          bastionUser: 'bastion',
+          checkIntervalMs: 60000,
+        });
+        gt.runChecks();
+
+        // Stub process.exit so the test harness doesn't terminate on the 500ms
+        // setTimeout that trigger() schedules. We only need to verify the
+        // state file is written synchronously BEFORE that timeout is armed.
+        const originalExit = process.exit;
+        process.exit = (() => {});
+
+        // Suppress expected GUARDIAN stderr
+        const originalError = console.error;
+        console.error = () => {};
+
+        gt.trigger('BASTION-9007', 'Safety engine bypass', 'critical');
+
+        console.error = originalError;
+        process.exit = originalExit;
+
+        const statePath = pathJoin(tmpDir, GUARDIAN_STATE_FILENAME);
+        check('Guardian: critical trigger writes state file', existsSync(statePath));
+        const parsed = JSON.parse(readFileSync(statePath, 'utf-8'));
+        check('Guardian: critical trigger persists correct code', parsed.code === 'BASTION-9007');
+        check('Guardian: critical trigger persists correct reason', parsed.reason === 'Safety engine bypass');
+        check('Guardian: critical trigger sets status=shutdown', gt.getOperationalStatus() === 'shutdown');
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    }
+
+    // 'severe' and 'warning' triggers do NOT write the state file
+    {
+      const tmpDir = mkdtempSync(pathJoin(tmpdir(), 'bastion-guardian-test-'));
+      try {
+        const gn = new BastionGuardian({
+          version: '0.8.1',
+          dataDir: tmpDir,
+          bastionUser: 'bastion',
+          checkIntervalMs: 60000,
+        });
+        // Suppress expected stderr
+        const originalError = console.error;
+        console.error = () => {};
+        gn.trigger('BASTION-9008', 'TLS cert expired', 'warning');
+        gn.trigger('BASTION-9006', 'Data dir world-readable', 'severe');
+        console.error = originalError;
+        const statePath = pathJoin(tmpDir, GUARDIAN_STATE_FILENAME);
+        check('Guardian: non-critical triggers do not write state file', !existsSync(statePath));
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    }
   }
   console.log();
 
