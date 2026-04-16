@@ -1070,6 +1070,14 @@ export interface GuardianConnectedComponent {
   readonly connectedAt: string;
 }
 
+/** Runtime monitoring subsystem stats (Phase 3). Optional — only present when monitors are wired. */
+export interface GuardianRuntimeMonitoring {
+  readonly violationTrackerActive: boolean;
+  readonly rateMonitorActive: boolean;
+  readonly activeViolationWindows: number;
+  readonly trackedConnections: number;
+}
+
 /** Relay → Requester: Guardian reports its current state. */
 export interface GuardianStatusPayload {
   readonly status: GuardianStatus;
@@ -1079,6 +1087,8 @@ export interface GuardianStatusPayload {
   readonly environmentClean: boolean;
   readonly checks: readonly GuardianCheckResult[];
   readonly connectedComponents: readonly GuardianConnectedComponent[];
+  /** Runtime monitoring stats (Phase 3). Omitted when no monitors are registered. */
+  readonly runtimeMonitoring?: GuardianRuntimeMonitoring;
 }
 
 /** Any → Relay: Request Guardian's current status. */

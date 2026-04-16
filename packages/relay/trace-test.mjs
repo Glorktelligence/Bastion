@@ -23,6 +23,10 @@ import {
   AUDIT_EVENT_TYPES,
   ReconnectionManager,
   BastionGuardian,
+  ViolationTracker,
+  DEFAULT_VIOLATION_THRESHOLDS,
+  RateMonitor,
+  RATE_EXEMPT_TYPES,
 } from './dist/index.js';
 import { verifyChain, verifyRange, verifySingleEntry, GENESIS_SEED } from '@bastion/crypto';
 import { PROTOCOL_VERSION, MESSAGE_TYPES } from '@bastion/protocol';
@@ -1856,6 +1860,418 @@ async function run() {
     check('Guardian: AUDIT_EVENT_TYPES.GUARDIAN_CHECK', AUDIT_EVENT_TYPES.GUARDIAN_CHECK === 'guardian_check');
     check('Guardian: AUDIT_EVENT_TYPES.GUARDIAN_VIOLATION', AUDIT_EVENT_TYPES.GUARDIAN_VIOLATION === 'guardian_violation');
     check('Guardian: AUDIT_EVENT_TYPES.GUARDIAN_STATUS_QUERIED', AUDIT_EVENT_TYPES.GUARDIAN_STATUS_QUERIED === 'guardian_status_queried');
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: ViolationTracker (Guardian Phase 3 runtime monitoring)
+  // -------------------------------------------------------------------
+  console.log('--- Test: ViolationTracker ---');
+  {
+    // Simple threshold: 3 of 'test_v' in 60s
+    const simpleThresholds = [
+      { type: 'test_v', maxCount: 3, windowMs: 60_000, severity: 'severe', code: 'BASTION-9007' },
+    ];
+
+    // Record single violation doesn't trigger threshold
+    {
+      const fired = [];
+      const t = new ViolationTracker(simpleThresholds, (th, w) => fired.push({ th, w }));
+      t.record('test_v', 'conn-A');
+      check('VT: single violation does not fire', fired.length === 0);
+      check('VT: activeWindowCount includes per-type + wildcard', t.activeWindowCount === 2);
+    }
+
+    // Record to threshold triggers callback
+    {
+      const fired = [];
+      const t = new ViolationTracker(simpleThresholds, (th, w) => fired.push({ th, w }));
+      t.record('test_v', 'conn-A');
+      t.record('test_v', 'conn-A');
+      t.record('test_v', 'conn-A');
+      check('VT: threshold fires at maxCount', fired.length === 1);
+      check('VT: threshold fire has correct code', fired[0].th.code === 'BASTION-9007');
+      check('VT: threshold fire has correct window.count', fired[0].w.count === 3);
+      check('VT: threshold fire has correct connectionId', fired[0].w.connectionId === 'conn-A');
+
+      // Fourth violation in same window does NOT re-fire (idempotency)
+      t.record('test_v', 'conn-A');
+      check('VT: does not re-fire for same window', fired.length === 1);
+    }
+
+    // Per-connection isolation — two connections tracked independently
+    {
+      const fired = [];
+      const t = new ViolationTracker(simpleThresholds, (th, w) => fired.push({ th, w }));
+      t.record('test_v', 'conn-A');
+      t.record('test_v', 'conn-A');
+      t.record('test_v', 'conn-B');
+      t.record('test_v', 'conn-B');
+      check('VT: per-connection isolation — neither fires alone', fired.length === 0);
+      t.record('test_v', 'conn-A');
+      check('VT: conn-A fires alone', fired.length === 1 && fired[0].w.connectionId === 'conn-A');
+      t.record('test_v', 'conn-B');
+      check('VT: conn-B fires independently', fired.length === 2 && fired[1].w.connectionId === 'conn-B');
+    }
+
+    // Violations outside time window don't count (simulated via very short window)
+    {
+      const shortThresholds = [
+        { type: 'fast_v', maxCount: 2, windowMs: 30, severity: 'warning', code: 'BASTION-9009' },
+      ];
+      const fired = [];
+      const t = new ViolationTracker(shortThresholds, (th, w) => fired.push({ th, w }));
+      t.record('fast_v', 'conn-X');
+      await new Promise((r) => setTimeout(r, 60));
+      t.record('fast_v', 'conn-X');
+      check('VT: expired window does not fire on 2nd violation', fired.length === 0);
+    }
+
+    // Wildcard threshold aggregates mixed types from the same connection
+    {
+      const mixedThresholds = [
+        { type: '*', maxCount: 4, windowMs: 60_000, severity: 'critical', code: 'BASTION-9007' },
+      ];
+      const fired = [];
+      const t = new ViolationTracker(mixedThresholds, (th, w) => fired.push({ th, w }));
+      t.record('type_a', 'conn-M');
+      t.record('type_b', 'conn-M');
+      t.record('type_c', 'conn-M');
+      check('VT: wildcard not yet fired', fired.length === 0);
+      t.record('type_d', 'conn-M');
+      check('VT: wildcard fires on mixed types', fired.length === 1);
+      check('VT: wildcard fire uses critical severity', fired[0].th.severity === 'critical');
+      check('VT: wildcard window.count aggregated', fired[0].w.count === 4);
+    }
+
+    // cleanup() removes expired windows
+    {
+      const shortThresholds = [
+        { type: 'gc_v', maxCount: 100, windowMs: 20, severity: 'warning', code: 'BASTION-9009' },
+      ];
+      const t = new ViolationTracker(shortThresholds, () => {});
+      t.record('gc_v', 'conn-G');
+      t.record('gc_v', 'conn-G');
+      check('VT: windows present before cleanup', t.activeWindowCount === 2);
+      await new Promise((r) => setTimeout(r, 50));
+      t.cleanup();
+      check('VT: cleanup removes expired windows', t.activeWindowCount === 0);
+    }
+
+    // getStats() returns accurate counts per type
+    {
+      const t = new ViolationTracker(simpleThresholds, () => {});
+      t.record('test_v', 'conn-1');
+      t.record('test_v', 'conn-1');
+      t.record('test_v', 'conn-2');
+      const stats = t.getStats();
+      check('VT: getStats has test_v', stats.has('test_v'));
+      const testVStats = stats.get('test_v');
+      check('VT: getStats test_v count (2+1=3)', testVStats.count === 3);
+      check('VT: getStats test_v has 2 connections', testVStats.connections.size === 2);
+      check('VT: getStats has wildcard entries too', stats.has('*'));
+    }
+
+    // removeConnection() removes per-connection tracking
+    {
+      const t = new ViolationTracker(simpleThresholds, () => {});
+      t.record('test_v', 'conn-R');
+      t.record('test_v', 'conn-R');
+      t.record('test_v', 'conn-S');
+      check('VT: 4 windows before removal (2 types × 2 conns)', t.activeWindowCount === 4);
+      t.removeConnection('conn-R');
+      check('VT: 2 windows after removing conn-R', t.activeWindowCount === 2);
+      const stats = t.getStats();
+      const testVStats = stats.get('test_v');
+      check('VT: conn-R purged from stats', testVStats.count === 1);
+      check('VT: only conn-S remains', testVStats.connections.has('conn-S') && !testVStats.connections.has('conn-R'));
+    }
+
+    // DEFAULT_VIOLATION_THRESHOLDS shape
+    check('VT: DEFAULT_VIOLATION_THRESHOLDS has 3 entries', DEFAULT_VIOLATION_THRESHOLDS.length === 3);
+    check('VT: default includes sender_type_mismatch', DEFAULT_VIOLATION_THRESHOLDS.some(t => t.type === 'sender_type_mismatch'));
+    check('VT: default includes schema_violation', DEFAULT_VIOLATION_THRESHOLDS.some(t => t.type === 'schema_violation'));
+    check('VT: default includes wildcard', DEFAULT_VIOLATION_THRESHOLDS.some(t => t.type === '*'));
+    const wildcardDefault = DEFAULT_VIOLATION_THRESHOLDS.find(t => t.type === '*');
+    check('VT: wildcard default is critical', wildcardDefault.severity === 'critical');
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: RateMonitor (Guardian Phase 3 runtime monitoring)
+  // -------------------------------------------------------------------
+  console.log('--- Test: RateMonitor ---');
+  {
+    // Record messages below sustained threshold — no callback
+    {
+      const events = [];
+      const m = new RateMonitor({
+        maxMessagesPerWindow: 10,
+        windowMs: 60_000,
+        burstThreshold: 100,
+        burstWindowMs: 5_000,
+        onRateExceeded: (c, r, w) => events.push({ c, r, w }),
+      });
+      for (let i = 0; i < 5; i++) m.recordMessage('conn-A');
+      check('RM: below sustained threshold — no event', events.length === 0);
+    }
+
+    // Record at sustained threshold triggers callback
+    {
+      const events = [];
+      const m = new RateMonitor({
+        maxMessagesPerWindow: 5,
+        windowMs: 60_000,
+        burstThreshold: 100, // out of reach
+        burstWindowMs: 5_000,
+        onRateExceeded: (c, r, w) => events.push({ c, r, w }),
+      });
+      for (let i = 0; i < 6; i++) m.recordMessage('conn-A');
+      check('RM: sustained threshold fires', events.length === 1);
+      check('RM: sustained window label', events[0].w === 'sustained');
+      check('RM: sustained fire rate is 6', events[0].r === 6);
+
+      // Does not re-fire once flagged
+      m.recordMessage('conn-A');
+      check('RM: does not re-fire within same window', events.length === 1);
+    }
+
+    // Burst detection — many messages in a short burst window
+    {
+      const events = [];
+      const m = new RateMonitor({
+        maxMessagesPerWindow: 10_000, // out of reach
+        windowMs: 60_000,
+        burstThreshold: 3,
+        burstWindowMs: 1_000,
+        onRateExceeded: (c, r, w) => events.push({ c, r, w }),
+      });
+      for (let i = 0; i < 4; i++) m.recordMessage('conn-B');
+      check('RM: burst fires', events.length === 1);
+      check('RM: burst window label', events[0].w === 'burst');
+    }
+
+    // Burst clears once messages drop below threshold
+    {
+      const events = [];
+      const m = new RateMonitor({
+        maxMessagesPerWindow: 10_000,
+        windowMs: 60_000,
+        burstThreshold: 2,
+        burstWindowMs: 100,
+        onRateExceeded: (c, r, w) => events.push({ c, r, w }),
+      });
+      m.recordMessage('conn-C');
+      m.recordMessage('conn-C');
+      m.recordMessage('conn-C'); // 3 > 2 → burst fires
+      check('RM: first burst fires', events.length === 1);
+      await new Promise((r) => setTimeout(r, 150));
+      // After the burst window, one message should not re-fire
+      m.recordMessage('conn-C');
+      check('RM: single message after burst window — no fire', events.length === 1);
+    }
+
+    // Rate-exempt types set is correct
+    check('RM: RATE_EXEMPT_TYPES has conversation_stream', RATE_EXEMPT_TYPES.has('conversation_stream'));
+    check('RM: RATE_EXEMPT_TYPES has ping', RATE_EXEMPT_TYPES.has('ping'));
+    check('RM: RATE_EXEMPT_TYPES has pong', RATE_EXEMPT_TYPES.has('pong'));
+    check('RM: RATE_EXEMPT_TYPES has key_exchange', RATE_EXEMPT_TYPES.has('key_exchange'));
+    check('RM: RATE_EXEMPT_TYPES has session_init', RATE_EXEMPT_TYPES.has('session_init'));
+    check('RM: RATE_EXEMPT_TYPES does not have conversation', !RATE_EXEMPT_TYPES.has('conversation'));
+
+    // removeConnection cleans up tracking
+    {
+      const m = new RateMonitor({
+        maxMessagesPerWindow: 100,
+        windowMs: 60_000,
+        burstThreshold: 100,
+        burstWindowMs: 5_000,
+        onRateExceeded: () => {},
+      });
+      m.recordMessage('conn-D');
+      m.recordMessage('conn-E');
+      check('RM: 2 tracked before removal', m.trackedConnectionCount === 2);
+      m.removeConnection('conn-D');
+      check('RM: 1 tracked after removeConnection', m.trackedConnectionCount === 1);
+      const rates = m.getRates();
+      check('RM: conn-D removed from rates', !rates.has('conn-D'));
+      check('RM: conn-E remains in rates', rates.has('conn-E'));
+    }
+
+    // getRates returns per-connection snapshot
+    {
+      const m = new RateMonitor({
+        maxMessagesPerWindow: 100,
+        windowMs: 60_000,
+        burstThreshold: 100,
+        burstWindowMs: 5_000,
+        onRateExceeded: () => {},
+      });
+      m.recordMessage('conn-F');
+      m.recordMessage('conn-F');
+      m.recordMessage('conn-F');
+      const rates = m.getRates();
+      check('RM: getRates has conn-F', rates.has('conn-F'));
+      const snap = rates.get('conn-F');
+      check('RM: snapshot has messagesPerMinute', typeof snap.messagesPerMinute === 'number');
+      check('RM: snapshot has burstDetected=false', snap.burstDetected === false);
+    }
+
+    // Window reset — messages after window expiry start fresh
+    {
+      const events = [];
+      const m = new RateMonitor({
+        maxMessagesPerWindow: 3,
+        windowMs: 50, // very short for test
+        burstThreshold: 100,
+        burstWindowMs: 5_000,
+        onRateExceeded: (c, r, w) => events.push({ c, r, w }),
+      });
+      m.recordMessage('conn-W');
+      m.recordMessage('conn-W');
+      m.recordMessage('conn-W');
+      // 3 does NOT exceed (threshold is >3). 4 would exceed.
+      check('RM: 3 messages at threshold — no fire', events.length === 0);
+      await new Promise((r) => setTimeout(r, 80));
+      // Window has reset — 3 more should not fire
+      m.recordMessage('conn-W');
+      m.recordMessage('conn-W');
+      m.recordMessage('conn-W');
+      check('RM: window reset — 3 more do not fire', events.length === 0);
+    }
+
+    // cleanup removes stale connections
+    {
+      const m = new RateMonitor({
+        maxMessagesPerWindow: 100,
+        windowMs: 20,
+        burstThreshold: 100,
+        burstWindowMs: 20,
+        onRateExceeded: () => {},
+      });
+      m.recordMessage('conn-GC');
+      check('RM: 1 tracked after record', m.trackedConnectionCount === 1);
+      await new Promise((r) => setTimeout(r, 60));
+      m.cleanup();
+      check('RM: cleanup removes stale connection', m.trackedConnectionCount === 0);
+    }
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: Guardian getStatus includes runtimeMonitoring (Phase 3)
+  // -------------------------------------------------------------------
+  console.log('--- Test: Guardian runtime monitoring status ---');
+  {
+    const g = new BastionGuardian({
+      version: '0.8.1',
+      dataDir: '/tmp',
+      bastionUser: 'bastion',
+      checkIntervalMs: 60000,
+    });
+
+    // No monitors registered → runtimeMonitoring absent
+    const statusBefore = g.getStatus();
+    check('Guardian: runtimeMonitoring absent before registration', statusBefore.runtimeMonitoring === undefined);
+
+    // Register trackers
+    const tracker = new ViolationTracker(DEFAULT_VIOLATION_THRESHOLDS, () => {});
+    const monitor = new RateMonitor({
+      maxMessagesPerWindow: 120,
+      windowMs: 60_000,
+      burstThreshold: 20,
+      burstWindowMs: 5_000,
+      onRateExceeded: () => {},
+    });
+    g.registerRuntimeMonitors({ violationTracker: tracker, rateMonitor: monitor });
+
+    // Simulate some activity
+    tracker.record('sender_type_mismatch', 'c1');
+    tracker.record('schema_violation', 'c1');
+    monitor.recordMessage('c1');
+    monitor.recordMessage('c2');
+
+    const status = g.getStatus();
+    check('Guardian: runtimeMonitoring present after registration', status.runtimeMonitoring !== undefined);
+    check('Guardian: violationTrackerActive=true', status.runtimeMonitoring.violationTrackerActive === true);
+    check('Guardian: rateMonitorActive=true', status.runtimeMonitoring.rateMonitorActive === true);
+    check('Guardian: activeViolationWindows > 0', status.runtimeMonitoring.activeViolationWindows > 0);
+    check('Guardian: trackedConnections > 0', status.runtimeMonitoring.trackedConnections >= 2);
+
+    // Integration: threshold breach calls Guardian.trigger via a wired callback
+    {
+      // Suppress expected violation output (stderr breaks node --test)
+      const originalError = console.error;
+      console.error = () => {};
+
+      let triggered = null;
+      const g2 = new BastionGuardian({
+        version: '0.8.1',
+        dataDir: '/tmp',
+        bastionUser: 'bastion',
+        checkIntervalMs: 60000,
+      });
+      g2.onTrigger((code, reason, severity) => { triggered = { code, reason, severity }; });
+
+      const simpleThresholds = [
+        { type: 'sender_type_mismatch', maxCount: 3, windowMs: 60_000, severity: 'severe', code: 'BASTION-9007' },
+      ];
+      const wiredTracker = new ViolationTracker(simpleThresholds, (threshold, window) => {
+        g2.trigger(threshold.code, `Repeated ${threshold.type}: ${window.count}`, threshold.severity);
+      });
+      g2.registerRuntimeMonitors({ violationTracker: wiredTracker });
+
+      for (let i = 0; i < 3; i++) wiredTracker.record('sender_type_mismatch', 'attacker-conn');
+
+      console.error = originalError;
+
+      check('Guardian integration: ViolationTracker breach triggers Guardian', triggered !== null);
+      check('Guardian integration: trigger code is BASTION-9007', triggered?.code === 'BASTION-9007');
+      check('Guardian integration: trigger severity is severe', triggered?.severity === 'severe');
+      check('Guardian integration: Guardian status is alert', g2.getOperationalStatus() === 'alert');
+    }
+
+    // Integration: rate exceed calls Guardian.trigger with warning severity.
+    // Note: Guardian.trigger with 'warning' severity changes status but does NOT call
+    // onTrigger callbacks (existing contract — warnings are audit-only).
+    // We verify the Guardian received the trigger by checking status transition.
+    {
+      // Suppress expected warning output (stderr breaks node --test)
+      const originalError = console.error;
+      const originalWarn = console.warn;
+      console.error = () => {};
+      console.warn = () => {};
+
+      const g3 = new BastionGuardian({
+        version: '0.8.1',
+        dataDir: '/tmp',
+        bastionUser: 'bastion',
+        checkIntervalMs: 60000,
+      });
+
+      check('Guardian integration: initial status active before rate trigger', g3.getOperationalStatus() === 'active');
+
+      const wiredMonitor = new RateMonitor({
+        maxMessagesPerWindow: 3,
+        windowMs: 60_000,
+        burstThreshold: 100,
+        burstWindowMs: 5_000,
+        onRateExceeded: (connId, rate, window) => {
+          g3.trigger('BASTION-9009', `Rate anomaly from ${connId}: ${rate} (${window})`, 'warning');
+        },
+      });
+      g3.registerRuntimeMonitors({ rateMonitor: wiredMonitor });
+
+      for (let i = 0; i < 4; i++) wiredMonitor.recordMessage('noisy-conn');
+
+      console.error = originalError;
+      console.warn = originalWarn;
+
+      check('Guardian integration: RateMonitor exceed flips Guardian to alert', g3.getOperationalStatus() === 'alert');
+      // getStatus().runtimeMonitoring confirms the monitor is still reachable post-trigger
+      const st = g3.getStatus();
+      check('Guardian integration: status includes rateMonitorActive', st.runtimeMonitoring?.rateMonitorActive === true);
+    }
   }
   console.log();
 

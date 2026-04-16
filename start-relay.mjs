@@ -20,6 +20,10 @@ import {
   ReconnectionManager,
   isPrivateHost,
   BastionGuardian,
+  ViolationTracker,
+  DEFAULT_VIOLATION_THRESHOLDS,
+  RateMonitor,
+  RATE_EXEMPT_TYPES,
 } from './packages/relay/dist/index.js';
 
 // ---------------------------------------------------------------------------
@@ -184,36 +188,9 @@ console.log('');
 const auditLogger = new AuditLogger({ store: { path: AUDIT_DB } });
 console.log('[✓] Audit logger initialised with hash chain');
 
-// Chain integrity monitor — periodic tamper-evident verification
-const chainIntegrityMonitor = new ChainIntegrityMonitor(auditLogger, (result) => {
-  if (!result.verification.valid) {
-    console.error(`[!!!] CHAIN INTEGRITY VIOLATION — ${result.mode} check failed at entry ${result.verification.brokenAtIndex ?? 'unknown'}`);
-    // Try to log the violation — but don't let a logging failure crash the relay
-    try {
-      auditLogger.logEvent('chain_integrity_violation', 'guardian-system', {
-        mode: result.mode,
-        entriesChecked: result.entriesChecked,
-        brokenAtIndex: result.verification.brokenAtIndex ?? null,
-        detectedAt: result.checkedAt,
-        durationMs: result.durationMs,
-      });
-    } catch (logErr) {
-      console.error(`[!!!] Could not log chain integrity violation (chain may be corrupted): ${logErr.message}`);
-    }
-  }
-}, { intervalMs: 5 * 60 * 1000, verifyOnStart: true });
-try {
-  chainIntegrityMonitor.start();
-  console.log('[✓] Chain integrity monitor started (full check on startup, incremental every 5 min)');
-} catch (chainErr) {
-  console.error(`[!!!] Chain integrity monitor failed to start: ${chainErr.message}`);
-  console.error('[!!!] The audit chain may be corrupted — manual investigation required');
-  console.error('[!!!] Relay will continue operating but chain verification is DISABLED');
-  // Don't crash — the relay must operate. Guardian will flag this.
-}
-
 // ---------------------------------------------------------------------------
 // BastionGuardian — 7th Sole Authority
+// (instantiated BEFORE chain integrity monitor so it can receive violations)
 // ---------------------------------------------------------------------------
 
 const GUARDIAN_DATA_DIR = process.env.BASTION_DATA || '/var/lib/bastion';
@@ -243,6 +220,92 @@ if (guardianInitResult.passed) {
 guardian.startPeriodicChecks();
 console.log(`[✓] BastionGuardian active — 7th sole authority armed`);
 console.log(`[✓] Guardian checks: ${guardianInitResult.checks.filter(c => c.passed).length}/${guardianInitResult.checks.length} passed`);
+
+// Chain integrity monitor — periodic tamper-evident verification
+// Guardian wiring: chain integrity failure is CRITICAL — feeds into Guardian for cascade shutdown.
+const chainIntegrityMonitor = new ChainIntegrityMonitor(auditLogger, (result) => {
+  // Entire callback wrapped — if the chain is corrupted AND the audit log is what's broken,
+  // we must not crash. Last-resort console error is acceptable; the relay must keep operating
+  // long enough for Guardian to orchestrate a clean shutdown.
+  try {
+    if (!result.verification.valid) {
+      const brokenAt = result.verification.brokenAtIndex ?? 'unknown';
+      console.error(`[!!!] CHAIN INTEGRITY VIOLATION — ${result.mode} check failed at entry ${brokenAt}`);
+      // Try to log the violation — but don't let a logging failure crash the relay
+      try {
+        auditLogger.logEvent('chain_integrity_violation', 'guardian-system', {
+          mode: result.mode,
+          entriesChecked: result.entriesChecked,
+          brokenAtIndex: result.verification.brokenAtIndex ?? null,
+          detectedAt: result.checkedAt,
+          durationMs: result.durationMs,
+        });
+      } catch (logErr) {
+        console.error(`[!!!] Could not log chain integrity violation (chain may be corrupted): ${logErr.message}`);
+      }
+      // Feed into Guardian — chain tampering is CRITICAL, triggers cascade shutdown
+      try {
+        guardian.trigger(
+          'BASTION-9004',
+          `Audit chain integrity failure at entry ${brokenAt} (${result.mode} check)`,
+          'critical',
+        );
+      } catch (gErr) {
+        console.error(`[!!!] Guardian.trigger failed on chain integrity violation: ${gErr.message}`);
+      }
+    }
+  } catch (cbErr) {
+    console.error(`[!!!] Chain integrity callback error (suppressed to keep relay alive): ${cbErr?.message ?? cbErr}`);
+  }
+}, { intervalMs: 5 * 60 * 1000, verifyOnStart: true });
+try {
+  chainIntegrityMonitor.start();
+  console.log('[✓] Chain integrity monitor started (full check on startup, incremental every 5 min)');
+} catch (chainErr) {
+  console.error(`[!!!] Chain integrity monitor failed to start: ${chainErr.message}`);
+  console.error('[!!!] The audit chain may be corrupted — manual investigation required');
+  console.error('[!!!] Relay will continue operating but chain verification is DISABLED');
+  // Don't crash — the relay must operate. Guardian will flag this.
+}
+
+// ---------------------------------------------------------------------------
+// Guardian Phase 3 — Runtime monitors (violation tracking + rate monitoring)
+// ---------------------------------------------------------------------------
+
+const violationTracker = new ViolationTracker(
+  DEFAULT_VIOLATION_THRESHOLDS,
+  (threshold, window) => {
+    const short = window.connectionId.slice(0, 8);
+    const windowSec = Math.round(threshold.windowMs / 1000);
+    console.error(`[!] GUARDIAN: Violation threshold breached: ${threshold.type} — ${window.count} violations in ${windowSec}s from ${short}`);
+    guardian.trigger(
+      threshold.code,
+      `Repeated ${threshold.type} violations: ${window.count} in ${windowSec}s from connection ${short}`,
+      threshold.severity,
+    );
+  },
+);
+console.log('[✓] Violation tracker active (threshold-based attack detection)');
+
+const rateMonitor = new RateMonitor({
+  maxMessagesPerWindow: parseIntEnv('BASTION_RATE_MAX_PER_WINDOW', 120, 1, 100000),
+  windowMs: parseIntEnv('BASTION_RATE_WINDOW_MS', 60_000, 1000, 3600000),
+  burstThreshold: parseIntEnv('BASTION_RATE_BURST_THRESHOLD', 20, 1, 10000),
+  burstWindowMs: parseIntEnv('BASTION_RATE_BURST_WINDOW_MS', 5_000, 100, 60000),
+  onRateExceeded: (connectionId, rate, window) => {
+    const short = connectionId.slice(0, 8);
+    console.warn(`[!] Rate limit: ${short} — ${rate} msgs (${window})`);
+    guardian.trigger(
+      'BASTION-9009',
+      `Message rate anomaly from ${short}: ${rate} messages (${window} detection)`,
+      'warning',
+    );
+  },
+});
+console.log('[✓] Rate monitor active (sustained + burst detection)');
+
+// Register trackers with Guardian for getStatus() reporting + periodic cleanup
+guardian.registerRuntimeMonitors({ violationTracker, rateMonitor });
 
 const JWT_ISSUER = process.env.BASTION_JWT_ISSUER || 'bastion-relay';
 const REVOKED_JTI_DB = process.env.BASTION_REVOKED_JTI_DB || '/var/lib/bastion/relay/revoked-jtis.db';
@@ -861,6 +924,8 @@ relay.on('message', async (data, info) => {
     msg = JSON.parse(data);
   } catch {
     console.error(`[!] Non-JSON message from ${connId.slice(0, 8)} — dropping`);
+    // Feed into Guardian ViolationTracker — repeated malformed messages = injection probing
+    violationTracker.record('schema_violation', connId);
     return;
   }
 
@@ -1256,7 +1321,14 @@ relay.on('message', async (data, info) => {
       actualSenderType: actualType,
       expectedSenderType: expectedType,
     });
+    // Feed into Guardian ViolationTracker — sustained mismatches = attack
+    violationTracker.record('sender_type_mismatch', connId);
     return;
+  }
+
+  // ----- Rate monitoring — count user-initiated messages (exempt streaming + keepalive) -----
+  if (!RATE_EXEMPT_TYPES.has(msg.type)) {
+    rateMonitor.recordMessage(connId);
   }
 
   // ----- memory_proposal / memory_decision: forward between paired clients -----
@@ -1920,6 +1992,8 @@ relay.on('disconnection', (info, code, reason) => {
   connectionIdentities.delete(connId);
   router.unregisterClient(connId);
   connectionMessageCounts.delete(connId);
+  rateMonitor.removeConnection(connId);
+  violationTracker.removeConnection(connId);
 
   // Clear tracking and notify remaining peer
   if (connId === humanConnectionId) {

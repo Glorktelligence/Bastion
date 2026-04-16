@@ -228,7 +228,31 @@ export type {
 // Guardian: BastionGuardian (7th Sole Authority)
 // ---------------------------------------------------------------------------
 export { BastionGuardian } from './guardian/bastion-guardian.js';
-export type { GuardianConfig, GuardianAuditLogger, GuardianTriggerCallback } from './guardian/bastion-guardian.js';
+export type {
+  GuardianConfig,
+  GuardianAuditLogger,
+  GuardianTriggerCallback,
+  GuardianViolationTrackerHandle,
+  GuardianRateMonitorHandle,
+} from './guardian/bastion-guardian.js';
+
+// ---------------------------------------------------------------------------
+// Guardian: Phase 3 runtime monitoring (violation tracking + rate monitoring)
+// ---------------------------------------------------------------------------
+export { ViolationTracker, DEFAULT_VIOLATION_THRESHOLDS } from './guardian/violation-tracker.js';
+export type {
+  ViolationWindow,
+  ViolationThreshold,
+  ViolationThresholdCallback,
+  ViolationStats,
+} from './guardian/violation-tracker.js';
+
+export { RateMonitor, RATE_EXEMPT_TYPES } from './guardian/rate-monitor.js';
+export type {
+  RateWindow,
+  RateConfig,
+  RateSnapshot,
+} from './guardian/rate-monitor.js';
 
 // ---------------------------------------------------------------------------
 // Extensions (types re-exported from @bastion/protocol — Protocol First)

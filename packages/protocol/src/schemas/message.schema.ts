@@ -963,6 +963,13 @@ export const GuardianConnectedComponentSchema = z.object({
   connectedAt: z.string().min(1),
 });
 
+export const GuardianRuntimeMonitoringSchema = z.object({
+  violationTrackerActive: z.boolean(),
+  rateMonitorActive: z.boolean(),
+  activeViolationWindows: z.number().int().min(0),
+  trackedConnections: z.number().int().min(0),
+});
+
 export const GuardianStatusPayloadSchema = z.object({
   status: GuardianStatusValueSchema,
   version: z.string().min(1),
@@ -971,6 +978,7 @@ export const GuardianStatusPayloadSchema = z.object({
   environmentClean: z.boolean(),
   checks: z.array(GuardianCheckResultSchema).readonly(),
   connectedComponents: z.array(GuardianConnectedComponentSchema).readonly(),
+  runtimeMonitoring: GuardianRuntimeMonitoringSchema.optional(),
 });
 
 export const GuardianStatusRequestPayloadSchema = z.object({});

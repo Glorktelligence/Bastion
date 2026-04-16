@@ -15,7 +15,12 @@
 
 import { statSync } from 'node:fs';
 import { platform, userInfo } from 'node:os';
-import type { GuardianCheckResult, GuardianConnectedComponent, GuardianStatusPayload } from '@bastion/protocol';
+import type {
+  GuardianCheckResult,
+  GuardianConnectedComponent,
+  GuardianRuntimeMonitoring,
+  GuardianStatusPayload,
+} from '@bastion/protocol';
 
 // ---------------------------------------------------------------------------
 // Foreign harness env var list (shared with AI client Phase 1)
@@ -63,6 +68,22 @@ export type GuardianTriggerCallback = (
   severity: 'critical' | 'severe' | 'warning',
 ) => void;
 
+/**
+ * Runtime monitor handles Phase 3 wires into the Guardian after construction
+ * (start-relay.mjs creates Guardian first, then the trackers, then registers them).
+ * Only the shapes the Guardian needs for getStatus() are exposed — the Guardian
+ * does not drive the monitors; the relay does that through its own callbacks.
+ */
+export interface GuardianViolationTrackerHandle {
+  readonly activeWindowCount: number;
+  cleanup(): void;
+}
+
+export interface GuardianRateMonitorHandle {
+  readonly trackedConnectionCount: number;
+  cleanup(): void;
+}
+
 // ---------------------------------------------------------------------------
 // BastionGuardian
 // ---------------------------------------------------------------------------
@@ -75,6 +96,8 @@ export class BastionGuardian {
   private checkInterval: ReturnType<typeof setInterval> | null = null;
   private readonly triggerCallbacks: GuardianTriggerCallback[] = [];
   private readonly connectedComponents: GuardianConnectedComponent[] = [];
+  private violationTracker: GuardianViolationTrackerHandle | null = null;
+  private rateMonitor: GuardianRateMonitorHandle | null = null;
 
   constructor(private readonly config: GuardianConfig) {}
 
@@ -111,11 +134,30 @@ export class BastionGuardian {
     return { passed: allPassed, checks };
   }
 
-  /** Start periodic checking (every config.checkIntervalMs). */
+  /**
+   * Start periodic checking (every config.checkIntervalMs).
+   * Also performs housekeeping on registered runtime monitors (Phase 3):
+   * expired violation windows and stale rate-monitor connections are pruned.
+   */
   startPeriodicChecks(): void {
     this.stopPeriodicChecks();
     const interval = setInterval(() => {
       this.runChecks();
+      // Runtime monitor housekeeping — errors swallowed to keep the tick alive.
+      if (this.violationTracker) {
+        try {
+          this.violationTracker.cleanup();
+        } catch (err) {
+          console.error('[!] Guardian: violationTracker cleanup error:', err);
+        }
+      }
+      if (this.rateMonitor) {
+        try {
+          this.rateMonitor.cleanup();
+        } catch (err) {
+          console.error('[!] Guardian: rateMonitor cleanup error:', err);
+        }
+      }
     }, this.config.checkIntervalMs);
     interval.unref();
     this.checkInterval = interval;
@@ -181,10 +223,23 @@ export class BastionGuardian {
     if (idx >= 0) this.connectedComponents.splice(idx, 1);
   }
 
+  /**
+   * Register Phase 3 runtime monitors so the Guardian can report on them
+   * and periodically drive their cleanup. Called once after construction
+   * by start-relay.mjs. Either handle may be passed individually.
+   */
+  registerRuntimeMonitors(monitors: {
+    violationTracker?: GuardianViolationTrackerHandle;
+    rateMonitor?: GuardianRateMonitorHandle;
+  }): void {
+    if (monitors.violationTracker) this.violationTracker = monitors.violationTracker;
+    if (monitors.rateMonitor) this.rateMonitor = monitors.rateMonitor;
+  }
+
   /** Get current Guardian status for guardian_status response. */
   getStatus(): GuardianStatusPayload {
     const uptimeSeconds = Math.floor((Date.now() - this.startedAt) / 1000);
-    return {
+    const base: GuardianStatusPayload = {
       status: this.status,
       version: this.config.version,
       uptimeSeconds,
@@ -193,6 +248,18 @@ export class BastionGuardian {
       checks: this.lastChecks,
       connectedComponents: [...this.connectedComponents],
     };
+
+    if (this.violationTracker || this.rateMonitor) {
+      const runtimeMonitoring: GuardianRuntimeMonitoring = {
+        violationTrackerActive: this.violationTracker !== null,
+        rateMonitorActive: this.rateMonitor !== null,
+        activeViolationWindows: this.violationTracker?.activeWindowCount ?? 0,
+        trackedConnections: this.rateMonitor?.trackedConnectionCount ?? 0,
+      };
+      return { ...base, runtimeMonitoring };
+    }
+
+    return base;
   }
 
   /** Get the current Guardian operational status. */
