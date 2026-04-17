@@ -28,6 +28,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 import type { AuditLogger } from '../audit/audit-logger.js';
 import type { TlsMaterial } from '../server/tls.js';
 import { AdminAuth, type AdminAuthResult } from './admin-auth.js';
+import type { AdminRateLimiter } from './admin-rate-limiter.js';
 import type { AdminRoutes } from './admin-routes.js';
 
 // ---------------------------------------------------------------------------
@@ -100,6 +101,12 @@ export interface AdminServerConfig {
   readonly sessionSecret?: Uint8Array;
   /** Directory containing the built admin UI static files. Null disables static serving. */
   readonly staticDir?: string | null;
+  /**
+   * Optional per-endpoint rate limiter. When provided, classified admin
+   * requests are checked against class-specific budgets before reaching the
+   * route handler. See `admin-rate-limiter.ts`.
+   */
+  readonly rateLimiter?: AdminRateLimiter;
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +135,7 @@ export class AdminServer {
   private readonly revokedSessions: Set<string>;
   private readonly staticDir: string | null;
   private readonly staticAvailable: boolean;
+  private readonly rateLimiter: AdminRateLimiter | null;
   private server: HttpsServer | null;
   private _running: boolean;
 
@@ -142,6 +150,7 @@ export class AdminServer {
     this.sessionTimeoutSec = config.sessionTimeoutSec ?? 1800;
     this.credentialsPath = config.credentialsPath ?? null;
     this.revokedSessions = new Set();
+    this.rateLimiter = config.rateLimiter ?? null;
     this.server = null;
     this._running = false;
 
@@ -560,6 +569,24 @@ export class AdminServer {
     res.setHeader('Content-Security-Policy', "default-src 'none'");
   }
 
+  /**
+   * Emit a 429 Too Many Requests response with `Retry-After` in seconds.
+   * Audit-free — the audit event is wired in a subsequent commit.
+   */
+  private send429(res: ServerResponse, retryAfterSec: number): void {
+    const body = JSON.stringify({
+      error: 'Too many requests',
+      reason: 'quota_exhausted',
+      retryAfterSec,
+    });
+    res.writeHead(429, {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body).toString(),
+      'Retry-After': String(retryAfterSec),
+    });
+    res.end(body);
+  }
+
   // -------------------------------------------------------------------------
   // Request handling
   // -------------------------------------------------------------------------
@@ -603,6 +630,22 @@ export class AdminServer {
     // or style anything.
     this.applyApiSecurityHeaders(res);
 
+    // Classify for rate limiting. `null` means unknown/unlimited path — we
+    // stay out of the way and let the route handler decide (404 or pass).
+    const cls = this.rateLimiter?.classify(method, urlPath) ?? null;
+
+    // Pre-auth setup-class check — keyed by remote IP because no session
+    // exists at setup time. Fires before handleAdminEndpoint so a spray
+    // against /api/admin/setup cannot reach the endpoint.
+    if (cls === 'setup' && this.rateLimiter) {
+      const ipKey = `ip:${req.socket.remoteAddress ?? 'unknown'}`;
+      const decision = this.rateLimiter.check(cls, ipKey);
+      if (!decision.allowed) {
+        this.send429(res, decision.retryAfterSec);
+        return;
+      }
+    }
+
     // Admin auth endpoints — handled before general routing
     if (urlPath.startsWith('/api/admin/')) {
       const handled = await this.handleAdminEndpoint(req, res, urlPath, method);
@@ -614,12 +657,24 @@ export class AdminServer {
     if (bearer) {
       const verified = this.verifySessionJwt(bearer);
       if (verified.valid) {
+        // Post-auth read/write check — keyed by session jti so a refresh gives
+        // a fresh budget but a stolen token cannot refresh (TOTP-gated).
+        if ((cls === 'read' || cls === 'write') && this.rateLimiter) {
+          const jtiKey = `jti:${verified.jti}`;
+          const decision = this.rateLimiter.check(cls, jtiKey);
+          if (!decision.allowed) {
+            this.send429(res, decision.retryAfterSec);
+            return;
+          }
+        }
         await this.routes.handleRequest(req, res, verified.username);
         return;
       }
     }
 
-    // Fall back to Basic + TOTP (backwards compatible)
+    // Fall back to Basic + TOTP (backwards compatible). No jti is available
+    // on this path — key on the validated username instead. Each basic-auth
+    // account thus gets its own bucket.
     const authResult = this.authenticate(req);
     if (!authResult.authenticated) {
       if (this.audit) {
@@ -632,6 +687,15 @@ export class AdminServer {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Unauthorized', reason: authResult.reason }));
       return;
+    }
+
+    if ((cls === 'read' || cls === 'write') && this.rateLimiter) {
+      const basicKey = `basic:${authResult.username}`;
+      const decision = this.rateLimiter.check(cls, basicKey);
+      if (!decision.allowed) {
+        this.send429(res, decision.retryAfterSec);
+        return;
+      }
     }
 
     // Route authenticated request

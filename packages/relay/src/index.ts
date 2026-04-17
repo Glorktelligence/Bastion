@@ -215,6 +215,16 @@ export { AdminServer, AdminServerError, isPrivateHost } from './admin/admin-serv
 export type { AdminServerConfig } from './admin/admin-server.js';
 
 // ---------------------------------------------------------------------------
+// Admin: Per-endpoint rate limiter
+// ---------------------------------------------------------------------------
+export { AdminRateLimiter, classifyAdminRequest } from './admin/admin-rate-limiter.js';
+export type {
+  AdminRateLimitClass,
+  AdminRateLimitDecision,
+  AdminRateLimiterConfig,
+} from './admin/admin-rate-limiter.js';
+
+// ---------------------------------------------------------------------------
 // Session: Reconnection manager (grace period + message queue)
 // ---------------------------------------------------------------------------
 export { ReconnectionManager } from './session/reconnection-manager.js';

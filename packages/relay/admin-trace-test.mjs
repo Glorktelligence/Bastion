@@ -4,11 +4,13 @@
 import {
   AdminAuth,
   AdminAuthError,
+  AdminRateLimiter,
   AdminRoutes,
   AdminServer,
   AdminServerError,
   BastionRelay,
   JwtService,
+  classifyAdminRequest,
   defaultCapabilityMatrix,
   ProviderRegistry,
   Allowlist,
@@ -2396,6 +2398,304 @@ async function run() {
     await server.shutdown();
     audit.close();
     rmSync(staticDir, { recursive: true, force: true });
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: Admin rate limiter — classification
+  // -------------------------------------------------------------------
+  console.log('--- Test: Admin rate limiter (classification) ---');
+  {
+    // Exact paths
+    check('GET /api/health → read', classifyAdminRequest('GET', '/api/health') === 'read');
+    check('GET /api/status → read', classifyAdminRequest('GET', '/api/status') === 'read');
+    check('GET /api/providers → read', classifyAdminRequest('GET', '/api/providers') === 'read');
+    check('POST /api/providers → write', classifyAdminRequest('POST', '/api/providers') === 'write');
+    check('PUT /api/disclosure → write', classifyAdminRequest('PUT', '/api/disclosure') === 'write');
+    check('PUT /api/challenge → write', classifyAdminRequest('PUT', '/api/challenge') === 'write');
+    check('POST /api/admin/setup → setup', classifyAdminRequest('POST', '/api/admin/setup') === 'setup');
+
+    // Parameterised provider paths
+    check(
+      'GET /api/providers/xyz → read',
+      classifyAdminRequest('GET', '/api/providers/xyz') === 'read',
+    );
+    check(
+      'GET /api/providers/xyz/capabilities → read',
+      classifyAdminRequest('GET', '/api/providers/xyz/capabilities') === 'read',
+    );
+    check(
+      'PUT /api/providers/xyz/capabilities → write',
+      classifyAdminRequest('PUT', '/api/providers/xyz/capabilities') === 'write',
+    );
+    check(
+      'PUT /api/providers/xyz/revoke → write',
+      classifyAdminRequest('PUT', '/api/providers/xyz/revoke') === 'write',
+    );
+    check(
+      'PUT /api/providers/xyz/activate → write',
+      classifyAdminRequest('PUT', '/api/providers/xyz/activate') === 'write',
+    );
+
+    // /api/extensions/:ns
+    check('GET /api/extensions/foo → read', classifyAdminRequest('GET', '/api/extensions/foo') === 'read');
+
+    // Deliberately unlimited endpoints
+    check(
+      'POST /api/admin/login → null (unlimited)',
+      classifyAdminRequest('POST', '/api/admin/login') === null,
+    );
+    check(
+      'POST /api/admin/refresh → null (unlimited)',
+      classifyAdminRequest('POST', '/api/admin/refresh') === null,
+    );
+    check(
+      'POST /api/admin/logout → null (unlimited)',
+      classifyAdminRequest('POST', '/api/admin/logout') === null,
+    );
+    check(
+      'GET /api/admin/status → null (unlimited)',
+      classifyAdminRequest('GET', '/api/admin/status') === null,
+    );
+
+    // Unknown paths
+    check(
+      'DELETE /api/admin/arbitrary → null (unclassified)',
+      classifyAdminRequest('DELETE', '/api/admin/arbitrary') === null,
+    );
+    check(
+      'POST /api/unknown → null',
+      classifyAdminRequest('POST', '/api/unknown') === null,
+    );
+    check(
+      'GET /favicon.ico → null',
+      classifyAdminRequest('GET', '/favicon.ico') === null,
+    );
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: Admin rate limiter — token bucket mechanics (unit)
+  // -------------------------------------------------------------------
+  console.log('--- Test: Admin rate limiter (bucket mechanics) ---');
+  {
+    // Injectable clock — all timing is deterministic.
+    let fakeNow = 1_000_000;
+    const clock = () => fakeNow;
+
+    const limiter = new AdminRateLimiter({
+      readPerMin: 120,
+      writePerMin: 20,
+      setupPerMin: 10,
+      maxBuckets: 1000,
+      now: clock,
+    });
+
+    // Under-limit: first 120 reads from the same key pass
+    let allowedCount = 0;
+    for (let i = 0; i < 120; i++) {
+      const d = limiter.check('read', 'jti:abc');
+      if (d.allowed) allowedCount++;
+    }
+    check('120 reads allowed (at capacity)', allowedCount === 120);
+
+    // 121st is denied, returns a positive retryAfterSec
+    const denied = limiter.check('read', 'jti:abc');
+    check('121st read denied', !denied.allowed);
+    check('denied request has positive retryAfterSec', denied.retryAfterSec >= 1);
+    check('denied request has no overflow flag', denied.overflow === false);
+
+    // Retry-After precision: after (retryAfterSec - 1)s still denied;
+    // after retryAfterSec+1s allowed again (with ample margin).
+    const retryAfterSec = denied.retryAfterSec;
+    fakeNow += (retryAfterSec - 1) * 1000;
+    const stillDenied = limiter.check('read', 'jti:abc');
+    check('still denied at retryAfterSec - 1', !stillDenied.allowed);
+    fakeNow += 2000;
+    const nowAllowed = limiter.check('read', 'jti:abc');
+    check('allowed once enough tokens have refilled', nowAllowed.allowed);
+
+    // Buckets do not leak across classes
+    limiter.reset();
+    for (let i = 0; i < 120; i++) limiter.check('read', 'jti:same-session');
+    const readDenied = limiter.check('read', 'jti:same-session');
+    const writeAllowed = limiter.check('write', 'jti:same-session');
+    check('read bucket exhausted for same session', !readDenied.allowed);
+    check('write bucket still has tokens for same session', writeAllowed.allowed);
+
+    // Buckets do not leak across sessions
+    const otherSession = limiter.check('read', 'jti:other-session');
+    check("exhausting one session's bucket does not affect another", otherSession.allowed);
+
+    // Setup class — lower capacity (10/min)
+    limiter.reset();
+    let setupAllowed = 0;
+    for (let i = 0; i < 10; i++) {
+      if (limiter.check('setup', 'ip:127.0.0.1').allowed) setupAllowed++;
+    }
+    check('10 setup requests allowed', setupAllowed === 10);
+    const setupDenied = limiter.check('setup', 'ip:127.0.0.1');
+    check('11th setup request denied', !setupDenied.allowed);
+    check('setup retryAfterSec is positive', setupDenied.retryAfterSec >= 1);
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: Admin rate limiter — eviction + overflow
+  // -------------------------------------------------------------------
+  console.log('--- Test: Admin rate limiter (eviction & overflow) ---');
+  {
+    let fakeNow = 2_000_000;
+    const clock = () => fakeNow;
+
+    // Eviction: a bucket that was full and has been idle >= 5 min should
+    // be reclaimed on the next touch (bucket count reflects this).
+    const limiter = new AdminRateLimiter({
+      readPerMin: 120,
+      writePerMin: 20,
+      setupPerMin: 10,
+      maxBuckets: 1000,
+      now: clock,
+    });
+
+    limiter.check('read', 'jti:idle'); // allocates + debits one
+    check('bucket created on first check', limiter.bucketCount === 1);
+    // Fast-forward 5 minutes — bucket refills fully during that interval,
+    // so it should be evictable on next touch.
+    fakeNow += 6 * 60 * 1000;
+    limiter.check('read', 'jti:other-idle'); // touches a DIFFERENT key
+    // Original bucket hasn't been touched — still present until its next check.
+    check('untouched bucket remains until next check', limiter.bucketCount === 2);
+
+    // When the original key is touched after being idle, the bucket is
+    // evicted and recreated fresh — bucket count stays the same, but the
+    // tokens are reset to capacity.
+    const touched = limiter.check('read', 'jti:idle');
+    check('idle bucket re-touched returns allowed (fresh bucket)', touched.allowed);
+
+    // Overflow: a limiter with maxBuckets=2 refuses a third bucket
+    const tiny = new AdminRateLimiter({
+      readPerMin: 120,
+      writePerMin: 20,
+      setupPerMin: 10,
+      maxBuckets: 2,
+      now: clock,
+    });
+    const first = tiny.check('read', 'jti:A');
+    const second = tiny.check('read', 'jti:B');
+    check('maxBuckets=2: first bucket allowed', first.allowed);
+    check('maxBuckets=2: second bucket allowed', second.allowed);
+    const overflowed = tiny.check('read', 'jti:C');
+    check('maxBuckets=2: third bucket refused', !overflowed.allowed);
+    check('overflow flag set on refusal', overflowed.overflow === true);
+    check('overflow retryAfterSec is 60', overflowed.retryAfterSec === 60);
+    check('maxBuckets respected', tiny.bucketCount === 2);
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: Admin rate limiter — HTTP integration
+  // -------------------------------------------------------------------
+  console.log('--- Test: Admin rate limiter (HTTP integration) ---');
+  {
+    const { cert, key } = await generateSelfSigned();
+    const secret = AdminAuth.generateTotpSecret();
+    const passwordHash = AdminAuth.hashPassword('rl-test-123');
+
+    const auth = new AdminAuth({
+      accounts: [{ username: 'admin', passwordHash, totpSecret: secret, active: true }],
+    });
+    const registry = new ProviderRegistry();
+    const audit = new AuditLogger({ store: { path: ':memory:' } });
+    const routes = new AdminRoutes({ providerRegistry: registry, auditLogger: audit });
+
+    // Tiny read budget so we can exhaust it quickly. setupPerMin is 2 so we
+    // can verify the setup path denies after two hits without drowning the
+    // test. (No static dir — we only exercise /api/ here.)
+    const limiter = new AdminRateLimiter({
+      readPerMin: 5,
+      writePerMin: 3,
+      setupPerMin: 2,
+      maxBuckets: 1000,
+    });
+
+    const server = new AdminServer({
+      port: 0,
+      host: '127.0.0.1',
+      tls: { cert, key },
+      auth,
+      routes,
+      auditLogger: audit,
+      rateLimiter: limiter,
+    });
+    await server.start();
+    const port = server.boundPort;
+
+    const code = AdminAuth.generateTotpCode(secret);
+
+    // Authenticate via /api/admin/login → session JWT. Login is unlimited,
+    // so hitting it once is fine.
+    const loginRes = await adminRequest(port, 'POST', '/api/admin/login', {
+      username: 'admin',
+      password: 'rl-test-123',
+      totpCode: code,
+    }, null);
+    check('login succeeds', loginRes.status === 200 && typeof loginRes.body.token === 'string');
+    const token = loginRes.body.token;
+
+    // Exhaust read budget with authenticated GETs
+    const readResults = [];
+    for (let i = 0; i < 5; i++) {
+      readResults.push(
+        await adminRequest(port, 'GET', '/api/health', null, null, { Authorization: `Bearer ${token}` }),
+      );
+    }
+    check('5 read requests allowed', readResults.every((r) => r.status === 200));
+
+    // 6th read denied
+    const denied = await adminRequest(port, 'GET', '/api/health', null, null, {
+      Authorization: `Bearer ${token}`,
+    });
+    check('6th read request → 429', denied.status === 429);
+    check('429 body has reason quota_exhausted', denied.body.reason === 'quota_exhausted');
+    check('429 body has retryAfterSec', typeof denied.body.retryAfterSec === 'number' && denied.body.retryAfterSec >= 1);
+    check('429 has Retry-After header', typeof denied.headers['retry-after'] === 'string');
+    check(
+      '429 Retry-After matches body',
+      parseInt(denied.headers['retry-after'], 10) === denied.body.retryAfterSec,
+    );
+    check('429 keeps base security headers', denied.headers['x-content-type-options'] === 'nosniff');
+    check('429 keeps API CSP', denied.headers['content-security-policy'] === "default-src 'none'");
+
+    // Writes still work for the same session (separate bucket)
+    const writeAllowed = await adminRequest(port, 'POST', '/api/providers', {
+      id: 'test-rl-provider',
+      name: 'RL Test',
+    }, null, { Authorization: `Bearer ${token}` });
+    check('write still allowed while read is exhausted (201 or 200)', writeAllowed.status === 200 || writeAllowed.status === 201);
+
+    // Unknown admin path returns normal 404 from routes (NOT 429). Confirms
+    // the limiter stays out of the way on unclassified paths.
+    const unknown = await adminRequest(port, 'DELETE', '/api/admin/arbitrary', null, null, {
+      Authorization: `Bearer ${token}`,
+    });
+    check('unknown /api/admin/ path → NOT 429', unknown.status !== 429);
+
+    // /api/admin/login remains unlimited even after many hits — it falls
+    // outside the classifier. We already hit it once for setup; hit it 3
+    // more times and confirm none return 429 (401 expected since we're
+    // spamming login credentials).
+    for (let i = 0; i < 3; i++) {
+      const probe = await adminRequest(port, 'POST', '/api/admin/login', {
+        username: 'admin',
+        password: 'wrong',
+        totpCode: '000000',
+      }, null);
+      check(`unlimited login hit #${i + 1} is not 429`, probe.status !== 429);
+    }
+
+    await server.shutdown();
+    audit.close();
   }
   console.log();
 
