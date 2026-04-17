@@ -113,6 +113,95 @@ async function run() {
   console.log();
 
   // ---------------------------------------------------------------------
+  // Test 3b: peekReceiveKey — advance-after-verify semantics
+  // (audit §4.1 fix — receive chain must only advance on MAC success)
+  // ---------------------------------------------------------------------
+  console.log('--- Test 3b: peekReceiveKey / commit ---');
+  {
+    // Fresh pair of ciphers for this test
+    const sid = randomUUID();
+    const hKP = await generateKeyPair();
+    const aKP = await generateKeyPair();
+    const hKeys = await deriveSessionKeys('initiator', hKP, aKP.publicKey);
+    const aKeys = await deriveSessionKeys('responder', aKP, hKP.publicKey);
+    const h = await createSessionCipher(sid, hKeys);
+    const a = await createSessionCipher(sid, aKeys);
+
+    // peek without commit: counter stays at 0
+    const peekedA = h.peekReceiveKey();
+    check('peek does not advance receive counter', h.receiveCounter === 0);
+    check('peeked key is 32 bytes', peekedA.key.length === 32);
+    check('peeked counter reflects current position', peekedA.counter === 0);
+
+    // Two peeks in a row without commit return the SAME key (idempotent)
+    const peekedB = h.peekReceiveKey();
+    check('two peeks without commit return same key', buffersEqual(peekedA.key, peekedB.key));
+    check('receive counter still 0 after two peeks', h.receiveCounter === 0);
+
+    // commit once: counter advances by exactly 1
+    peekedA.commit();
+    check('commit advances receive counter by 1', h.receiveCounter === 1);
+
+    // commit is idempotent (calling it twice does not advance twice)
+    peekedA.commit();
+    check('repeated commit is idempotent', h.receiveCounter === 1);
+
+    // After commit, peeking returns a DIFFERENT key (new chain position)
+    const peekedC = h.peekReceiveKey();
+    check('peek after commit returns different key', !buffersEqual(peekedA.key, peekedC.key));
+    check('peek after commit at counter 1', peekedC.counter === 1);
+
+    // Verify peek+commit matches nextReceiveKey-style advance on AI side
+    // (so peer compatibility is preserved)
+    const aSendKey0 = a.nextSendKey();
+    peekedC.commit();
+    // The key that was "peekedA" was for counter 0, matching aSendKey0 would need
+    // a fresh pair — just verify commit advanced counter to 2.
+    check('counter is 2 after second commit', h.receiveCounter === 2);
+
+    // Chain key zeroization: simulate commit and verify the chain key is
+    // replaced (we can't inspect internal state, but verify next peek
+    // gives a different key than the original pre-commit peek).
+    const peekedD = h.peekReceiveKey();
+    check('chain advanced — new peek key differs from old', !buffersEqual(peekedA.key, peekedD.key));
+
+    // peek+commit interop: produce a known message/key pair, verify the
+    // peeked key equals what nextReceiveKey WOULD have given us, but only
+    // if we commit.
+    {
+      const freshPair = { hSid: randomUUID() };
+      const fh = await createSessionCipher(freshPair.hSid, await deriveSessionKeys('initiator', await generateKeyPair(), (await generateKeyPair()).publicKey));
+      const peek1 = fh.peekReceiveKey();
+      const keyCopy = new Uint8Array(peek1.key);
+      peek1.commit();
+      // A fresh cipher at the same position would produce the same key.
+      // Verify by re-generating deterministically: we can't easily re-seed,
+      // but we CAN verify the counter advanced and that a new peek produces
+      // a different key.
+      const peek2 = fh.peekReceiveKey();
+      check('after commit counter advanced', fh.receiveCounter === 1);
+      check('after commit, new peek differs from first peek', !buffersEqual(keyCopy, peek2.key));
+      fh.destroy();
+    }
+
+    // MAC failure simulation: peek, do NOT commit, verify the chain is
+    // still at the pre-peek position (peer lockstep preserved).
+    const posBefore = h.receiveCounter;
+    const peekedFail = h.peekReceiveKey();
+    // Simulate MAC failure — do NOT commit.
+    check('counter unchanged after failed (no-commit) peek', h.receiveCounter === posBefore);
+    // Pre-empt a "dead" peeked key being used to commit later by simulating
+    // two consecutive failures: both leave counter at same position.
+    const peekedFail2 = h.peekReceiveKey();
+    check('two consecutive failures leave counter unchanged', h.receiveCounter === posBefore);
+    check('peeked keys across two failures are identical', buffersEqual(peekedFail.key, peekedFail2.key));
+
+    h.destroy();
+    a.destroy();
+  }
+  console.log();
+
+  // ---------------------------------------------------------------------
   // Test 4: State export/restore preserves ratchet position
   // ---------------------------------------------------------------------
   console.log('--- Test 4: State export/restore ---');

@@ -81,6 +81,29 @@ export interface MessageKeyResult {
 }
 
 /**
+ * A peeked receive key that has NOT yet advanced the receive chain.
+ *
+ * Callers MUST call `commit()` only after successful MAC verification.
+ * Until `commit()` is called, the receive chain remains at its pre-peek
+ * position — re-peeking returns the same key, and the chain key is not
+ * zeroized. This enables advance-after-verify semantics: on MAC failure,
+ * simply drop the result and the chain stays in sync with the peer.
+ */
+export interface PeekedReceiveKey {
+  /** 32-byte key for XSalsa20-Poly1305 decryption. */
+  readonly key: Uint8Array;
+  /** The message counter this key corresponds to. */
+  readonly counter: number;
+  /**
+   * Zeroize the consumed chain key and advance the chain by one step.
+   * Idempotent after first call (subsequent calls are no-ops). Calling
+   * commit() after another peek+commit has already advanced the chain
+   * is a programmer error and throws.
+   */
+  commit(): void;
+}
+
+/**
  * Serialisable session cipher state for persistence in the key store.
  * Uses base64 strings instead of Uint8Array for JSON safety.
  */
@@ -180,6 +203,26 @@ function ratchetStep(
   return { messageKey, nextChainKey };
 }
 
+/**
+ * Derive a message key from the current chain key WITHOUT advancing or
+ * zeroizing. Used as the first half of the peek/commit pattern.
+ *
+ * Returns both the message key and the would-be-next chain key, so that
+ * commit can swap them in atomically. The current chain key is NOT mutated
+ * by this function.
+ */
+function ratchetPeek(
+  sodium: SodiumLibrary,
+  chainKey: Uint8Array,
+): {
+  messageKey: Uint8Array;
+  nextChainKey: Uint8Array;
+} {
+  const messageKey = sodium.crypto_generichash(32, KDF_MESSAGE_KEY, chainKey);
+  const nextChainKey = sodium.crypto_generichash(32, KDF_CHAIN_STEP, chainKey);
+  return { messageKey, nextChainKey };
+}
+
 // ---------------------------------------------------------------------------
 // SessionCipher
 // ---------------------------------------------------------------------------
@@ -262,7 +305,12 @@ export class SessionCipher {
 
   /**
    * Derive the next message key for decrypting an inbound message.
-   * Advances the receive chain irreversibly (forward secrecy).
+   *
+   * @deprecated Use {@link peekReceiveKey} instead. This method advances
+   *   the receive chain BEFORE MAC verification — a single MAC failure
+   *   permanently desyncs the chain. New code must use peek/commit so the
+   *   chain only advances on successful MAC verification. Retained for
+   *   backwards compatibility with existing tests only.
    *
    * @returns MessageKeyResult with the 32-byte key and message counter
    * @throws CryptoError if the cipher has been destroyed
@@ -274,6 +322,43 @@ export class SessionCipher {
     this._receiveChainKey = nextChainKey;
     this._receiveCounter++;
     return { key: messageKey, counter };
+  }
+
+  /**
+   * Derive the next message key for decrypting an inbound message WITHOUT
+   * advancing the receive chain. Caller MUST invoke the returned `commit()`
+   * only after successful MAC verification.
+   *
+   * Pattern:
+   *   const peeked = cipher.peekReceiveKey();
+   *   const plaintext = secretbox.open(ciphertext, nonce, peeked.key);
+   *   if (plaintext) peeked.commit();
+   *   // else: drop on floor — chain stays at pre-peek position
+   *
+   * This is the only safe way to consume receive keys: the ratchet only
+   * advances after the MAC has been verified, so a single spurious or
+   * tampered message cannot permanently desync the chain with the peer.
+   *
+   * @returns PeekedReceiveKey with the 32-byte key and a commit() function
+   * @throws CryptoError if the cipher has been destroyed
+   */
+  peekReceiveKey(): PeekedReceiveKey {
+    this.assertNotDestroyed();
+    const counter = this._receiveCounter;
+    const { messageKey, nextChainKey } = ratchetPeek(this._sodium, this._receiveChainKey);
+
+    let committed = false;
+    const commit = (): void => {
+      if (committed) return;
+      this.assertNotDestroyed();
+      // Zeroize the consumed chain key now that MAC verification succeeded.
+      this._sodium.memzero(this._receiveChainKey);
+      this._receiveChainKey = nextChainKey;
+      this._receiveCounter++;
+      committed = true;
+    };
+
+    return { key: messageKey, counter, commit };
   }
 
   /**

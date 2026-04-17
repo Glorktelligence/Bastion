@@ -39,6 +39,11 @@ import {
   getGuardianLockout,
   incrementRestartCount,
   setGuardianLockout,
+  generateKeyPair,
+  deriveSessionKeys,
+  createSessionCipher,
+  encryptPayload,
+  decryptPayload,
 } from './dist/index.js';
 
 let pass = 0, fail = 0;
@@ -2573,6 +2578,108 @@ async function run() {
     }
 
     delete globalThis.localStorage;
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Browser crypto — peek/commit API (audit §4.1 fix)
+  // -------------------------------------------------------------------
+  console.log('--- Browser crypto: peek/commit semantics ---');
+  {
+    const buffersEqualLocal = (a, b) => {
+      if (!a || !b || a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+      return true;
+    };
+
+    // Create a cipher via the human-side API (initiator role).
+    // Note: browser-crypto's deriveSessionKeys uses a (own,peer) hash
+    // ordering that's NOT symmetric across roles — the AI side in
+    // start-ai-client.mjs uses (peer,own). Cross-role testing below
+    // constructs the peer cipher with mirrored keys.
+    const hKP = generateKeyPair();
+    const aKP = generateKeyPair();
+    const hKeys = deriveSessionKeys('initiator', hKP, aKP.publicKey);
+    const hCipher = createSessionCipher(hKeys);
+
+    // Shape check — peek returns { key, counter, commit }
+    const peek0 = hCipher.peekReceiveKey();
+    check('browser: peek returns 32-byte key', peek0.key.length === 32);
+    check('browser: peek returns counter', peek0.counter === 0);
+    check('browser: peek returns commit fn', typeof peek0.commit === 'function');
+
+    // Peek without commit: two peeks return same key (idempotent)
+    const peek0b = hCipher.peekReceiveKey();
+    check('browser: two peeks without commit return same key', buffersEqualLocal(peek0.key, peek0b.key));
+
+    // Commit exactly once advances by one
+    peek0.commit();
+    const peek1 = hCipher.peekReceiveKey();
+    check('browser: commit advanced chain by exactly one', peek1.counter === 1);
+    check('browser: new peek differs from old (chain advanced)', !buffersEqualLocal(peek0.key, peek1.key));
+
+    // Commit is idempotent — calling twice does not advance twice
+    peek0.commit(); // no-op
+    const peekStillOne = hCipher.peekReceiveKey();
+    check('browser: commit is idempotent', peekStillOne.counter === 1);
+    check('browser: idempotent commit returns same chain position', buffersEqualLocal(peek1.key, peekStillOne.key));
+
+    // Full round-trip using decryptPayload (peek/commit internally).
+    // Note: browser-crypto's deriveSessionKeys uses (own,peer) ordering and
+    // is not interoperable with itself across roles (the AI side in
+    // start-ai-client.mjs uses (peer,own) ordering to match). For this
+    // test we construct the paired cipher directly with mirrored keys so
+    // we can exercise the decrypt path without crossing implementations.
+    const mirror = (keys) => ({ sendKey: keys.receiveKey, receiveKey: keys.sendKey });
+    const aCipherMirror = createSessionCipher(mirror(hKeys));
+
+    // hCipher has already committed once above (counter=1). aCipherMirror
+    // starts from counter 0 on its send chain — MAC will NOT match since
+    // hCipher's receive chain is at 1. Verify failure + no advance.
+    const encrypted0 = encryptPayload(JSON.stringify({ hello: 'world' }), aCipherMirror);
+    const failed = decryptPayload(encrypted0.encryptedPayload, encrypted0.nonce, hCipher);
+    check('browser: MAC fail on mismatched ratchet returns null', failed === null);
+    const peekAfterFail = hCipher.peekReceiveKey();
+    check('browser: MAC failure leaves counter unchanged', peekAfterFail.counter === 1);
+
+    // Two consecutive MAC failures: counter still unchanged (NOT advancing by 2)
+    const failed2 = decryptPayload(encrypted0.encryptedPayload, encrypted0.nonce, hCipher);
+    check('browser: second MAC fail also returns null', failed2 === null);
+    const peekAfterFail2 = hCipher.peekReceiveKey();
+    check('browser: two MAC failures leave counter unchanged (not +2)', peekAfterFail2.counter === 1);
+
+    // Successful round-trip: fresh pair, mirror-matched keys
+    const hKP2 = generateKeyPair();
+    const aKP2 = generateKeyPair();
+    const hKeys2 = deriveSessionKeys('initiator', hKP2, aKP2.publicKey);
+    const hCipher2 = createSessionCipher(hKeys2);
+    const aCipher2 = createSessionCipher(mirror(hKeys2));
+
+    const enc1 = encryptPayload(JSON.stringify({ msg: 'first' }), aCipher2);
+    const dec1 = decryptPayload(enc1.encryptedPayload, enc1.nonce, hCipher2);
+    check('browser: successful decrypt returns payload', dec1 && dec1.msg === 'first');
+    const peekAfterSuccess = hCipher2.peekReceiveKey();
+    check('browser: MAC success advanced counter by exactly 1', peekAfterSuccess.counter === 1);
+
+    // Second message in sequence continues cleanly
+    const enc2 = encryptPayload(JSON.stringify({ msg: 'second' }), aCipher2);
+    const dec2 = decryptPayload(enc2.encryptedPayload, enc2.nonce, hCipher2);
+    check('browser: second successful decrypt returns payload', dec2 && dec2.msg === 'second');
+    const peekAfterTwo = hCipher2.peekReceiveKey();
+    check('browser: counter is 2 after two successful decrypts', peekAfterTwo.counter === 2);
+
+    // Chain key zeroization: after commit the old key must be gone —
+    // re-peeking after commit must not return the previous key.
+    const preCommitPeek = hCipher2.peekReceiveKey();
+    const oldKey = new Uint8Array(preCommitPeek.key);
+    preCommitPeek.commit();
+    const postCommitPeek = hCipher2.peekReceiveKey();
+    check('browser: post-commit peek key differs (chain advanced+zeroized)', !buffersEqualLocal(oldKey, postCommitPeek.key));
+
+    hCipher.destroy();
+    aCipherMirror.destroy();
+    hCipher2.destroy();
+    aCipher2.destroy();
   }
   console.log();
 

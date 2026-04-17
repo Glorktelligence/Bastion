@@ -1014,12 +1014,36 @@ async function handleKeyExchange(peerPublicKeyB64) {
       sendChainKey = nextChain;
       return { key: messageKey, counter: sendCounter++ };
     },
+    /**
+     * @deprecated Use peekReceiveKey — nextReceiveKey advances the chain
+     * BEFORE MAC verification, which causes permanent desync on a single
+     * spurious MAC failure. Retained only for backwards compatibility.
+     */
     nextReceiveKey() {
       const messageKey = sha512_32(concatBytes(receiveChainKey, KDF_MESSAGE_KEY));
       const nextChain = sha512_32(concatBytes(receiveChainKey, KDF_CHAIN_STEP));
       receiveChainKey.fill(0);
       receiveChainKey = nextChain;
       return { key: messageKey, counter: receiveCounter++ };
+    },
+    /**
+     * Derive the next receive key WITHOUT advancing the chain. Caller
+     * MUST invoke commit() only after successful MAC verification.
+     * See docs/audits/e2e-crypto-audit-2026-04-17.md §4.1 for rationale.
+     */
+    peekReceiveKey() {
+      const counter = receiveCounter;
+      const messageKey = sha512_32(concatBytes(receiveChainKey, KDF_MESSAGE_KEY));
+      const nextChain = sha512_32(concatBytes(receiveChainKey, KDF_CHAIN_STEP));
+      let committed = false;
+      const commit = () => {
+        if (committed) return;
+        receiveChainKey.fill(0);
+        receiveChainKey = nextChain;
+        receiveCounter++;
+        committed = true;
+      };
+      return { key: messageKey, counter, commit };
     },
     destroy() {
       sendChainKey.fill(0);
@@ -1352,6 +1376,8 @@ client.on('message', async (data) => {
   }
 
   // Decrypt if this is an encrypted envelope (has encryptedPayload field)
+  // Uses peek/commit so the receive chain only advances on MAC success —
+  // a single spurious/tampered message cannot desync the chain.
   if (msg.encryptedPayload && e2eCipher) {
     try {
       const sodium = await ensureSodium();
@@ -1359,15 +1385,23 @@ client.on('message', async (data) => {
       // the human client's btoa() encoding in browser-crypto.ts
       const nonce = sodium.from_base64(msg.nonce, sodium.base64_variants.ORIGINAL);
       const ciphertext = sodium.from_base64(msg.encryptedPayload, sodium.base64_variants.ORIGINAL);
-      const { key } = e2eCipher.nextReceiveKey();
-      const plaintext = sodium.crypto_secretbox_open_easy(ciphertext, nonce, key);
-      key.fill(0);
+      const peeked = e2eCipher.peekReceiveKey();
+      let plaintext;
+      try {
+        plaintext = sodium.crypto_secretbox_open_easy(ciphertext, nonce, peeked.key);
+      } finally {
+        peeked.key.fill(0);
+      }
+      // crypto_secretbox_open_easy throws on MAC failure; if we reached
+      // here the MAC verified successfully — commit the ratchet advance.
+      peeked.commit();
       const payloadStr = new TextDecoder().decode(plaintext);
       sodium.memzero(plaintext);
       msg = { ...msg, payload: JSON.parse(payloadStr) };
       delete msg.encryptedPayload;
       delete msg.nonce;
     } catch (err) {
+      // MAC failure (or other error) — chain NOT advanced. Report and drop.
       console.error(`[!] Decryption failed: ${err.message}`);
       return;
     }

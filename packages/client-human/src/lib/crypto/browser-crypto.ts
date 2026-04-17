@@ -36,9 +36,29 @@ export interface BrowserKeyPair {
   secretKey: Uint8Array;
 }
 
+/**
+ * A peeked receive key that has NOT yet advanced the receive chain.
+ * Caller MUST invoke commit() only after successful MAC verification.
+ */
+export interface PeekedReceiveKey {
+  key: Uint8Array;
+  counter: number;
+  commit(): void;
+}
+
 export interface BrowserSessionCipher {
   nextSendKey(): { key: Uint8Array; counter: number };
+  /**
+   * @deprecated Use peekReceiveKey() — nextReceiveKey() advances the chain
+   * BEFORE MAC verification, which causes permanent desync on a single
+   * spurious MAC failure. Retained only for test backwards compatibility.
+   */
   nextReceiveKey(): { key: Uint8Array; counter: number };
+  /**
+   * Derive the next receive key WITHOUT advancing the chain. Caller must
+   * invoke commit() only after successful MAC verification.
+   */
+  peekReceiveKey(): PeekedReceiveKey;
   destroy(): void;
 }
 
@@ -161,6 +181,30 @@ export function createSessionCipher(sessionKeys: {
       return { key: messageKey, counter };
     },
 
+    peekReceiveKey(): PeekedReceiveKey {
+      if (destroyed) throw new Error('Cipher destroyed');
+      const counter = receiveCounter;
+      // Derive both the message key and the would-be-next chain key, but
+      // do NOT mutate receiveChainKey or receiveCounter yet. The chain
+      // advances only when commit() is invoked after MAC success.
+      const msgHash = nacl.hash(concat(receiveChainKey, KDF_MESSAGE_KEY));
+      const chainHash = nacl.hash(concat(receiveChainKey, KDF_CHAIN_STEP));
+      const messageKey = msgHash.slice(0, 32);
+      const nextChain = chainHash.slice(0, 32);
+
+      let committed = false;
+      const commit = (): void => {
+        if (committed) return;
+        if (destroyed) throw new Error('Cipher destroyed');
+        receiveChainKey.fill(0);
+        receiveChainKey = nextChain;
+        receiveCounter++;
+        committed = true;
+      };
+
+      return { key: messageKey, counter, commit };
+    },
+
     destroy(): void {
       if (!destroyed) {
         sendChainKey.fill(0);
@@ -197,6 +241,12 @@ export function encryptPayload(
 
 /**
  * Decrypt an encrypted payload with the next ratchet key.
+ *
+ * Uses the peek/commit pattern: the receive chain ONLY advances on
+ * successful MAC verification. On MAC failure the chain is left at its
+ * pre-decrypt position, so a single spurious/tampered message can never
+ * permanently desync the chain with the peer.
+ *
  * Returns the decrypted payload object, or null if decryption fails.
  */
 export function decryptPayload(
@@ -204,12 +254,16 @@ export function decryptPayload(
   nonceB64: string,
   cipher: BrowserSessionCipher,
 ): Record<string, unknown> | null {
-  const { key } = cipher.nextReceiveKey();
+  const peeked = cipher.peekReceiveKey();
   const ciphertext = decodeBase64(encryptedPayloadB64);
   const nonce = decodeBase64(nonceB64);
-  const plaintext = nacl.secretbox.open(ciphertext, nonce, key);
-  key.fill(0);
-  if (!plaintext) return null;
+  const plaintext = nacl.secretbox.open(ciphertext, nonce, peeked.key);
+  peeked.key.fill(0);
+  if (!plaintext) {
+    // MAC verification failed — DO NOT commit. Chain stays at pre-peek.
+    return null;
+  }
+  peeked.commit();
   const json = new TextDecoder().decode(plaintext);
   return JSON.parse(json);
 }

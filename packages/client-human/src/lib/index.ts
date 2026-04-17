@@ -27,6 +27,22 @@ export { TypedEmitter } from './emitter.js';
 export { writable, derived } from './store.js';
 export type { Readable, Writable } from './store.js';
 
+// Crypto (exported for trace-test.mjs — UI consumers use session.ts helpers)
+export {
+  generateKeyPair,
+  deriveSessionKeys,
+  createSessionCipher,
+  encryptPayload,
+  decryptPayload,
+  encodeBase64,
+  decodeBase64,
+} from './crypto/browser-crypto.js';
+export type {
+  BrowserKeyPair,
+  BrowserSessionCipher,
+  PeekedReceiveKey,
+} from './crypto/browser-crypto.js';
+
 // Services
 export {
   BastionHumanClient,
