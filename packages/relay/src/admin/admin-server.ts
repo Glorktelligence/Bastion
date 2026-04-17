@@ -530,10 +530,45 @@ export class AdminServer {
   }
 
   // -------------------------------------------------------------------------
+  // Security header helpers
+  // -------------------------------------------------------------------------
+
+  /**
+   * Apply security headers that belong on every response — static files,
+   * JSON responses, 401s, 500s, CORS preflights.
+   *
+   * CSP is deliberately NOT set here. Static HTML has its CSP emitted as a
+   * <meta> tag at SPA build time (SvelteKit hash mode); the server's CSP for
+   * JSON responses is applied separately in applyApiSecurityHeaders so the
+   * two never clash on the same resource.
+   */
+  private applyBaseSecurityHeaders(res: ServerResponse): void {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+  }
+
+  /**
+   * Apply the API-path CSP. JSON responses need no sources at all — they are
+   * not rendered, scripted, or styled. `default-src 'none'` is tighter than
+   * anything the static SPA can tolerate, which is why it is applied only on
+   * the /api/ branch after the static-file short-circuit.
+   */
+  private applyApiSecurityHeaders(res: ServerResponse): void {
+    res.setHeader('Content-Security-Policy', "default-src 'none'");
+  }
+
+  // -------------------------------------------------------------------------
   // Request handling
   // -------------------------------------------------------------------------
 
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    // Security headers — applied before any response branch so they reach
+    // static file responses, JSON, 401s, 500s, and CORS preflights alike.
+    this.applyBaseSecurityHeaders(res);
+
     // CORS headers for admin panel — allow any localhost origin (dev server, SSH tunnel)
     const origin = req.headers.origin ?? '';
     const isLocalOrigin =
@@ -555,11 +590,18 @@ export class AdminServer {
     const method = req.method?.toUpperCase() ?? 'GET';
     const urlPath = new URL(req.url ?? '/', `https://${req.headers.host ?? 'localhost'}`).pathname;
 
-    // Serve static admin UI for non-API requests (production single-port architecture)
+    // Serve static admin UI for non-API requests (production single-port architecture).
+    // Static HTML carries its own CSP in a <meta> tag — do NOT add an API CSP
+    // header here, it would intersect with the meta CSP and block the SPA boot.
     if (this.staticAvailable && !urlPath.startsWith('/api/')) {
       this.serveStaticFile(res, urlPath);
       return;
     }
+
+    // Everything from here on is an /api/ response (JSON or error). Apply the
+    // tightest possible CSP — these responses never render HTML, load scripts,
+    // or style anything.
+    this.applyApiSecurityHeaders(res);
 
     // Admin auth endpoints — handled before general routing
     if (urlPath.startsWith('/api/admin/')) {

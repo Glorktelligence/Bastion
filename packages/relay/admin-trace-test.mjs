@@ -67,9 +67,9 @@ function adminRequest(port, method, path, body, auth, extraHeaders) {
       res.on('end', () => {
         const text = Buffer.concat(chunks).toString();
         try {
-          resolve({ status: res.statusCode, body: JSON.parse(text) });
+          resolve({ status: res.statusCode, headers: res.headers, body: JSON.parse(text) });
         } catch {
-          resolve({ status: res.statusCode, body: { raw: text } });
+          resolve({ status: res.statusCode, headers: res.headers, body: { raw: text } });
         }
       });
     });
@@ -2302,6 +2302,100 @@ async function run() {
       staticDir: '/nonexistent/path/that/does/not/exist',
     });
     check('hasStaticUi is false for missing dir', server2.hasStaticUi === false);
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: Security headers (base headers on every response, API CSP on
+  // /api/ responses, no CSP on static responses — meta-tag CSP owns those)
+  // -------------------------------------------------------------------
+  console.log('--- Test: Security headers ---');
+  {
+    const { cert, key } = await generateSelfSigned();
+    const secret = AdminAuth.generateTotpSecret();
+    const passwordHash = AdminAuth.hashPassword('sec-headers-123');
+
+    const auth = new AdminAuth({
+      accounts: [{ username: 'admin', passwordHash, totpSecret: secret, active: true }],
+    });
+    const registry = new ProviderRegistry();
+    const audit = new AuditLogger({ store: { path: ':memory:' } });
+    const routes = new AdminRoutes({ providerRegistry: registry, auditLogger: audit });
+
+    // Build a temp static dir so we can hit the static-file branch too.
+    const staticDir = join(tmpdir(), `bastion-sec-headers-${randomUUID()}`);
+    mkdirSync(staticDir, { recursive: true });
+    writeFileSync(join(staticDir, 'index.html'), '<!doctype html><html><body>ok</body></html>');
+
+    const server = new AdminServer({
+      port: 0,
+      host: '127.0.0.1',
+      tls: { cert, key },
+      auth,
+      routes,
+      auditLogger: audit,
+      staticDir,
+    });
+    await server.start();
+    const port = server.boundPort;
+
+    // -- 401 on /api/ path (unauthenticated) --
+    const unauth = await adminRequest(port, 'GET', '/api/providers', null, null);
+    check('401 response status', unauth.status === 401);
+    check('401 has X-Content-Type-Options: nosniff', unauth.headers['x-content-type-options'] === 'nosniff');
+    check('401 has X-Frame-Options: DENY', unauth.headers['x-frame-options'] === 'DENY');
+    check('401 has Strict-Transport-Security', unauth.headers['strict-transport-security'] === 'max-age=31536000');
+    check('401 has Referrer-Policy: no-referrer', unauth.headers['referrer-policy'] === 'no-referrer');
+    check(
+      '401 has X-Permitted-Cross-Domain-Policies: none',
+      unauth.headers['x-permitted-cross-domain-policies'] === 'none',
+    );
+    check(
+      "401 has Content-Security-Policy: default-src 'none'",
+      unauth.headers['content-security-policy'] === "default-src 'none'",
+    );
+
+    // -- 200 on /api/ path (authenticated) --
+    const code = AdminAuth.generateTotpCode(secret);
+    const health = await adminRequest(port, 'GET', '/api/health', null, {
+      username: 'admin',
+      password: 'sec-headers-123',
+      totpCode: code,
+    });
+    check('authenticated GET → 200', health.status === 200);
+    check('200 has nosniff', health.headers['x-content-type-options'] === 'nosniff');
+    check('200 has DENY', health.headers['x-frame-options'] === 'DENY');
+    check('200 has HSTS', health.headers['strict-transport-security'] === 'max-age=31536000');
+    check('200 has no-referrer', health.headers['referrer-policy'] === 'no-referrer');
+    check('200 has XPCDP none', health.headers['x-permitted-cross-domain-policies'] === 'none');
+    check('200 has API CSP', health.headers['content-security-policy'] === "default-src 'none'");
+
+    // -- Static file (no /api/ prefix) — base headers present, no CSP header
+    //    (meta-tag CSP is authoritative for HTML documents)
+    const staticRes = await adminRequest(port, 'GET', '/index.html', null, null);
+    check('static file → 200', staticRes.status === 200);
+    check('static has nosniff', staticRes.headers['x-content-type-options'] === 'nosniff');
+    check('static has DENY', staticRes.headers['x-frame-options'] === 'DENY');
+    check('static has HSTS', staticRes.headers['strict-transport-security'] === 'max-age=31536000');
+    check('static has no-referrer', staticRes.headers['referrer-policy'] === 'no-referrer');
+    check('static has XPCDP none', staticRes.headers['x-permitted-cross-domain-policies'] === 'none');
+    check(
+      'static has NO Content-Security-Policy header (meta CSP is authoritative)',
+      staticRes.headers['content-security-policy'] === undefined,
+    );
+
+    // -- OPTIONS preflight — base headers present (preflight short-circuits
+    //    before the API CSP branch, so no CSP header either)
+    const preflight = await adminRequest(port, 'OPTIONS', '/api/providers', null, null);
+    check('preflight → 204', preflight.status === 204);
+    check('preflight has nosniff', preflight.headers['x-content-type-options'] === 'nosniff');
+    check('preflight has DENY', preflight.headers['x-frame-options'] === 'DENY');
+    check('preflight has HSTS', preflight.headers['strict-transport-security'] === 'max-age=31536000');
+    check('preflight has no-referrer', preflight.headers['referrer-policy'] === 'no-referrer');
+
+    await server.shutdown();
+    audit.close();
+    rmSync(staticDir, { recursive: true, force: true });
   }
   console.log();
 
