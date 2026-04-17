@@ -443,9 +443,24 @@ export async function connect(): Promise<void> {
     }
   });
 
-  // Log disconnection reasons for debugging
+  // Log disconnection reasons for debugging, and destroy any live
+  // session cipher. This covers the unexpected-disconnect case called
+  // out in audit §7.1: previously the cipher was only destroyed in
+  // explicit disconnect(), so a dropped WebSocket would leave a stale
+  // cipher alive across reconnect — a mirror of the AI-side stale
+  // cipher race (addendum §5, Fix A).
   client.on('disconnected', (code, reason) => {
     console.log(`[Bastion] WebSocket disconnected: code=${code}, reason=${reason}`);
+    if (sessionCipher) {
+      try {
+        sessionCipher.destroy();
+      } catch {
+        /* swallow — only for robustness */
+      }
+      sessionCipher = null;
+      _g.__bastionCipher = null;
+      e2eStatus.set({ available: e2eAvailable, active: false });
+    }
   });
 
   // Re-hydrate state after reconnection
@@ -934,9 +949,37 @@ function handleRelayMessage(data: string): void {
     const peerStatus = String(envelope.status ?? 'unknown');
     client.emit('peerStatus', peerStatus);
 
-    // When peer connects, initiate E2E key exchange
     if (peerStatus === 'active') {
+      // Fix A — addendum §5: destroy any stale cipher before sending
+      // a fresh key_exchange. A peer_status=active announcement means
+      // we have a new/reconnected peer; the previous cipher (if any)
+      // cannot be in lockstep with their counters. Mirrors the AI
+      // side's fix and closes the unexpected-disconnect cipher-reuse
+      // variant identified in audit §7.1.
+      if (sessionCipher) {
+        try {
+          sessionCipher.destroy();
+        } catch {
+          /* destroy should never throw; swallow only for robustness */
+        }
+        sessionCipher = null;
+        _g.__bastionCipher = null;
+        e2eStatus.set({ available: e2eAvailable, active: false });
+      }
       sendKeyExchange();
+    } else if (peerStatus === 'disconnected') {
+      // Peer gone — invalidate our receive chain as well; any encrypted
+      // message that arrives after this cannot be in sync.
+      if (sessionCipher) {
+        try {
+          sessionCipher.destroy();
+        } catch {
+          /* same */
+        }
+        sessionCipher = null;
+        _g.__bastionCipher = null;
+        e2eStatus.set({ available: e2eAvailable, active: false });
+      }
     }
     return;
   }

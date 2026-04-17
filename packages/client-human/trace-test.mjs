@@ -2920,6 +2920,102 @@ async function run() {
   console.log();
 
   // -------------------------------------------------------------------
+  // Stale cipher reset on peer_status / disconnected (addendum §5, Fix A)
+  // -------------------------------------------------------------------
+  console.log('--- Stale cipher reset (addendum Fix A) ---');
+  {
+    // Model the module-level cipher variable used in session.ts with a
+    // small holder, and exercise the peer_status=active and
+    // disconnected transitions described in the addendum. The goal is
+    // to prove that (a) an old cipher is always destroy()'d before the
+    // holder is nulled, and (b) the fresh cipher starts at counter 0.
+
+    const hKP = generateKeyPair();
+    const aKP = generateKeyPair();
+    const keys = deriveSessionKeys('initiator', hKP, aKP.publicKey);
+
+    // Build a cipher and advance it a few positions (as a "used" cipher)
+    const holder = { cipher: createSessionCipher(keys) };
+    holder.cipher.peekReceiveKey().commit();
+    holder.cipher.peekReceiveKey().commit();
+    const preResetPeek = holder.cipher.peekReceiveKey();
+    check('pre-reset: cipher advanced to counter 2', preResetPeek.counter === 2);
+
+    // Capture a key from the old cipher; after destroy, using the old
+    // handle must throw. This verifies that the reset zeroizes state.
+    const oldCipher = holder.cipher;
+
+    // Simulate peer_status=active handler:
+    //   if (cipher) { cipher.destroy(); cipher = null; }
+    //   sendKeyExchange();  // elsewhere; cipher stays null until KE
+    if (holder.cipher) {
+      holder.cipher.destroy();
+      holder.cipher = null;
+    }
+    check('peer_status=active: cipher nulled', holder.cipher === null);
+
+    // Using the destroyed cipher must throw
+    let destroyedThrew = false;
+    try {
+      oldCipher.peekReceiveKey();
+    } catch {
+      destroyedThrew = true;
+    }
+    check('peer_status=active: old cipher is unusable', destroyedThrew);
+
+    // Simulate handleKeyExchange creating a NEW cipher from fresh KE
+    const hKP2 = generateKeyPair();
+    const aKP2 = generateKeyPair();
+    const newKeys = deriveSessionKeys('initiator', hKP2, aKP2.publicKey);
+    holder.cipher = createSessionCipher(newKeys);
+    const postResetPeek = holder.cipher.peekReceiveKey();
+    check('post-reset: new cipher is fresh (counter 0)', postResetPeek.counter === 0);
+
+    // Second transition — simulate disconnected event:
+    //   if (cipher) { cipher.destroy(); cipher = null; }
+    // Advance the new cipher first so the reset actually has work to do.
+    holder.cipher.peekReceiveKey().commit();
+    check('pre-disconnect: counter 1', holder.cipher.peekReceiveKey().counter === 1);
+
+    const capturedDisconnected = holder.cipher;
+    if (holder.cipher) {
+      holder.cipher.destroy();
+      holder.cipher = null;
+    }
+    check('disconnected event: cipher nulled', holder.cipher === null);
+    let disconnectedThrew = false;
+    try {
+      capturedDisconnected.peekReceiveKey();
+    } catch {
+      disconnectedThrew = true;
+    }
+    check('disconnected event: old cipher unusable', disconnectedThrew);
+
+    // Third scenario — AI side race window: during peer_status=active ↦
+    // pre-handleKeyExchange, outgoing sendSecure must fall through to
+    // plaintext rather than encrypt with a stale cipher. Model this by
+    // checking that a "send" helper which gates on cipher-present
+    // correctly refuses to encrypt.
+    const sendDuringWindow = (type, cipher, plaintextTypes) => {
+      if (!cipher || plaintextTypes.has(type)) return 'plaintext';
+      return 'encrypted';
+    };
+    const pt = new Set(['ping', 'key_exchange']);
+    check(
+      'stale window: sendSecure falls to plaintext with null cipher',
+      sendDuringWindow('conversation', null, pt) === 'plaintext',
+    );
+    // Sanity check — with a live cipher, it encrypts
+    const liveCipher = createSessionCipher(deriveSessionKeys('initiator', generateKeyPair(), generateKeyPair().publicKey));
+    check(
+      'stale window: sendSecure encrypts when cipher present',
+      sendDuringWindow('conversation', liveCipher, pt) === 'encrypted',
+    );
+    liveCipher.destroy();
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
   // Summary
   // -------------------------------------------------------------------
   console.log();

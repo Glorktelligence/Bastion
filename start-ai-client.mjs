@@ -1328,6 +1328,15 @@ client.on('tokenRefreshNeeded', () => {
 client.on('disconnected', (code, reason) => {
   console.log(`[-] Disconnected from relay (${code}: ${reason})`);
   auditLogger.logEvent('connection_closed', 'ai', 'connection', { code, reason });
+  // Fix A — addendum §5: destroy the cipher on any disconnect so a
+  // subsequent reconnect cannot encrypt with stale keys in the window
+  // between peer_status=active and handleKeyExchange. Closes the
+  // primary trigger identified in the addendum.
+  if (e2eCipher) {
+    try { e2eCipher.destroy(); } catch {}
+    e2eCipher = null;
+  }
+  keyExchangePending = false;
 });
 
 client.on('error', (err) => {
@@ -1442,9 +1451,27 @@ client.on('message', async (data) => {
   if (msg.type === 'peer_status') {
     console.log(`[~] Peer status: ${msg.status}`);
     if (msg.status === 'active') {
-      // Peer is connected — initiate E2E key exchange
+      // Fix A — addendum §5: when the relay says we have a new/active
+      // peer, any previous cipher is by definition invalid. Destroy it
+      // BEFORE sending our new key_exchange. This closes the race
+      // window in which sendSecure() could otherwise encrypt with old
+      // keys against a new peer (the primary trigger identified in
+      // the addendum for the "1 error on page load + N per stream"
+      // signature).
+      if (e2eCipher) {
+        try { e2eCipher.destroy(); } catch {}
+        e2eCipher = null;
+      }
       keyExchangePending = true;
       sendKeyExchange();
+    } else if (msg.status === 'disconnected') {
+      // Peer disconnected — invalidate cipher; any incoming encrypted
+      // message after this point cannot correlate with the old chain.
+      if (e2eCipher) {
+        try { e2eCipher.destroy(); } catch {}
+        e2eCipher = null;
+      }
+      keyExchangePending = false;
     }
     return;
   }
