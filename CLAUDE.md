@@ -64,6 +64,8 @@ These are HARDCODED and NON-NEGOTIABLE. Never make them configurable. Never weak
 - **Errors propagate UP, never sideways.** A failing component reports failure through the protocol chain. It does not attempt to "handle" the error by pretending success to downstream consumers.
 - **Every catch block must DO something.** Empty catch blocks and `catch (e) { /* ignore */ }` are banned. At minimum: log, audit event, and propagate.
 
+> Concrete shipping evidence that this philosophy is structural, not aspirational: see `docs/audits/e2e-crypto-audit-2026-04-17.md` §4.3 (fail-loud on decrypt failure — sentinel + visible UI banner) and the addendum §3 (pre-cipher encrypted-message queue replacing the silent advance-before-verify path). Both patterns were fixed in the Track A commit series on `main` because the previous behaviour — silent swallow + ratchet advance — violated "fail loud."
+
 ### Version Management
 
 - The `VERSION` file at repo root is the **single source of truth** for the project version.
@@ -113,9 +115,9 @@ Startup scripts (root level):
 
 ## Error Codes
 
-Format: `BASTION-CXXX` — 48 codes across 8 categories:
-1XXX=Connection (7) | 2XXX=Auth (6) | 3XXX=Protocol (6) | 4XXX=Safety (6) | 5XXX=File (7) | 6XXX=Provider (6) | 7XXX=Config (5) | 8XXX=Budget (5)
-Total: 48 codes.
+Format: `BASTION-CXXX` — 57 codes across 9 categories:
+1XXX=Connection (7) | 2XXX=Auth (6) | 3XXX=Protocol (6) | 4XXX=Safety (6) | 5XXX=File (7) | 6XXX=Provider (6) | 7XXX=Config (5) | 8XXX=Budget (5) | 9XXX=Guardian (9)
+Total: 57 codes. 9XXX (Guardian) errors are emitted by BastionGuardian for environment checks, violation escalation, and cascade-shutdown events.
 
 ## Three Bastion Official Adapters
 
@@ -142,7 +144,7 @@ The AI client's system prompt is a three-layer "soul document" (`packages/client
 
 PNPM workspaces | TypeScript (ES2022/Node16) | Zod (validation) | node:test (testing, 3,862+ tests) | Biome (linting) | WebSocket over TLS | tweetnacl + libsodium (E2E encryption) | node:sqlite DatabaseSync (audit, usage) | SQLite (memories, budget, conversations) | jose (JWT) | Tauri + SvelteKit (desktop) | React Native (mobile)
 
-## Six Sole Authorities
+## Seven Sole Authorities
 
 These are the ONLY code allowed to perform their respective operations:
 
@@ -154,6 +156,7 @@ These are the ONLY code allowed to perform their respective operations:
 | SkillsManager | SKILLS | Forensic scanner, quarantine pipeline, hot-reload |
 | BastionBash | EXECUTION | Three-tier command system, governed filesystem, rate limiting |
 | AuditLogger | AUDIT | Tamper-evident hash chain, event type registry, chain integrity verification |
+| BastionGuardian | EXISTENCE | Relay-anchored environment checks, violation monitoring, cascade shutdown across connected components. Owns the 9XXX error category. Source: `packages/relay/src/guardian/bastion-guardian.ts` |
 
 ## AI Native Toolbox — Four Powers
 

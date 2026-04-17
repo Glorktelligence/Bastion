@@ -92,9 +92,9 @@ Most Human-AI interaction today happens through chat interfaces with no structur
                                 └──────────────────────┘
 ```
 
-## Six Sole Authorities
+## Seven Sole Authorities
 
-Bastion enforces single-responsibility through six components with exclusive sovereignty over their domain. No other code may perform these operations — violations are logged and escalated.
+Bastion enforces single-responsibility through seven components with exclusive sovereignty over their domain. No other code may perform these operations — violations are logged and escalated.
 
 | Authority | Scope | Description |
 |-----------|-------|-------------|
@@ -104,6 +104,7 @@ Bastion enforces single-responsibility through six components with exclusive sov
 | SkillsManager | SKILLS | Forensic scanner, quarantine pipeline, hot-reload |
 | BastionBash | EXECUTION | Three-tier command system, governed filesystem, rate limiting |
 | AuditLogger | AUDIT | Tamper-evident hash chain, event type registry, chain integrity verification |
+| BastionGuardian | EXISTENCE | Relay-anchored environment checks, violation monitoring, cascade shutdown across connected components. Owns the 9XXX error category. See `packages/relay/src/guardian/bastion-guardian.ts`. |
 
 ## AI Native Toolbox
 
@@ -261,6 +262,8 @@ Error codes follow the format `BASTION-CXXX` across 8 categories: Connection (1X
 
 Messages are encrypted with XSalsa20-Poly1305 via a KDF ratchet chain. Each message gets a unique, irreversibly-derived key — compromising a current key does not reveal past messages (forward secrecy). The human client uses tweetnacl (pure JavaScript, zero native dependencies) and the AI client uses libsodium (WASM/native) — byte-identical NaCl implementations. The relay forwards encrypted payloads without the ability to read message content.
 
+**Track A hardening (shipped 2026-04):** The cipher pipeline was audited and rebuilt around a **peek-then-commit** `SessionCipher` API — MAC verification happens before the receive chain advances, so a spurious failure no longer permanently desyncs the chain. The `tryDecrypt` path is gated on an explicit `PLAINTEXT_TYPES` set rather than guessing from the envelope shape. Decrypt failures now **fail loud** with a sentinel result and a visible UI banner — no silent return of undecrypted payload. Stale ciphers are reset on `peer_status=active` and `disconnected` so a reconnecting AI client cannot be answered with a ratchet key from the previous session. A pre-cipher **encrypted-message queue** on the human side holds inbound messages until key exchange completes, closing the startup race where an early-arriving envelope hit a cipher that didn't yet exist. See [`docs/audits/e2e-crypto-audit-2026-04-17.md`](docs/audits/e2e-crypto-audit-2026-04-17.md) and the [addendum](docs/audits/e2e-crypto-audit-2026-04-17-addendum.md) for the full analysis.
+
 ## Infrastructure
 
 Bastion includes deployment templates for self-hosted environments:
@@ -301,7 +304,7 @@ Skills are loaded from the `skills/` directory on startup and locked (no mid-ses
 
 | Layer | Feature | Status |
 |-------|---------|--------|
-| 1 | E2E encrypted messaging (X25519 + XSalsa20-Poly1305 Double Ratchet) | Deployed |
+| 1 | E2E encrypted messaging (X25519 key exchange + XSalsa20-Poly1305 via KDF ratchet chain) | Deployed |
 | 2 | Persistent memory with "Remember" button + conversation-scoped (10 global + 10 scoped) | Deployed |
 | 3 | Project context file sharing with nested directory support | Deployed |
 | 4 | MCP tool integration with governed approval flow (JSON-RPC 2.0) | Deployed |
