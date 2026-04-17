@@ -1,5 +1,7 @@
 # Project Bastion — Supplementary Specification
 
+> **DEPRECATED.** This document captures architectural decisions as of the v0.5.0 design review. Many decisions have evolved through Phases 2–5 and the recent Option A / Track A hardening work (see [recent audits](../audits/)). A refreshed spec sheet is planned as part of Phase 4. For current protocol behaviour, treat `CLAUDE.md`, the README, and the audit reports in `docs/audits/` as the source of truth; use `@bastion/protocol` constants for authoritative message types and error codes.
+
 **Version:** 0.5.0-supplement-1
 **Date:** March 2026
 **Status:** Stable

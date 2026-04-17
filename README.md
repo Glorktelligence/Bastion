@@ -1,9 +1,9 @@
 # Project Bastion
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-3%2C897_passing-brightgreen.svg)](#run-tests)
-[![Packages](https://img.shields.io/badge/Packages-8-purple.svg)](#packages)
-[![Protocol](https://img.shields.io/badge/Protocol-95_message_types-orange.svg)](#protocol)
+[![Tests](https://img.shields.io/badge/Tests-4%2C453_passing-brightgreen.svg)](#run-tests)
+[![Packages](https://img.shields.io/badge/Packages-10-purple.svg)](#packages)
+[![Protocol](https://img.shields.io/badge/Protocol-102_message_types-orange.svg)](#protocol)
 [![Node](https://img.shields.io/badge/Node.js-%3E%3D20.0.0-339933.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-3178C6.svg)](https://www.typescriptlang.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -144,8 +144,10 @@ Bastion supports protocol extensions for adding custom functionality without mod
 | `@bastion/client-human`        | Tauri + SvelteKit desktop app — messaging, challenge review, file transfers         |
 | `@bastion/client-human-mobile` | React Native mobile app — same protocol, mobile-native UI                           |
 | `@bastion/client-ai`           | Headless AI client for isolated VM — safety engine, 3 adapters, skills, file handling |
-| `@bastion/relay-admin-ui`      | SvelteKit admin panel — provider management, blocklist, quarantine, 5-tab config    |
+| `@bastion/relay-admin-ui`      | SvelteKit admin panel (adapter-static SPA, served by the relay on port 9444) — provider management, blocklist, quarantine, 6-tab config   |
 | `@bastion/adapter-template`   | Community adapter reference template — build adapters for any AI provider           |
+| `@bastion/tests`               | Cross-package integration and round-trip tests                                       |
+| `@bastion/infrastructure`      | Proxmox VM/LXC templates, systemd units, firewall/AppArmor profiles, setup scripts  |
 
 ## The Three-Layer Safety Engine
 
@@ -225,13 +227,13 @@ pnpm dev
 ### Run Tests
 
 ```bash
-pnpm test    # All 3,897 tests across 14 files
+pnpm test    # All 4,453 tests across 14 files
 pnpm lint    # Biome linting
 ```
 
 ## Protocol
 
-Bastion defines 95 message types across structured categories:
+Bastion defines 102 message types across structured categories:
 
 - **Core** (9): `task`, `conversation`, `challenge`, `confirmation`, `denial`, `status`, `result`, `error`, `heartbeat`
 - **File Transfer** (3): `file_manifest`, `file_offer`, `file_request`
@@ -256,7 +258,7 @@ Bastion defines 95 message types across structured categories:
 
 All messages are validated against Zod schemas at every boundary. Unknown message types are rejected. The protocol version is checked on session establishment.
 
-Error codes follow the format `BASTION-CXXX` across 8 categories: Connection (1XXX), Auth (2XXX), Protocol (3XXX), Safety (4XXX), File Transfer (5XXX), Provider (6XXX), Configuration (7XXX), Budget (8XXX).
+Error codes follow the format `BASTION-CXXX` — 57 codes across 9 categories: Connection (1XXX), Auth (2XXX), Protocol (3XXX), Safety (4XXX), File Transfer (5XXX), Provider (6XXX), Configuration (7XXX), Budget (8XXX), Guardian (9XXX).
 
 ### E2E Encryption
 
@@ -273,14 +275,14 @@ Bastion includes deployment templates for self-hosted environments:
 - **[AppArmor Profiles](packages/infrastructure/apparmor/)** — Mandatory access control for AI client VM
 - **[Firewall Rules](packages/infrastructure/firewall/)** — nftables config for defence-in-depth
 - **[Automated Setup](packages/infrastructure/setup/)** — Intelligent provisioning with OS disk protection
-- **[Systemd Templates](deploy/systemd/)** — Service files for relay, admin UI, AI client
+- **[Systemd Templates](deploy/systemd/)** — Service files for the relay and AI client (the admin UI has no separate service — the relay serves it on port 9444)
 - **[CLI Tool](scripts/bastion-cli.sh)** — `bastion update|restart|status|audit|migrate` management CLI
 
 ## Documentation
 
 - [Getting Started Guide](docs/guides/getting-started.md) — Clone to running local instance walkthrough
 - [Deployment Guide](docs/guides/deployment.md) — Self-hosting with TLS, VLANs, and AI VM isolation
-- [Protocol Specification](docs/protocol/bastion-protocol-v0.5.0.md) — All 95 message types, envelope structure, E2E encryption, safety evaluation
+- [Protocol Specification](docs/protocol/bastion-protocol-v0.5.0.md) — Envelope structure, E2E encryption, safety evaluation (marked deprecated above v0.8.x — see note in the file; authoritative message-type list lives in `packages/protocol/src/constants/message-types.ts`)
 - [Core Specification](docs/spec/Project-Bastion-Spec-v0.1.0.docx) — The full product specification
 - [Supplementary Specification](docs/spec/bastion-supplementary-spec.md) — Architectural decisions, session lifecycle, error codes, GDPR considerations
 - [Project Structure](docs/spec/bastion-project-structure.md) — Package layout and task breakdown
@@ -346,9 +348,9 @@ These cannot be disabled, bypassed, or configured away:
 
 ## Status
 
-**Pre-Release (v0.8.1).** The protocol, crypto layer, relay, AI client, desktop client, admin UI, adapter template, and infrastructure templates are all implemented and tested across 3,897 passing tests in 14 test files. All components run as a single `bastion` user with VM-level isolation providing security separation.
+**Pre-Release (v0.8.1).** The protocol, crypto layer, relay, AI client, desktop client, admin UI, adapter template, and infrastructure templates are all implemented and tested across 4,453 passing tests in 14 test files. All components run as a single `bastion` user with VM-level isolation providing security separation.
 
-The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. E2E encryption is active with interoperable tweetnacl (browser) and libsodium (Node.js) implementations. The protocol is stable at 95 message types with 48 error codes across 8 categories. Three official Anthropic adapters — Sonnet 4.6 (1M context), Haiku 4.5 (200k context), Opus 4.6 (1M context) — provide role-based model selection. The AI native toolbox allows Claude to issue challenges during vulnerable hours and propose memories. GDPR Articles 17 (Right to Erasure) and 20 (Data Portability) are fully implemented. The CLI tool (`bastion doctor|install|update|restart|status|audit|migrate`) provides one-stop deployment and management. The reference implementation works.
+The desktop Human Client, relay, and AI client have been deployed and tested end-to-end on real infrastructure with full VLAN isolation. E2E encryption is active with interoperable tweetnacl (browser) and libsodium (Node.js) implementations. The protocol is stable at 102 message types with 57 error codes across 9 categories. Three official Anthropic adapters — Sonnet 4.6 (1M context), Haiku 4.5 (200k context), Opus 4.6 (1M context) — provide role-based model selection. The AI native toolbox allows Claude to issue challenges during vulnerable hours and propose memories. GDPR Articles 17 (Right to Erasure) and 20 (Data Portability) are fully implemented. The CLI tool (`bastion doctor|install|update|restart|status|audit|migrate`) provides one-stop deployment and management. The reference implementation works.
 
 > **Mobile client note:** The React Native mobile client (`packages/client-human-mobile`) was built during the initial development phases and builds successfully, but has not been updated with Layer 2-4 features, the setup wizard, or Challenge Me More. Mobile client modernisation is on the roadmap.
 

@@ -1,5 +1,7 @@
 # Bastion Protocol Specification v0.5.0
 
+> **DEPRECATED.** This document describes the protocol as of v0.5.0 and has not been updated to match the current v0.8.x implementation. Message-type counts, error-code counts, admin authentication, crypto semantics (peek/commit, PLAINTEXT_TYPES), and Guardian message types are missing or out of date. A refreshed spec sheet is planned as part of Phase 4. Until then, treat `packages/protocol/src/constants/message-types.ts` and `error-codes.ts` as the authoritative message-type and error-code lists, and read the [recent audit reports](../audits/) for current crypto and admin-auth behaviour.
+
 **Version:** 0.5.0
 **Date:** March 2026
 **Status:** Stable (Phase 1–5 complete, self-update system)

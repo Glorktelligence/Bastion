@@ -37,7 +37,8 @@ Bastion is a PNPM monorepo. All packages live in `packages/`:
 - `client-ai` — Headless AI client for isolated VM
 - `relay-admin-ui` — SvelteKit admin panel
 - `adapter-template` — Community adapter reference template
-- `tests` — Cross-package integration tests
+- `tests` — Cross-package integration and round-trip tests
+- `infrastructure` — Proxmox VM/LXC templates, systemd units, firewall/AppArmor profiles, setup scripts
 
 ### Running Tests
 

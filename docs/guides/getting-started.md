@@ -81,7 +81,7 @@ Integration: 82 checks passed
 File Transfer Integration: 105 checks passed
 ```
 
-All 3,862 tests should pass.
+All 4,453 tests should pass. (This count grows as new tests land — use the number from `pnpm test` output as the source of truth.)
 
 ## Step 1: Generate TLS Certificates
 
@@ -423,7 +423,7 @@ The relay defaults to port 9443. If it's occupied:
 
 ```javascript
 const relay = new BastionRelay({
-  port: 9444, // Use a different port
+  port: 9445, // Use a different port — avoid 9444 (admin listener)
   // ...
 });
 ```
@@ -441,6 +441,6 @@ pnpm build      # Rebuild everything
 ## Next Steps
 
 - **[Deployment Guide](./deployment.md)** — Self-hosting Bastion on a real server with TLS, VLANs, and AI VM isolation.
-- **[Protocol Specification](../protocol/bastion-protocol-v0.5.0.md)** — Complete protocol reference with all 95 message types.
+- **[Protocol Specification](../protocol/bastion-protocol-v0.5.0.md)** — Envelope structure, encryption, and safety evaluation (marked deprecated above v0.8.x; authoritative message-type list lives in `packages/protocol/src/constants/message-types.ts`).
 - **[Contributing](../../CONTRIBUTING.md)** — How to contribute to Bastion.
 - **[Security Policy](../../SECURITY.md)** — Reporting vulnerabilities and understanding the threat model.
