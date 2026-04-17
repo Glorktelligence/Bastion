@@ -46,6 +46,7 @@ import {
   decryptPayload,
   shouldAttemptDecrypt,
   decryptEnvelope,
+  enqueueEncryptedMessage,
 } from './dist/index.js';
 
 let pass = 0, fail = 0;
@@ -3012,6 +3013,139 @@ async function run() {
       sendDuringWindow('conversation', liveCipher, pt) === 'encrypted',
     );
     liveCipher.destroy();
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // enqueueEncryptedMessage — bounded queue behaviour (addendum Fix B)
+  // -------------------------------------------------------------------
+  console.log('--- Encrypted message queue (addendum Fix B) ---');
+  {
+    // Basic enqueue: adds to the queue, does not overflow under the cap.
+    {
+      const q = [];
+      const r1 = enqueueEncryptedMessage(q, 'msg-1', 3);
+      check('enqueue: accepts first message', r1.enqueued === true);
+      check('enqueue: no overflow on first message', r1.overflowed === false);
+      check('enqueue: queue length is 1', q.length === 1);
+      check('enqueue: queue content is msg-1', q[0] === 'msg-1');
+    }
+
+    // FIFO order preservation
+    {
+      const q = [];
+      enqueueEncryptedMessage(q, 'a', 3);
+      enqueueEncryptedMessage(q, 'b', 3);
+      enqueueEncryptedMessage(q, 'c', 3);
+      check('enqueue: FIFO order preserved', q[0] === 'a' && q[1] === 'b' && q[2] === 'c');
+      check('enqueue: queue length is 3 at cap', q.length === 3);
+    }
+
+    // Overflow: at cap+1, drop oldest, append new
+    {
+      const q = [];
+      const cap = 3;
+      enqueueEncryptedMessage(q, 'a', cap); // [a]
+      enqueueEncryptedMessage(q, 'b', cap); // [a, b]
+      enqueueEncryptedMessage(q, 'c', cap); // [a, b, c]
+      const r = enqueueEncryptedMessage(q, 'd', cap); // [b, c, d]
+      check('overflow: triggers overflowed=true', r.overflowed === true);
+      check('overflow: enqueued=true (new message accepted)', r.enqueued === true);
+      check('overflow: queue size remains at cap', q.length === cap);
+      check('overflow: dropped oldest (a gone)', !q.includes('a'));
+      check('overflow: retains newest (d present)', q[q.length - 1] === 'd');
+      check('overflow: FIFO preserved after drop (b first)', q[0] === 'b');
+    }
+
+    // Multi-overflow: repeatedly dropping oldest maintains the invariant
+    {
+      const q = [];
+      const cap = 2;
+      for (let i = 0; i < 5; i++) {
+        enqueueEncryptedMessage(q, `msg-${i}`, cap);
+      }
+      check('multi-overflow: queue at cap', q.length === cap);
+      check('multi-overflow: newest two preserved', q[0] === 'msg-3' && q[1] === 'msg-4');
+    }
+
+    // Overflow signal is ONLY true when we actually had to drop
+    {
+      const q = [];
+      const r = enqueueEncryptedMessage(q, 'x', 5);
+      check('small queue: no overflow', r.overflowed === false);
+    }
+
+    // Drain (splice-style) preserves order
+    {
+      const q = [];
+      enqueueEncryptedMessage(q, 'first', 3);
+      enqueueEncryptedMessage(q, 'second', 3);
+      enqueueEncryptedMessage(q, 'third', 3);
+      const drained = q.splice(0, q.length);
+      check('drain: splice returns all queued entries', drained.length === 3);
+      check('drain: queue is empty after splice', q.length === 0);
+      check('drain: order preserved (first→second→third)',
+        drained[0] === 'first' && drained[1] === 'second' && drained[2] === 'third');
+    }
+
+    // Integration: simulate the session.ts pattern — pre-cipher queue,
+    // then drain into a recorder that represents handleRelayMessage.
+    {
+      const q = [];
+      const cap = 100;
+      let keyExchangePending = true;
+      let cipher = null;
+
+      const plaintextTypes = new Set([
+        'session_init', 'session_established', 'key_exchange', 'ping', 'pong',
+        'peer_status', 'error', 'config_ack', 'config_nack',
+      ]);
+
+      // Simulate 3 encrypted messages arriving during the window
+      const fakeMessages = [
+        JSON.stringify({ type: 'conversation', sender: { type: 'ai' }, encryptedPayload: 'enc1', nonce: 'n1' }),
+        JSON.stringify({ type: 'result', sender: { type: 'ai' }, encryptedPayload: 'enc2', nonce: 'n2' }),
+        JSON.stringify({ type: 'conversation_stream', sender: { type: 'ai' }, encryptedPayload: 'enc3', nonce: 'n3' }),
+      ];
+
+      for (const raw of fakeMessages) {
+        const parsed = JSON.parse(raw);
+        if (!cipher && keyExchangePending && shouldAttemptDecrypt(parsed, plaintextTypes)) {
+          enqueueEncryptedMessage(q, raw, cap);
+        }
+      }
+      check('integration: 3 messages queued during window', q.length === 3);
+
+      // Simulate peer KE completing — cipher set, drain in order
+      cipher = {};
+      keyExchangePending = false;
+      const drained = q.splice(0, q.length);
+      check('integration: drain pulls exactly 3', drained.length === 3);
+      check('integration: drain order preserved', JSON.parse(drained[0]).encryptedPayload === 'enc1');
+
+      // A plaintext message arriving in the window must NOT be queued
+      q.length = 0;
+      keyExchangePending = true;
+      cipher = null;
+      const plaintextMsg = JSON.stringify({ type: 'ping', sender: { type: 'relay' } });
+      const parsedPing = JSON.parse(plaintextMsg);
+      if (!cipher && keyExchangePending && shouldAttemptDecrypt(parsedPing, plaintextTypes)) {
+        enqueueEncryptedMessage(q, plaintextMsg, cap);
+      }
+      check('integration: plaintext-by-design not queued', q.length === 0);
+
+      // Relay-sender also never queued
+      const relayOffer = JSON.stringify({
+        type: 'file_offer',
+        sender: { type: 'relay' },
+        payload: { transferId: 't1' },
+      });
+      const parsedRelay = JSON.parse(relayOffer);
+      if (!cipher && keyExchangePending && shouldAttemptDecrypt(parsedRelay, plaintextTypes)) {
+        enqueueEncryptedMessage(q, relayOffer, cap);
+      }
+      check('integration: relay-sender never queued', q.length === 0);
+    }
   }
   console.log();
 

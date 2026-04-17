@@ -38,6 +38,7 @@ export {
   decodeBase64,
   shouldAttemptDecrypt,
   decryptEnvelope,
+  enqueueEncryptedMessage,
 } from './crypto/browser-crypto.js';
 export type {
   BrowserKeyPair,

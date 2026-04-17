@@ -47,7 +47,9 @@ import {
   deriveSessionKeys,
   encodeBase64,
   encryptPayload,
+  enqueueEncryptedMessage,
   generateKeyPair,
+  shouldAttemptDecrypt,
 } from './crypto/browser-crypto.js';
 import type { BrowserKeyPair, BrowserSessionCipher } from './crypto/browser-crypto.js';
 
@@ -461,6 +463,10 @@ export async function connect(): Promise<void> {
       _g.__bastionCipher = null;
       e2eStatus.set({ available: e2eAvailable, active: false });
     }
+    // Clear queue + pending flag; any queued messages can't be in sync
+    // after a reconnect (peer will regenerate keys).
+    encryptedMessageQueue.length = 0;
+    keyExchangePending = false;
   });
 
   // Re-hydrate state after reconnection
@@ -500,6 +506,9 @@ export async function disconnect(): Promise<void> {
     sessionCipher.destroy();
     sessionCipher = null;
   }
+  // Drop any queued messages — a fresh connection will redo key exchange
+  encryptedMessageQueue.length = 0;
+  keyExchangePending = false;
   e2eStatus.set({ available: e2eAvailable, active: false });
 
   // Clear all domain stores to prevent stale data on reconnection or identity switch
@@ -537,6 +546,26 @@ export async function disconnect(): Promise<void> {
 let ownKeyPair: BrowserKeyPair | null = (_g.__bastionKeyPair as BrowserKeyPair) ?? null;
 let sessionCipher: BrowserSessionCipher | null = (_g.__bastionCipher as BrowserSessionCipher) ?? null;
 let e2eAvailable = (_g.__bastionE2eAvailable as boolean) ?? false;
+
+/**
+ * Pre-cipher encrypted-message queue (addendum §5 Fix B — defense in depth).
+ *
+ * Mirrors the AI client's encryptedMessageQueue at start-ai-client.mjs:944.
+ * When an encrypted envelope arrives during the window between
+ * peer_status=active (keyExchangePending=true) and the peer's key_exchange
+ * completing (sessionCipher set), we stash the raw WebSocket data here so
+ * handleRelayMessage can re-process it once the cipher is ready. Without
+ * this queue, such messages would silently drop via tryDecrypt's no-cipher
+ * early-return — exactly the silent-drop behaviour that interacted with
+ * the AI-side stale-cipher race to produce the observed MAC errors.
+ *
+ * Bounded at 100 entries. On overflow we drop the OLDEST entries (preserve
+ * most-recent behaviour) and emit an `encrypted_queue_overflow` audit
+ * event — this matches the category registered in AUDIT_EVENT_CATEGORIES.
+ */
+const MAX_ENCRYPTED_QUEUE_SIZE = 100;
+const encryptedMessageQueue: string[] = [];
+let keyExchangePending = false;
 
 /** Whether E2E encryption is active (session cipher established). */
 export const e2eStatus: Writable<{ available: boolean; active: boolean }> = writable({
@@ -620,8 +649,20 @@ function handlePeerKeyExchange(peerPublicKeyB64: string): void {
   const sessionKeys = deriveSessionKeys('initiator', ownKeyPair, peerPublicKey);
   sessionCipher = createSessionCipher(sessionKeys);
   _g.__bastionCipher = sessionCipher;
+  keyExchangePending = false;
   e2eStatus.set({ available: true, active: true });
   console.log('[Bastion] E2E session established — interoperable ratchet active');
+
+  // Drain any messages that arrived during the key-exchange window.
+  // Re-emit in insertion order; each message goes through the full
+  // handleRelayMessage pipeline again, now with sessionCipher live.
+  if (encryptedMessageQueue.length > 0) {
+    const queued = encryptedMessageQueue.splice(0, encryptedMessageQueue.length);
+    console.log(`[Bastion] Draining ${queued.length} queued encrypted message(s)`);
+    for (const raw of queued) {
+      handleRelayMessage(raw);
+    }
+  }
 }
 
 /**
@@ -889,6 +930,31 @@ function handleRelayMessage(data: string): void {
     return;
   }
 
+  // Pre-cipher encrypted-message queue (addendum §5 Fix B).
+  // If an encrypted envelope arrives during the key-exchange window,
+  // queue it for replay once handlePeerKeyExchange creates the cipher.
+  // Without this queue, tryDecrypt would early-return (!sessionCipher)
+  // and the message would silently drop — exactly the pre-cipher
+  // silent-drop the addendum identifies as the gap on the human side.
+  if (!sessionCipher && keyExchangePending && shouldAttemptDecrypt(envelope, PLAINTEXT_TYPES)) {
+    const { overflowed } = enqueueEncryptedMessage(encryptedMessageQueue, data, MAX_ENCRYPTED_QUEUE_SIZE);
+    if (overflowed) {
+      auditLog.addEntry({
+        index: auditLog.store.get().entries.length,
+        timestamp: new Date().toISOString(),
+        eventType: 'encrypted_queue_overflow',
+        sessionId: '',
+        detail: {
+          maxSize: MAX_ENCRYPTED_QUEUE_SIZE,
+          dropped: 'oldest',
+          incomingType: String(envelope.type ?? 'unknown'),
+        },
+        chainHash: '',
+      });
+    }
+    return;
+  }
+
   // Decrypt if this is an encrypted envelope
   envelope = tryDecrypt(envelope);
 
@@ -966,6 +1032,7 @@ function handleRelayMessage(data: string): void {
         _g.__bastionCipher = null;
         e2eStatus.set({ available: e2eAvailable, active: false });
       }
+      keyExchangePending = true;
       sendKeyExchange();
     } else if (peerStatus === 'disconnected') {
       // Peer gone — invalidate our receive chain as well; any encrypted
@@ -980,6 +1047,10 @@ function handleRelayMessage(data: string): void {
         _g.__bastionCipher = null;
         e2eStatus.set({ available: e2eAvailable, active: false });
       }
+      keyExchangePending = false;
+      // Don't bother draining the queue — peer is gone; queued
+      // messages cannot possibly be in sync with a future cipher.
+      encryptedMessageQueue.length = 0;
     }
     return;
   }

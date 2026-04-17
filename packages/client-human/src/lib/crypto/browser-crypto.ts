@@ -307,6 +307,31 @@ export interface DecryptFailureSentinel extends Record<string, unknown> {
 }
 
 /**
+ * Bounded FIFO queue for encrypted messages that arrive during the
+ * key-exchange window (addendum §5 Fix B, defense in depth).
+ *
+ * Callers push the raw WebSocket data string; on overflow the OLDEST
+ * entry is dropped (preserving most-recent behaviour) and the caller
+ * is responsible for emitting an encrypted_queue_overflow audit event.
+ *
+ * Separate helper so session.ts's queue logic can be unit-tested
+ * without module-level state coupling.
+ */
+export function enqueueEncryptedMessage(
+  queue: string[],
+  data: string,
+  maxSize: number,
+): { enqueued: true; overflowed: boolean } {
+  let overflowed = false;
+  if (queue.length >= maxSize) {
+    queue.shift();
+    overflowed = true;
+  }
+  queue.push(data);
+  return { enqueued: true, overflowed };
+}
+
+/**
  * Pure-function version of session.ts tryDecrypt. Takes the envelope,
  * cipher, and plaintext-types set as parameters so it can be unit-tested
  * without module state.
