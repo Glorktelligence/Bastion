@@ -93,14 +93,9 @@ function computeHash(data) {
   return createHash('sha256').update(data).digest('hex');
 }
 
-/** Parse relay-originated envelope (base64-encoded payload). */
+/** Parse relay-originated envelope (plaintext payload as of audit §8.1 fix). */
 function parseRelayEnvelope(data) {
-  const parsed = JSON.parse(data);
-  if (parsed.encryptedPayload) {
-    const payload = JSON.parse(Buffer.from(parsed.encryptedPayload, 'base64').toString('utf-8'));
-    return { ...parsed, payload };
-  }
-  return parsed;
+  return JSON.parse(data);
 }
 
 // ---------------------------------------------------------------------------

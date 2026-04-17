@@ -1020,19 +1020,13 @@ function handleRelayMessage(data: string): void {
     return;
   }
 
-  // Relay-originated control messages (file_offer, file_data, etc.) encode
-  // the payload as base64 JSON in encryptedPayload — NOT actual encryption,
-  // just the relay's buildRelayEnvelope() wrapper. Decode it here so all
-  // downstream handlers see the real payload fields.
+  // Read payload directly. Relay-originated control messages (file_offer,
+  // file_data, etc.) now carry plaintext payloads in the `payload` field
+  // (audit §8.1 fix — previously the relay wrapped payload as base64 JSON
+  // in an `encryptedPayload` field, which overloaded the field name and
+  // tripped the ratchet via tryDecrypt). The old base64-JSON fallback
+  // has been removed.
   let payload = envelope.payload as Record<string, unknown> | undefined;
-  if (!payload && typeof envelope.encryptedPayload === 'string') {
-    try {
-      const decoded = atob(envelope.encryptedPayload as string);
-      payload = JSON.parse(decoded) as Record<string, unknown>;
-    } catch {
-      payload = undefined;
-    }
-  }
   if (!payload) payload = envelope as Record<string, unknown>;
 
   const sender = (envelope.sender ?? { type: 'system', displayName: 'Relay' }) as {

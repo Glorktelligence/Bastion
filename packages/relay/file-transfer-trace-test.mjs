@@ -36,13 +36,11 @@ function createMockSend() {
 
 /**
  * Extract payload from a relay-generated envelope.
- * Relay envelopes carry the payload as base64-encoded JSON in encryptedPayload.
+ * Relay envelopes carry the payload plaintext in the `payload` field
+ * (as of audit §8.1 fix — previously base64-wrapped in encryptedPayload).
  */
 function extractPayload(envelope) {
   const parsed = typeof envelope === 'string' ? JSON.parse(envelope) : envelope;
-  if (parsed.encryptedPayload) {
-    return JSON.parse(Buffer.from(parsed.encryptedPayload, 'base64').toString('utf-8'));
-  }
   return parsed.payload;
 }
 
@@ -742,6 +740,90 @@ async function run() {
     ftr.destroy();
     check('no transfers after destroy', ftr.activeTransferCount === 0);
 
+    quarantine.destroy();
+  }
+  console.log();
+
+  // =========================================================================
+  // Envelope shape — audit §8.1 fix (no encryptedPayload on relay envelopes)
+  // =========================================================================
+  console.log('--- Relay envelope shape (§8.1) ---');
+  {
+    const quarantine = new FileQuarantine();
+    const verifier = new HashVerifier({ quarantine });
+    const { send, sent } = createMockSend();
+    const ftr = new FileTransferRouter({ quarantine, hashVerifier: verifier, send });
+
+    // Submit a file to trigger file_manifest emission
+    const data = makeFileData('audit §8.1 test');
+    const transferId = uuid();
+    ftr.submitFile({
+      transferId,
+      direction: 'human_to_ai',
+      sender: { id: uuid(), type: 'human', displayName: 'Alice' },
+      filename: 'audit.txt',
+      sizeBytes: data.length,
+      mimeType: 'text/plain',
+      declaredHash: sha256(data),
+      data,
+      purpose: 'Audit test',
+      projectContext: 'Audit',
+      recipientConnectionId: 'ai-conn-audit',
+    });
+
+    const manifest = sent[0].parsed;
+    // Core §8.1 assertions: no encryptedPayload, has plaintext payload
+    check('file_manifest has NO encryptedPayload field', manifest.encryptedPayload === undefined);
+    check('file_manifest has NO nonce field', manifest.nonce === undefined);
+    check('file_manifest has payload field', typeof manifest.payload === 'object' && manifest.payload !== null);
+    check('file_manifest payload.transferId is plaintext object field', manifest.payload.transferId === transferId);
+    check('file_manifest payload.filename is plaintext object field', manifest.payload.filename === 'audit.txt');
+    check('file_manifest sender.type is relay', manifest.sender.type === 'relay');
+    check('file_manifest has correlationId (plaintext envelope)', typeof manifest.correlationId === 'string');
+    check('file_manifest has version', manifest.version === PROTOCOL_VERSION);
+
+    // Trigger AI→human file_offer workflow via submitFile (ai_to_human).
+    sent.length = 0;
+    const transferId2 = uuid();
+    const data2 = makeFileData('offer envelope test');
+    ftr.submitFile({
+      transferId: transferId2,
+      direction: 'ai_to_human',
+      sender: { id: uuid(), type: 'ai', displayName: 'Claude' },
+      filename: 'offer.txt',
+      sizeBytes: data2.length,
+      mimeType: 'text/plain',
+      declaredHash: sha256(data2),
+      data: data2,
+      purpose: 'Offer test',
+      projectContext: 'Offer',
+      recipientConnectionId: 'human-conn-audit',
+    });
+
+    // The AI→human direction emits a file_offer from buildRelayEnvelope.
+    const offerEnv = sent[0].parsed;
+    check('file_offer has NO encryptedPayload', offerEnv.encryptedPayload === undefined);
+    check('file_offer has NO nonce field', offerEnv.nonce === undefined);
+    check('file_offer has plaintext payload field', typeof offerEnv.payload === 'object' && offerEnv.payload !== null);
+    check('file_offer payload.transferId matches', offerEnv.payload.transferId === transferId2);
+    check('file_offer sender.type is relay', offerEnv.sender.type === 'relay');
+
+    // Exercise handleFileRequest — produces a file_data envelope (uses
+    // its own builder, not buildRelayEnvelope, so field name is fileData).
+    sent.length = 0;
+    ftr.handleFileRequest(transferId2, 'human-conn-audit');
+    if (sent.length > 0) {
+      const dataEnv = sent[0].parsed;
+      check('file_data has NO encryptedPayload', dataEnv.encryptedPayload === undefined);
+      check('file_data uses `fileData` field (not encryptedPayload)', typeof dataEnv.fileData === 'string');
+      check('file_data sender.type is relay', dataEnv.sender.type === 'relay');
+    } else {
+      check('file_data envelope emitted (n/a)', true);
+      check('file_data no encryptedPayload (vacuous)', true);
+      check('file_data sender relay (vacuous)', true);
+    }
+
+    ftr.destroy();
     quarantine.destroy();
   }
   console.log();

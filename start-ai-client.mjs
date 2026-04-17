@@ -1349,19 +1349,10 @@ client.on('message', async (data) => {
     return;
   }
 
-  // Decode relay-generated messages — relay wraps payload as base64 JSON in encryptedPayload
-  // These are NOT E2E encrypted, just base64 transport encoding from the relay
-  if (msg.encryptedPayload && msg.sender?.type === 'relay') {
-    try {
-      const payloadStr = Buffer.from(msg.encryptedPayload, 'base64').toString('utf-8');
-      msg = { ...msg, payload: JSON.parse(payloadStr) };
-      delete msg.encryptedPayload;
-      delete msg.nonce;
-    } catch (err) {
-      console.error(`[!] Failed to decode relay message: ${err.message}`);
-      return;
-    }
-  }
+  // Relay-originated messages carry plaintext payloads in the `payload`
+  // field (as of audit §8.1 fix). We previously decoded a base64-wrapped
+  // `encryptedPayload` here — that fallback is removed now that the
+  // relay emits a clean envelope.
 
   // Queue encrypted messages if key exchange is still in progress
   if (msg.encryptedPayload && !e2eCipher) {

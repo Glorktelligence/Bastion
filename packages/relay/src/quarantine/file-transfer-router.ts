@@ -419,11 +419,11 @@ export class FileTransferRouter {
    * Build a file data delivery envelope.
    *
    * This is the actual file content, sent only after explicit acceptance.
-   * The data is base64-encoded as the encryptedPayload field.
+   * The raw file bytes are base64-encoded in the `fileData` field for
+   * WebSocket transport. This envelope is relay-originated plaintext —
+   * not E2E-encrypted, per the relay's zero-knowledge property.
    */
   private buildFileDataEnvelope(transferId: FileTransferId, data: Uint8Array, filename: string, hash: string): string {
-    // File data is sent as an EncryptedEnvelope-like structure.
-    // The relay wraps the raw file bytes in base64 for WebSocket transport.
     return JSON.stringify({
       id: randomUUID(),
       type: 'file_data',
@@ -440,10 +440,16 @@ export class FileTransferRouter {
   }
 
   /**
-   * Build a relay-originated EncryptedEnvelope.
+   * Build a relay-originated plaintext control envelope.
    *
-   * The relay generates metadata-only messages as cleartext JSON envelopes
-   * (not encrypted — these are relay-to-client control messages).
+   * Relay-to-client control messages (file_manifest, file_offer, file_request,
+   * file_data) are never E2E-encrypted — the relay is zero-knowledge about
+   * session keys. This used to wrap the payload as base64-encoded JSON in
+   * an `encryptedPayload` field, but that overloaded the field name and
+   * tricked the human client's tryDecrypt into feeding a plaintext envelope
+   * to the ratchet. We now emit a clean `payload` field.
+   *
+   * See docs/audits/e2e-crypto-audit-2026-04-17.md §8.1.
    */
   private buildRelayEnvelope(messageId: MessageId, type: string, payload: Record<string, unknown>): string {
     return JSON.stringify({
@@ -453,10 +459,10 @@ export class FileTransferRouter {
       sender: { id: 'relay', type: 'relay', displayName: 'Bastion Relay' },
       correlationId: randomUUID(),
       version: PROTOCOL_VERSION,
-      // Relay control messages carry payload in clear — they are not
-      // E2E-encrypted since they originate from the relay itself.
-      encryptedPayload: Buffer.from(JSON.stringify(payload)).toString('base64'),
-      nonce: Buffer.from(randomUUID()).toString('base64'),
+      // Plaintext payload — the relay does not encrypt these. Consumers
+      // read this directly; tryDecrypt on the human side early-returns
+      // when sender.type === 'relay'.
+      payload,
     });
   }
 
