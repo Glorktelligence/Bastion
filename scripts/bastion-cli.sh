@@ -15,9 +15,9 @@
 #   bastion install --fresh --vm relay|ai    Reset build artifacts (preserves data)
 #   bastion install --fresh --data --vm relay|ai  Reset everything including data
 #   bastion update --component relay|ai      Pull, install, build
-#   bastion restart --component relay|ai|admin|all
-#   bastion start --component relay|ai|admin|all
-#   bastion stop --component relay|ai|admin|all
+#   bastion restart --component relay|ai|all
+#   bastion start --component relay|ai|all
+#   bastion stop --component relay|ai|all
 #   bastion audit <component> [--live|--full] View service logs
 #   bastion migrate --vm relay|ai            One-time migration (run as root)
 #   bastion guardian --component <target>    Resolve Guardian violations (relay only)
@@ -38,7 +38,6 @@ VERSION_FILE="VERSION"
 
 # Service names (systemd) — same on ALL VMs
 SVC_RELAY="bastion-relay"
-SVC_ADMIN="bastion-admin-ui"
 SVC_AI="bastion-ai-client"
 
 # Colours
@@ -145,7 +144,7 @@ migrate_relay() {
     # Step 1: Stop all services
     log_step "Stopping all Bastion services..."
     systemctl stop "$SVC_RELAY" 2>/dev/null || true
-    systemctl stop "$SVC_ADMIN" 2>/dev/null || true
+    systemctl stop "bastion-admin-ui" 2>/dev/null || true
     systemctl stop "bastion-updater" 2>/dev/null || true
     log_info "Services stopped"
 
@@ -390,43 +389,17 @@ PrivateTmp=true
 WantedBy=multi-user.target
 SYSTEMD_EOF
 
-    # Admin UI service
-    cat > /etc/systemd/system/bastion-admin-ui.service << 'SYSTEMD_EOF'
-[Unit]
-Description=Bastion Admin UI
-After=bastion-relay.service
-Requires=bastion-relay.service
-
-[Service]
-Type=simple
-User=bastion
-Group=bastion
-WorkingDirectory=/opt/bastion/packages/relay-admin-ui
-ExecStart=/usr/bin/node /opt/bastion/packages/relay-admin-ui/build/index.js
-Restart=always
-RestartSec=5
-RestartPreventExitStatus=99
-EnvironmentFile=-/opt/bastion/.env
-Environment=NODE_ENV=production
-Environment=PORT=9445
-Environment=HOST=127.0.0.1
-Environment=ORIGIN=http://127.0.0.1:9445
-
-# Security hardening
-NoNewPrivileges=true
-ProtectHome=true
-PrivateTmp=true
-
-[Install]
-WantedBy=multi-user.target
-SYSTEMD_EOF
-
     # Disable old updater service if it exists
     systemctl disable bastion-updater 2>/dev/null || true
     rm -f /etc/systemd/system/bastion-updater.service 2>/dev/null || true
 
+    # Disable + remove deprecated standalone admin UI unit if it lingers from a
+    # prior install. The admin UI is now served by the relay on port 9444.
+    systemctl disable bastion-admin-ui 2>/dev/null || true
+    rm -f /etc/systemd/system/bastion-admin-ui.service 2>/dev/null || true
+
     systemctl daemon-reload
-    systemctl enable bastion-relay bastion-admin-ui
+    systemctl enable bastion-relay
     log_info "Relay systemd services installed and enabled"
 }
 
@@ -528,37 +501,6 @@ PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 RELAYEOF
-            ;;
-        bastion-admin-ui)
-            cat <<'ADMINEOF'
-[Unit]
-Description=Bastion Admin UI
-After=bastion-relay.service
-Requires=bastion-relay.service
-
-[Service]
-Type=simple
-User=bastion
-Group=bastion
-WorkingDirectory=/opt/bastion/packages/relay-admin-ui
-ExecStart=/usr/bin/node /opt/bastion/packages/relay-admin-ui/build/index.js
-Restart=always
-RestartSec=5
-RestartPreventExitStatus=99
-EnvironmentFile=-/opt/bastion/.env
-Environment=NODE_ENV=production
-Environment=PORT=9445
-Environment=HOST=127.0.0.1
-Environment=ORIGIN=http://127.0.0.1:9445
-
-# Security hardening
-NoNewPrivileges=true
-ProtectHome=true
-PrivateTmp=true
-
-[Install]
-WantedBy=multi-user.target
-ADMINEOF
             ;;
         bastion-ai-client)
             cat <<'AIEOF'
@@ -711,7 +653,6 @@ verify_migration() {
     # Check systemd services are installed
     if [[ "$vm_type" == "relay" ]]; then
         systemctl is-enabled "$SVC_RELAY" &>/dev/null && log_info "$SVC_RELAY enabled ✓" || log_error "$SVC_RELAY not enabled ✗"
-        systemctl is-enabled "$SVC_ADMIN" &>/dev/null && log_info "$SVC_ADMIN enabled ✓" || log_error "$SVC_ADMIN not enabled ✗"
     elif [[ "$vm_type" == "ai" ]]; then
         systemctl is-enabled "$SVC_AI" &>/dev/null && log_info "$SVC_AI enabled ✓" || log_error "$SVC_AI not enabled ✗"
     fi
@@ -747,9 +688,6 @@ cmd_status() {
 
 if [[ "$component" == "all" || "$component" == "relay" ]]; then
         check_svc "Relay    " "$SVC_RELAY"
-    fi
-    if [[ "$component" == "all" || "$component" == "admin" ]]; then
-        check_svc "Admin UI " "$SVC_ADMIN"
     fi
     if [[ "$component" == "all" || "$component" == "ai" ]]; then
         check_svc "AI Client" "$SVC_AI"
@@ -797,14 +735,12 @@ cmd_update() {
     case "$component" in
         relay)
             update_systemd_service "$SVC_RELAY"
-            update_systemd_service "$SVC_ADMIN"
             ;;
         ai)
             update_systemd_service "$SVC_AI"
             ;;
         all)
             update_systemd_service "$SVC_RELAY"
-            update_systemd_service "$SVC_ADMIN"
             update_systemd_service "$SVC_AI"
             ;;
     esac
@@ -832,11 +768,6 @@ cmd_restart() {
         sudo systemctl restart "$SVC_RELAY"
         log_info "$SVC_RELAY restarted"
     fi
-    if [[ "$component" == "all" || "$component" == "admin" ]]; then
-        log_step "Restarting $SVC_ADMIN..."
-        sudo systemctl restart "$SVC_ADMIN"
-        log_info "$SVC_ADMIN restarted"
-    fi
     if [[ "$component" == "all" || "$component" == "ai" ]]; then
         log_step "Restarting $SVC_AI..."
         sudo systemctl restart "$SVC_AI"
@@ -857,11 +788,6 @@ cmd_start() {
         sudo systemctl start "$SVC_RELAY"
         log_info "$SVC_RELAY started"
     fi
-    if [[ "$component" == "all" || "$component" == "admin" ]]; then
-        log_step "Starting $SVC_ADMIN..."
-        sudo systemctl start "$SVC_ADMIN"
-        log_info "$SVC_ADMIN started"
-    fi
     if [[ "$component" == "all" || "$component" == "ai" ]]; then
         log_step "Starting $SVC_AI..."
         sudo systemctl start "$SVC_AI"
@@ -881,11 +807,6 @@ cmd_stop() {
         log_step "Stopping $SVC_AI..."
         sudo systemctl stop "$SVC_AI"
         log_info "$SVC_AI stopped"
-    fi
-    if [[ "$component" == "all" || "$component" == "admin" ]]; then
-        log_step "Stopping $SVC_ADMIN..."
-        sudo systemctl stop "$SVC_ADMIN"
-        log_info "$SVC_ADMIN stopped"
     fi
     if [[ "$component" == "all" || "$component" == "relay" ]]; then
         log_step "Stopping $SVC_RELAY..."
@@ -909,9 +830,8 @@ cmd_audit() {
 
     case "$component" in
         relay) svc="$SVC_RELAY" ;;
-        admin) svc="$SVC_ADMIN" ;;
         ai)    svc="$SVC_AI" ;;
-        *)     log_error "Unknown component: $component (use: relay, admin, ai)"; exit 1 ;;
+        *)     log_error "Unknown component: $component (use: relay, ai)"; exit 1 ;;
     esac
 
     case "$mode" in
@@ -986,12 +906,10 @@ guardian_cmd() {
     echo "Bastion Health: $health"
     echo ""
 
-    # Live systemd status for relay + admin UI (both on this VM).
-    local relay_status admin_status
+    # Live systemd status for the relay (admin UI is served by the relay on 9444).
+    local relay_status
     relay_status=$(systemctl is-active "$SVC_RELAY" 2>/dev/null || echo 'UNKNOWN')
-    admin_status=$(systemctl is-active "$SVC_ADMIN" 2>/dev/null || echo 'UNKNOWN')
     echo "Relay:          $relay_status"
-    echo "Admin UI:       $admin_status"
     # AI client runs on a different VM — report what the state file recorded.
     echo "AI Client:      $component_status"
     echo ""
@@ -1193,7 +1111,7 @@ cmd_doctor() {
     echo ""
     echo -e "${BOLD}Services:${NC}"
 
-    for svc_pair in "bastion-relay:Relay" "bastion-admin-ui:Admin UI" "bastion-ai-client:AI Client"; do
+    for svc_pair in "bastion-relay:Relay" "bastion-ai-client:AI Client"; do
         local svc="${svc_pair%%:*}"
         local label="${svc_pair##*:}"
         local svc_status
@@ -1237,20 +1155,6 @@ cmd_doctor() {
             doctor_fail "Port 9444 (admin API): not listening"
         fi
 
-        # Port 9445 (admin UI)
-        if ss -tlnp 2>/dev/null | grep -q ':9445 '; then
-            local bind_9445
-            bind_9445=$(ss -tlnp 2>/dev/null | grep ':9445 ' | awk '{print $4}' | head -1)
-            if echo "$bind_9445" | grep -q '127.0.0.1'; then
-                doctor_pass "Port 9445 (admin UI): listening on 127.0.0.1"
-            elif echo "$bind_9445" | grep -q '0.0.0.0\|\*'; then
-                doctor_fail "Port 9445 (admin UI): WARNING — bound to 0.0.0.0 (should be 127.0.0.1!)"
-            else
-                doctor_pass "Port 9445 (admin UI): listening on $bind_9445"
-            fi
-        else
-            doctor_fail "Port 9445 (admin UI): not listening"
-        fi
     else
         doctor_warn "ss not available — skipping network checks"
     fi
@@ -1461,7 +1365,6 @@ cmd_install_fresh() {
     case "$vm_type" in
         relay)
             systemctl stop "$SVC_RELAY" 2>/dev/null || true
-            systemctl stop "$SVC_ADMIN" 2>/dev/null || true
             ;;
         ai)
             systemctl stop "$SVC_AI" 2>/dev/null || true
@@ -1537,9 +1440,9 @@ cmd_help() {
     echo "  bastion install --fresh --vm relay|ai          Reset (preserves data)"
     echo "  bastion install --fresh --data --vm relay|ai   Reset + wipe all data"
     echo "  bastion update --component relay|ai            Pull, install, build"
-    echo "  bastion restart --component relay|ai|admin|all"
-    echo "  bastion start --component relay|ai|admin|all"
-    echo "  bastion stop --component relay|ai|admin|all"
+    echo "  bastion restart --component relay|ai|all"
+    echo "  bastion start --component relay|ai|all"
+    echo "  bastion stop --component relay|ai|all"
     echo "  bastion audit <component> [--live|--full]"
     echo "  bastion migrate --vm relay|ai                  One-time migration (root)"
 
@@ -1551,7 +1454,7 @@ cmd_help() {
     fi
 
     echo ""
-    echo "Components: relay, admin, ai, all"
+    echo "Components: relay, ai, all"
     echo ""
 }
 
