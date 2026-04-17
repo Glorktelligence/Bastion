@@ -269,6 +269,32 @@ export function decryptPayload(
 }
 
 // ---------------------------------------------------------------------------
+// Decrypt gate — reusable policy used by session.ts tryDecrypt
+// ---------------------------------------------------------------------------
+
+/**
+ * Decide whether an incoming envelope should even be subjected to a decrypt
+ * attempt. Returns true only if the envelope is:
+ *   - structurally encrypted (has an encryptedPayload field),
+ *   - not a plaintext-by-design message type,
+ *   - not from a relay-typed sender.
+ *
+ * This is a pure function so it can be unit-tested without touching module
+ * state. session.ts's tryDecrypt composes this check with its cipher
+ * availability to decide whether to call decryptPayload.
+ *
+ * See docs/audits/e2e-crypto-audit-2026-04-17.md §4.2 and §8.1.
+ */
+export function shouldAttemptDecrypt(msg: Record<string, unknown>, plaintextTypes: ReadonlySet<string>): boolean {
+  const msgType = String(msg.type ?? '');
+  if (plaintextTypes.has(msgType)) return false;
+  const sender = msg.sender as { type?: string } | undefined;
+  if (sender && sender.type === 'relay') return false;
+  if (!msg.encryptedPayload) return false;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Base64 helpers for key exchange messages
 // ---------------------------------------------------------------------------
 

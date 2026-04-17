@@ -48,6 +48,7 @@ import {
   encodeBase64,
   encryptPayload,
   generateKeyPair,
+  shouldAttemptDecrypt,
 } from './crypto/browser-crypto.js';
 import type { BrowserKeyPair, BrowserSessionCipher } from './crypto/browser-crypto.js';
 
@@ -683,14 +684,39 @@ export function sendMemoryBatchDecision(
 
 /**
  * Attempt to decrypt an incoming message envelope.
- * Returns the envelope with decrypted payload, or the original if not encrypted.
+ *
+ * Early returns (no decrypt attempt, no ratchet touch):
+ *  1. No encryptedPayload field or no session cipher — structurally unencrypted.
+ *  2. msg.type is in PLAINTEXT_TYPES — plaintext-by-design (file_offer etc.
+ *     from the relay's buildRelayEnvelope, key_exchange on bootstrap, etc.).
+ *     An encryptedPayload field on these types is a transport-encoded
+ *     payload, not ciphertext. Attempting to decrypt it would fail MAC
+ *     and (before this fix) would desync the ratchet.
+ *  3. Sender type is 'relay' — relay-originated control messages are never
+ *     E2E-encrypted regardless of the encryptedPayload field. Mirrors the
+ *     AI client's mitigation at start-ai-client.mjs:1330-1340.
+ *
+ * Only after all three early-returns do we enter the real decrypt path,
+ * which uses peek/commit so the receive chain advances ONLY on MAC success.
+ *
+ * See docs/audits/e2e-crypto-audit-2026-04-17.md §4.1, §4.2 for rationale.
  */
 function tryDecrypt(msg: Record<string, unknown>): Record<string, unknown> {
-  if (!msg.encryptedPayload || !sessionCipher) return msg;
+  // Early return if the gate (plaintext-type / relay-sender / no-payload)
+  // says this envelope should not be decrypted. See shouldAttemptDecrypt
+  // in browser-crypto.ts for the full policy.
+  if (!shouldAttemptDecrypt(msg, PLAINTEXT_TYPES)) return msg;
+
+  // Cipher not yet established — cannot decrypt yet.
+  if (!sessionCipher) return msg;
 
   try {
     const payload = decryptPayload(String(msg.encryptedPayload), String(msg.nonce), sessionCipher);
     if (!payload) {
+      // MAC verification failed — peek/commit inside decryptPayload left
+      // the receive chain at its pre-decrypt position, so the peer
+      // lockstep is preserved. Upstream handler signaling lands in
+      // a later commit; for now, surface the same diagnostic message.
       console.error('[Bastion] Decryption failed — MAC verification error');
       return msg;
     }

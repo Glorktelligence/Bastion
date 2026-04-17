@@ -36,6 +36,7 @@ export {
   decryptPayload,
   encodeBase64,
   decodeBase64,
+  shouldAttemptDecrypt,
 } from './crypto/browser-crypto.js';
 export type {
   BrowserKeyPair,

@@ -44,6 +44,7 @@ import {
   createSessionCipher,
   encryptPayload,
   decryptPayload,
+  shouldAttemptDecrypt,
 } from './dist/index.js';
 
 let pass = 0, fail = 0;
@@ -2680,6 +2681,146 @@ async function run() {
     aCipherMirror.destroy();
     hCipher2.destroy();
     aCipher2.destroy();
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // shouldAttemptDecrypt — gate logic for tryDecrypt (audit §4.2, §8.1)
+  // -------------------------------------------------------------------
+  console.log('--- tryDecrypt gate: shouldAttemptDecrypt ---');
+  {
+    // Mirror the PLAINTEXT_TYPES set from session.ts so tests are independent.
+    const PLAINTEXT_TYPES_TEST = new Set([
+      'session_init',
+      'session_established',
+      'key_exchange',
+      'ping',
+      'pong',
+      'peer_status',
+      'error',
+      'config_ack',
+      'config_nack',
+      'file_manifest',
+      'file_offer',
+      'file_request',
+      'file_reject',
+      'file_data',
+      'guardian_alert',
+      'guardian_shutdown',
+      'guardian_status',
+      'guardian_status_request',
+      'guardian_clear',
+    ]);
+
+    // (A) A normal encrypted envelope should pass the gate
+    const encryptedMsg = {
+      type: 'conversation',
+      sender: { type: 'ai', id: 'claude', displayName: 'Claude' },
+      encryptedPayload: 'abc123',
+      nonce: 'nonce123',
+    };
+    check(
+      'gate: normal encrypted conversation passes',
+      shouldAttemptDecrypt(encryptedMsg, PLAINTEXT_TYPES_TEST) === true,
+    );
+
+    // (B) Plaintext-by-design types must NOT trigger decrypt, even with
+    // an encryptedPayload field present (buildRelayEnvelope case).
+    const plaintextTypesWithFakeEP = [
+      'file_offer',
+      'file_manifest',
+      'file_request',
+      'file_data',
+      'key_exchange',
+      'peer_status',
+      'session_established',
+      'ping',
+      'pong',
+      'error',
+      'config_ack',
+      'config_nack',
+      'guardian_alert',
+      'guardian_shutdown',
+      'guardian_status',
+      'guardian_status_request',
+      'guardian_clear',
+    ];
+    let plainPass = true;
+    for (const t of plaintextTypesWithFakeEP) {
+      const m = {
+        type: t,
+        sender: { type: 'ai', id: 'x', displayName: 'x' },
+        encryptedPayload: 'abc123',
+        nonce: 'nonce123',
+      };
+      if (shouldAttemptDecrypt(m, PLAINTEXT_TYPES_TEST) !== false) {
+        plainPass = false;
+        console.log(`  DETAIL: type "${t}" should not have passed gate`);
+        break;
+      }
+    }
+    check('gate: all PLAINTEXT_TYPES skip decrypt attempt', plainPass);
+
+    // (C) Relay-sender messages must NOT trigger decrypt attempts.
+    const relayMsg = {
+      type: 'conversation', // NOT in plaintext types
+      sender: { type: 'relay', id: 'relay', displayName: 'Bastion Relay' },
+      encryptedPayload: 'abc123',
+      nonce: 'nonce123',
+    };
+    check(
+      'gate: relay-sender blocks decrypt attempt',
+      shouldAttemptDecrypt(relayMsg, PLAINTEXT_TYPES_TEST) === false,
+    );
+
+    // (D) Missing encryptedPayload — no decrypt attempt
+    const plainEnvelope = {
+      type: 'conversation',
+      sender: { type: 'ai', id: 'x', displayName: 'x' },
+      payload: { content: 'hello' },
+    };
+    check(
+      'gate: no encryptedPayload skips decrypt',
+      shouldAttemptDecrypt(plainEnvelope, PLAINTEXT_TYPES_TEST) === false,
+    );
+
+    // (E) Order of checks: plaintext type takes priority over non-relay sender
+    const fileOfferFromAI = {
+      type: 'file_offer',
+      sender: { type: 'ai', id: 'x', displayName: 'x' },
+      encryptedPayload: 'abc123',
+      nonce: 'nonce123',
+    };
+    check(
+      'gate: plaintext type wins even with non-relay sender',
+      shouldAttemptDecrypt(fileOfferFromAI, PLAINTEXT_TYPES_TEST) === false,
+    );
+
+    // (F) Missing sender field is treated as safe (can't prove relay, so fall
+    // through to payload check).
+    const noSender = {
+      type: 'conversation',
+      encryptedPayload: 'abc123',
+      nonce: 'nonce',
+    };
+    check(
+      'gate: missing sender still allows decrypt when encryptedPayload present',
+      shouldAttemptDecrypt(noSender, PLAINTEXT_TYPES_TEST) === true,
+    );
+
+    // (G) Integration: an encrypted-payload-shaped envelope with
+    // sender.type='relay' (the buildRelayEnvelope case) must NOT be
+    // decrypted — this was the primary §8.1 trigger.
+    const relayFileOffer = {
+      type: 'file_offer',
+      sender: { type: 'relay', id: 'relay', displayName: 'Bastion Relay' },
+      encryptedPayload: 'abc123',
+      nonce: 'nonce',
+    };
+    check(
+      'gate: relay-origin file_offer blocked twice (plaintext + sender)',
+      shouldAttemptDecrypt(relayFileOffer, PLAINTEXT_TYPES_TEST) === false,
+    );
   }
   console.log();
 
