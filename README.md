@@ -265,7 +265,6 @@ Messages are encrypted with XSalsa20-Poly1305 via a KDF ratchet chain. Each mess
 
 Bastion includes deployment templates for self-hosted environments:
 
-- **[Docker Compose](packages/infrastructure/docker/)** — Dev environment with relay, AI client, and admin UI
 - **[Proxmox Templates](packages/infrastructure/proxmox/)** — VM/LXC configs with VLAN isolation
 - **[Systemd Services](packages/infrastructure/systemd/)** — Hardened service files with security directives
 - **[AppArmor Profiles](packages/infrastructure/apparmor/)** — Mandatory access control for AI client VM
