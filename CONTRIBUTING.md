@@ -18,8 +18,8 @@ Thank you for your interest in contributing to Bastion. This document covers the
 ### Getting Started
 
 ```bash
-git clone https://git.glorktelligence.co.uk/glorktelligence/bastion.git
-cd bastion
+git clone https://github.com/Glorktelligence/Bastion.git
+cd Bastion
 pnpm install
 pnpm build
 pnpm test

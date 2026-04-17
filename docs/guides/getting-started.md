@@ -34,8 +34,8 @@ By the end, you will have:
 ## Clone and Install
 
 ```bash
-git clone https://git.glorktelligence.co.uk/glorktelligence/bastion.git
-cd bastion
+git clone https://github.com/Glorktelligence/Bastion.git
+cd Bastion
 
 # Install all workspace dependencies
 pnpm install

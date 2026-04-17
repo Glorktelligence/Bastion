@@ -154,7 +154,7 @@ sudo chown bastion:bastion /opt/bastion
 sudo -u bastion bash
 
 cd /opt/bastion
-git clone https://git.glorktelligence.co.uk/glorktelligence/bastion.git .
+git clone https://github.com/Glorktelligence/Bastion.git .
 pnpm install --frozen-lockfile
 pnpm build
 ```
@@ -282,7 +282,7 @@ sudo chown bastion-ai:bastion-ai /opt/bastion-ai
 ```bash
 sudo -u bastion-ai bash
 cd /opt/bastion-ai
-git clone https://git.glorktelligence.co.uk/glorktelligence/bastion.git .
+git clone https://github.com/Glorktelligence/Bastion.git .
 pnpm install --frozen-lockfile
 pnpm build
 ```
@@ -459,6 +459,9 @@ Pass  IPv4  TCP  10.0.50.10  →  *           port 443    # HTTPS to AI APIs
 
 # AI VM can resolve DNS
 Pass  IPv4  UDP  10.0.50.10  →  *           port 53     # DNS
+
+# AI VM can reach NTP for clock synchronisation
+Pass  IPv4  UDP  10.0.50.10  →  *           port 123    # NTP — required for TOTP and TLS validation
 
 # Block everything else — no lateral movement
 Block IPv4  *    VLAN50 net  →  VLAN10 net              # No AI→user
@@ -734,6 +737,28 @@ nc -zv 10.0.30.10 9443
 ```
 
 If blocked, check OPNSense firewall logs: **Firewall > Log Files > Live View**.
+
+### TOTP failures, TLS validation errors, or admin lockout
+
+The most common cause is **clock drift** on the AI VM or relay VM. TOTP tokens are time-based (6-digit code valid for 30 seconds); TLS certificate validation uses system time. If a VM's clock is more than ~30 seconds off UTC, TOTP fails, TLS handshakes produce `CERT_NOT_YET_VALID` or `CERT_HAS_EXPIRED` errors, and admins get locked out after 5 failed TOTP attempts.
+
+Diagnose:
+
+```bash
+# On each VM — is NTP active and synchronised?
+timedatectl status
+# Look for: "System clock synchronized: yes" and "NTP service: active"
+
+# Compare VM clock to reference
+date -u; curl -sI https://www.google.com | grep -i '^date:'
+```
+
+Fix:
+
+1. **Firewall** — VLAN 50 (isolated) needs an explicit outbound rule for UDP 123 (NTP). See the VLAN 50 rules above. Without this rule the AI VM cannot reach `time.cloudflare.com`, `pool.ntp.org`, or any other NTP server, and will gradually drift.
+2. **Enable NTP client:** `sudo timedatectl set-ntp true`
+3. **Force a sync:** `sudo systemctl restart systemd-timesyncd`
+4. After clocks are correct, wait 30 seconds for the next TOTP window, then retry login.
 
 ### Audit database locked
 
