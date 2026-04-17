@@ -65,6 +65,7 @@ export const AUDIT_EVENT_CATEGORIES = {
   file: ['file_manifest', 'file_quarantine', 'file_delivered', 'file_rejected'],
   config: ['config_change', 'provider_approved', 'provider_deactivated'],
   violation: ['protocol_violation', 'sender_mismatch', 'allowlist_rejected', 'maliclaw_rejected'],
+  crypto: ['decrypt_failure', 'encrypted_queue_overflow'],
 } as const;
 
 // ---------------------------------------------------------------------------

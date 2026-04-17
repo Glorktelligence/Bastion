@@ -294,6 +294,59 @@ export function shouldAttemptDecrypt(msg: Record<string, unknown>, plaintextType
   return true;
 }
 
+/**
+ * Sentinel shape returned by decryptEnvelope on MAC failure. Downstream
+ * handlers MUST check _decryptFailed and surface a visible system message
+ * + emit an audit event, instead of silently treating the routing envelope
+ * as payload (the §4.3 silent-drop bug).
+ */
+export interface DecryptFailureSentinel extends Record<string, unknown> {
+  _decryptFailed: true;
+  _decryptFailReason: 'mac_verification_failed';
+  payload: null;
+}
+
+/**
+ * Pure-function version of session.ts tryDecrypt. Takes the envelope,
+ * cipher, and plaintext-types set as parameters so it can be unit-tested
+ * without module state.
+ *
+ * Returns:
+ *  - the original envelope unchanged if the decrypt gate blocks (plaintext
+ *    type, relay sender, no encryptedPayload, or cipher is null);
+ *  - a new envelope with the decrypted payload on MAC success;
+ *  - a DecryptFailureSentinel on MAC failure.
+ *
+ * See docs/audits/e2e-crypto-audit-2026-04-17.md §4.1, §4.2, §4.3.
+ */
+export function decryptEnvelope(
+  msg: Record<string, unknown>,
+  cipher: BrowserSessionCipher | null,
+  plaintextTypes: ReadonlySet<string>,
+): Record<string, unknown> {
+  if (!shouldAttemptDecrypt(msg, plaintextTypes)) return msg;
+  if (!cipher) return msg;
+
+  const makeSentinel = (): DecryptFailureSentinel => {
+    const { encryptedPayload: _ep, nonce: _n, ...rest } = msg;
+    return {
+      ...rest,
+      _decryptFailed: true,
+      _decryptFailReason: 'mac_verification_failed',
+      payload: null,
+    };
+  };
+
+  try {
+    const payload = decryptPayload(String(msg.encryptedPayload), String(msg.nonce), cipher);
+    if (!payload) return makeSentinel();
+    const { encryptedPayload: _ep, nonce: _n, ...rest } = msg;
+    return { ...rest, payload };
+  } catch {
+    return makeSentinel();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Base64 helpers for key exchange messages
 // ---------------------------------------------------------------------------

@@ -43,12 +43,11 @@ import { getConfigStore } from './config/config-store.js';
 import {
   createSessionCipher,
   decodeBase64,
-  decryptPayload,
+  decryptEnvelope,
   deriveSessionKeys,
   encodeBase64,
   encryptPayload,
   generateKeyPair,
-  shouldAttemptDecrypt,
 } from './crypto/browser-crypto.js';
 import type { BrowserKeyPair, BrowserSessionCipher } from './crypto/browser-crypto.js';
 
@@ -685,47 +684,19 @@ export function sendMemoryBatchDecision(
 /**
  * Attempt to decrypt an incoming message envelope.
  *
- * Early returns (no decrypt attempt, no ratchet touch):
- *  1. No encryptedPayload field or no session cipher — structurally unencrypted.
- *  2. msg.type is in PLAINTEXT_TYPES — plaintext-by-design (file_offer etc.
- *     from the relay's buildRelayEnvelope, key_exchange on bootstrap, etc.).
- *     An encryptedPayload field on these types is a transport-encoded
- *     payload, not ciphertext. Attempting to decrypt it would fail MAC
- *     and (before this fix) would desync the ratchet.
- *  3. Sender type is 'relay' — relay-originated control messages are never
- *     E2E-encrypted regardless of the encryptedPayload field. Mirrors the
- *     AI client's mitigation at start-ai-client.mjs:1330-1340.
+ * Thin wrapper around the pure decryptEnvelope() helper — this adapter
+ * reads the module-level sessionCipher and PLAINTEXT_TYPES. On MAC
+ * failure, decryptEnvelope returns a DecryptFailureSentinel which
+ * handleRelayMessage surfaces visibly (system message + audit event).
  *
- * Only after all three early-returns do we enter the real decrypt path,
- * which uses peek/commit so the receive chain advances ONLY on MAC success.
- *
- * See docs/audits/e2e-crypto-audit-2026-04-17.md §4.1, §4.2 for rationale.
+ * See docs/audits/e2e-crypto-audit-2026-04-17.md §4.1, §4.2, §4.3.
  */
 function tryDecrypt(msg: Record<string, unknown>): Record<string, unknown> {
-  // Early return if the gate (plaintext-type / relay-sender / no-payload)
-  // says this envelope should not be decrypted. See shouldAttemptDecrypt
-  // in browser-crypto.ts for the full policy.
-  if (!shouldAttemptDecrypt(msg, PLAINTEXT_TYPES)) return msg;
-
-  // Cipher not yet established — cannot decrypt yet.
-  if (!sessionCipher) return msg;
-
-  try {
-    const payload = decryptPayload(String(msg.encryptedPayload), String(msg.nonce), sessionCipher);
-    if (!payload) {
-      // MAC verification failed — peek/commit inside decryptPayload left
-      // the receive chain at its pre-decrypt position, so the peer
-      // lockstep is preserved. Upstream handler signaling lands in
-      // a later commit; for now, surface the same diagnostic message.
-      console.error('[Bastion] Decryption failed — MAC verification error');
-      return msg;
-    }
-    const { encryptedPayload: _ep, nonce: _n, ...rest } = msg;
-    return { ...rest, payload };
-  } catch (err) {
-    console.error('[Bastion] Decryption failed:', err instanceof Error ? err.message : String(err));
-    return msg;
+  const result = decryptEnvelope(msg, sessionCipher, PLAINTEXT_TYPES);
+  if (result._decryptFailed === true) {
+    console.error('[Bastion] Decryption failed — MAC verification error');
   }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -905,6 +876,46 @@ function handleRelayMessage(data: string): void {
 
   // Decrypt if this is an encrypted envelope
   envelope = tryDecrypt(envelope);
+
+  // Fail loud on decrypt failure: surface a visible system message and
+  // emit a decrypt_failure audit event. Do NOT fall through to handler
+  // code that would read routing metadata as if it were payload.
+  // See docs/audits/e2e-crypto-audit-2026-04-17.md §4.3.
+  if (envelope._decryptFailed === true) {
+    const failedType = String(envelope.type ?? 'unknown');
+    const senderObj = (envelope.sender as { type?: string } | undefined) ?? {};
+    const senderType = String(senderObj.type ?? 'unknown');
+    const correlationId = String(envelope.correlationId ?? envelope.id ?? '');
+
+    // Visible system message in the conversation UI.
+    messages.addIncoming(
+      'conversation',
+      {
+        content: 'A message could not be decrypted. Key exchange may need to re-establish — try reconnecting.',
+      },
+      { type: 'system', displayName: 'Bastion' },
+      crypto.randomUUID(),
+      new Date().toISOString(),
+    );
+
+    // Audit event — metadata only, NOT the payload or key material.
+    auditLog.addEntry({
+      index: auditLog.store.get().entries.length,
+      timestamp: new Date().toISOString(),
+      eventType: 'decrypt_failure',
+      sessionId: '',
+      detail: {
+        msgType: failedType,
+        senderType,
+        correlationId,
+        reason: String(envelope._decryptFailReason ?? 'mac_verification_failed'),
+      },
+      chainHash: '',
+    });
+
+    addNotification('A message could not be decrypted. Try reconnecting to re-establish E2E.', 'error');
+    return;
+  }
 
   const type = String(envelope.type ?? 'conversation');
 

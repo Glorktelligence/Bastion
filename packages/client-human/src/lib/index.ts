@@ -37,11 +37,13 @@ export {
   encodeBase64,
   decodeBase64,
   shouldAttemptDecrypt,
+  decryptEnvelope,
 } from './crypto/browser-crypto.js';
 export type {
   BrowserKeyPair,
   BrowserSessionCipher,
   PeekedReceiveKey,
+  DecryptFailureSentinel,
 } from './crypto/browser-crypto.js';
 
 // Services

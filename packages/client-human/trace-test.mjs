@@ -45,6 +45,7 @@ import {
   encryptPayload,
   decryptPayload,
   shouldAttemptDecrypt,
+  decryptEnvelope,
 } from './dist/index.js';
 
 let pass = 0, fail = 0;
@@ -2821,6 +2822,100 @@ async function run() {
       'gate: relay-origin file_offer blocked twice (plaintext + sender)',
       shouldAttemptDecrypt(relayFileOffer, PLAINTEXT_TYPES_TEST) === false,
     );
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // decryptEnvelope — fail-loud sentinel behaviour (audit §4.3)
+  // -------------------------------------------------------------------
+  console.log('--- decryptEnvelope: fail-loud sentinel ---');
+  {
+    const PLAINTEXT_TYPES_TEST = new Set([
+      'session_init', 'session_established', 'key_exchange', 'ping', 'pong',
+      'peer_status', 'error', 'config_ack', 'config_nack',
+      'file_manifest', 'file_offer', 'file_request', 'file_reject', 'file_data',
+      'guardian_alert', 'guardian_shutdown', 'guardian_status',
+      'guardian_status_request', 'guardian_clear',
+    ]);
+
+    // Build matched cipher pair (human side via mirror)
+    const hKP = generateKeyPair();
+    const aKP = generateKeyPair();
+    const hKeys = deriveSessionKeys('initiator', hKP, aKP.publicKey);
+    const mirror = (k) => ({ sendKey: k.receiveKey, receiveKey: k.sendKey });
+    const hCipher = createSessionCipher(hKeys);
+    const aCipher = createSessionCipher(mirror(hKeys));
+
+    // Successful decrypt — no sentinel
+    const enc = encryptPayload(JSON.stringify({ content: 'hello' }), aCipher);
+    const msgOk = {
+      id: 'msg-1',
+      type: 'conversation',
+      timestamp: '2026-04-17T10:00:00Z',
+      sender: { type: 'ai', id: 'claude', displayName: 'Claude' },
+      encryptedPayload: enc.encryptedPayload,
+      nonce: enc.nonce,
+    };
+    const decOk = decryptEnvelope(msgOk, hCipher, PLAINTEXT_TYPES_TEST);
+    check('decryptEnvelope: success returns decrypted payload', decOk.payload && decOk.payload.content === 'hello');
+    check('decryptEnvelope: success has no _decryptFailed flag', decOk._decryptFailed === undefined);
+    check('decryptEnvelope: success strips encryptedPayload+nonce', decOk.encryptedPayload === undefined && decOk.nonce === undefined);
+
+    // MAC failure — sentinel shape
+    // Corrupt the ciphertext to force MAC failure, and encrypt a new one
+    // on the AI side to advance its counter past hCipher's 1-peek state.
+    // Use a fresh pair to avoid mutating the above.
+    const hKP2 = generateKeyPair();
+    const aKP2 = generateKeyPair();
+    const hKeys2 = deriveSessionKeys('initiator', hKP2, aKP2.publicKey);
+    const hCipher2 = createSessionCipher(hKeys2);
+    const aCipher2 = createSessionCipher(mirror(hKeys2));
+    // Burn one receive key on human so MAC will fail on first AI msg
+    hCipher2.peekReceiveKey().commit();
+    const badEnc = encryptPayload(JSON.stringify({ content: 'hello' }), aCipher2);
+    const badMsg = {
+      id: 'msg-bad',
+      type: 'conversation',
+      timestamp: '2026-04-17T10:00:01Z',
+      correlationId: 'corr-123',
+      sender: { type: 'ai', id: 'claude', displayName: 'Claude' },
+      encryptedPayload: badEnc.encryptedPayload,
+      nonce: badEnc.nonce,
+    };
+    const failed = decryptEnvelope(badMsg, hCipher2, PLAINTEXT_TYPES_TEST);
+    check('decryptEnvelope: MAC failure sets _decryptFailed=true', failed._decryptFailed === true);
+    check('decryptEnvelope: sentinel reason is mac_verification_failed', failed._decryptFailReason === 'mac_verification_failed');
+    check('decryptEnvelope: sentinel payload is null', failed.payload === null);
+    check('decryptEnvelope: sentinel preserves routing metadata (type)', failed.type === 'conversation');
+    check('decryptEnvelope: sentinel preserves sender', failed.sender && failed.sender.id === 'claude');
+    check('decryptEnvelope: sentinel preserves correlationId', failed.correlationId === 'corr-123');
+    check('decryptEnvelope: sentinel strips encryptedPayload', failed.encryptedPayload === undefined);
+    check('decryptEnvelope: sentinel strips nonce', failed.nonce === undefined);
+
+    // MAC failure does NOT advance the ratchet (peek/commit guarantee)
+    const posAfterFail = hCipher2.peekReceiveKey().counter;
+    check('decryptEnvelope: MAC failure did not advance ratchet', posAfterFail === 1);
+
+    // Gate blocks — no sentinel, original envelope returned
+    const relayMsg = {
+      type: 'file_offer',
+      sender: { type: 'relay', id: 'relay', displayName: 'Bastion Relay' },
+      encryptedPayload: 'fake',
+      nonce: 'fake',
+    };
+    const gated = decryptEnvelope(relayMsg, hCipher2, PLAINTEXT_TYPES_TEST);
+    check('decryptEnvelope: gated envelope returns unchanged', gated === relayMsg);
+    check('decryptEnvelope: gated envelope has no _decryptFailed flag', gated._decryptFailed === undefined);
+
+    // No cipher — returns unchanged
+    const noCipher = decryptEnvelope(msgOk, null, PLAINTEXT_TYPES_TEST);
+    check('decryptEnvelope: null cipher returns envelope unchanged', noCipher === msgOk);
+    check('decryptEnvelope: null cipher has no sentinel', noCipher._decryptFailed === undefined);
+
+    hCipher.destroy();
+    aCipher.destroy();
+    hCipher2.destroy();
+    aCipher2.destroy();
   }
   console.log();
 
