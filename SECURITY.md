@@ -19,9 +19,19 @@ We include prompt injection and AI manipulation vectors because Bastion is a Hum
 
 | Version | Supported |
 |---------|-----------|
-| 0.1.x   | Yes (current) |
+| 0.8.x   | Yes (current) |
+| 0.1.x   | No — superseded |
 
 As a pre-release project, only the latest version receives security updates.
+
+## Recent Audits
+
+The security posture of the current codebase is most accurately described in the audit reports below. New auditors and security researchers should read these before filing findings — several issues have been remediated in recent commits and the shipping behaviour may not match older specification docs.
+
+- [`docs/audits/admin-server-audit-2026-04-17.md`](docs/audits/admin-server-audit-2026-04-17.md) — End-to-end review of the admin server stack against the Option A (single-port 9444, adapter-static SPA, session-JWT) architecture. Identifies deprecated proxy-era residue slated for removal.
+- [`docs/audits/e2e-crypto-audit-2026-04-17.md`](docs/audits/e2e-crypto-audit-2026-04-17.md) — Forensic analysis of the E2E crypto stack that identified a ratchet-desync bug (advance-before-verify in `tryDecrypt`) and associated weaknesses. All critical findings have been remediated; see the Track A commit series on `main`.
+- [`docs/audits/e2e-crypto-audit-2026-04-17-addendum.md`](docs/audits/e2e-crypto-audit-2026-04-17-addendum.md) — Follow-up that isolates the page-load race condition to stale ciphers surviving AI client restart, fixed by `peer_status=active` cipher reset and a pre-cipher human-side message queue.
+- [`docs/audits/docs-audit-2026-04-17.md`](docs/audits/docs-audit-2026-04-17.md) — Full sweep of every Markdown doc against actual code state. Drives the ongoing doc-fix work.
 
 ## Reporting a Vulnerability
 
@@ -99,12 +109,17 @@ All components run as a single `bastion` user on each VM. VM-level isolation (re
 
 ### Admin Dashboard Access Model
 
-The admin dashboard is accessed via SSH tunnel — the tunnel is the access control:
+The admin dashboard runs as a **single-port, single-origin** surface (Option A architecture). There is no separate admin UI process, no `/api/*` proxy, and no cross-origin traffic:
 
-- **GET endpoints are unauthenticated**: Read-only monitoring (status, connections, audit, config) does not require credentials. The admin API server binds to `127.0.0.1` only — it is physically unreachable without an SSH tunnel or local access.
-- **Admin UI binding**: The admin UI uses SvelteKit adapter-node and **MUST** bind to `127.0.0.1` via the `HOST` environment variable. The systemd service template sets `Environment=HOST=127.0.0.1` to enforce this.
-- **Mutations require admin credentials**: POST/PUT/DELETE (approve provider, revoke, set capabilities) require Basic auth + TOTP verification with scrypt-hashed password.
-- **Self-signed certificate proxy**: The production admin UI proxies `/api/*` requests to the admin HTTPS server with `rejectUnauthorized: false`. This is safe because both services run on `127.0.0.1` — traffic never leaves the loopback interface.
+- **Single listener (port 9444)**: The relay's embedded `AdminServer` serves both the JSON API (`/api/*`) and the admin SPA (built with `@sveltejs/adapter-static` — pre-rendered with `fallback: 'index.html'`) from the same HTTPS port. `start-relay.mjs` resolves `packages/relay-admin-ui/build/` and passes it as `staticDir` on startup.
+- **Localhost binding enforced at two points**: The `AdminServer` constructor rejects non-private hosts at configuration time (audits a `security_violation` and throws). A post-listen address re-verification audits and shuts down if the socket somehow bound publicly. Attempting `BASTION_ADMIN_HOST=0.0.0.0` refuses to start.
+- **Session JWT on every endpoint**: Once the admin account is created, **all** `/api/admin/*` endpoints — including read-only GETs for status, connections, audit, and config — require a valid session JWT (HS256, 30-minute expiry). Read-only access is no longer unauthenticated; the SSH tunnel plus localhost binding is no longer the only control.
+- **Authentication**: `POST /api/admin/login` accepts a username + scrypt-hashed password (N=16384) plus TOTP code, returns a short-lived session JWT, and applies per-account lockout (5 failed attempts per 15 minutes → 1-hour lockout).
+- **First-run setup wizard**: Before an admin account exists, `start-relay.mjs` serves a one-time setup wizard on the same 9444 listener. The wizard creates the scrypt hash, enrols TOTP, and transitions the server into the authenticated mode above.
+- **Per-endpoint rate limits**: Mutation endpoints have individual token buckets. Exceeding a limit emits a `limit_reached` audit event and returns HTTP 429.
+- **Temporal guards**: Provider mutations and safety-setting changes are blocked during active Challenge Me More hours (7-day cooldown on loosening).
+
+See also: [`docs/design/admin-rate-limiting.md`](docs/design/admin-rate-limiting.md), [`docs/audits/admin-server-audit-2026-04-17.md`](docs/audits/admin-server-audit-2026-04-17.md) §1.1, §1.3, §1.4.
 
 ### Provider Registration Attack Surface
 
@@ -158,7 +173,7 @@ Both are byte-identical NaCl implementations: `nacl.box.before()` = `crypto_box_
 - **Single-device sessions**: Only one human client device connected at a time. Session swap requires explicit confirmation but relies on the legitimacy of the JWT presented.
 - **No per-message DH ratchet**: The KDF chain provides forward secrecy (old keys are zeroized), but does not perform a new Diffie-Hellman exchange per message. A compromised current chain key exposes subsequent messages in that session until reconnection.
 - **Trust-on-first-use for relay**: The client trusts the relay's TLS certificate. Certificate pinning is not yet implemented.
-- **Read-only admin is unauthenticated**: Anyone with SSH tunnel access can view monitoring data. This is by design (the tunnel is the access control) but means a compromised SSH session exposes relay metadata.
+- **Admin access depends on session JWT strength**: Once the admin account is created, all admin endpoints require a valid session JWT (HS256, 30-minute expiry). The JWT secret (`BASTION_JWT_SECRET`) must be generated with `openssl rand -hex 64` or equivalent — a weak secret compromises admin authentication entirely. A compromised SSH session does not by itself grant admin access.
 - **File content visible to relay**: File transfers currently pass through the relay in plaintext for quarantine hash verification. The relay can see file content during the quarantine window. E2E file encryption (encrypting before submission, with the relay verifying encrypted blob hashes) is planned but requires changes to the quarantine verification pipeline.
 
 ## Security Design Principles

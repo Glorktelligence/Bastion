@@ -151,7 +151,7 @@ Changes that touch security properties have a **cooling-off period**:
 Changes to `@bastion/protocol` affect every other package. The process:
 
 1. **Open an issue** describing the proposed change and its rationale.
-2. **Write an Architecture Decision Record (ADR)** in `docs/architecture/decisions/` following the existing format.
+2. **Document the decision.** Architecture decisions for Bastion are currently captured through project conversations and vault notes maintained by the core team, and reflected in per-version spec sheets in `docs/protocol/` and audit reports in `docs/audits/`. The `docs/architecture/decisions/` directory is reserved for potential future formalisation of lightweight ADRs — treat it as aspirational rather than required today.
 3. **Implement in `@bastion/protocol` first**, including schema changes, type updates, and constant additions.
 4. **Update all consuming packages** in the same PR or a linked PR chain. A protocol change is not complete until all packages that consume the changed types are updated.
 5. **Bump the protocol version** if the change is not backwards-compatible.
