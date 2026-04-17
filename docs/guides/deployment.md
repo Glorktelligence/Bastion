@@ -532,88 +532,61 @@ npx react-native run-android --variant=release
 
 The admin dashboard provides live monitoring: connected clients, active sessions, message throughput, quarantine status, audit trail, and provider management.
 
-### Build the Admin UI
+The admin API and the admin SPA are served by the **relay's own AdminServer on port 9444** — there is no separate admin UI process. The relay resolves `packages/relay-admin-ui/build/` at startup and serves the static SPA alongside the `/api/*` routes over the same HTTPS listener.
+
+### Build the Admin SPA
+
+The admin UI is a SvelteKit app built with `@sveltejs/adapter-static`. Build it once after install and after every update:
 
 ```bash
 cd /opt/bastion
-pnpm --filter @bastion/relay-admin-ui build
+pnpm --filter @bastion/relay-admin-ui run build:app
 ```
+
+`bastion update --component relay` performs this step automatically.
 
 ### Environment Variables
 
 Add admin credentials to `/opt/bastion/.env`:
 
 ```bash
-# Admin authentication (for mutations — POST/PUT/DELETE)
+# Admin authentication (required for mutations — POST/PUT/DELETE)
 BASTION_ADMIN_USERNAME=admin
 BASTION_ADMIN_PASSWORD=<strong-password>
 # Or pre-hash: BASTION_ADMIN_PASSWORD_HASH=<scrypt-hash>
 BASTION_ADMIN_TOTP_SECRET=<base32-totp-secret>
 
-# Admin UI port (static file server with API proxy)
-BASTION_ADMIN_UI_PORT=9445
+# Admin listener (defaults shown — 127.0.0.1 binding is enforced)
+BASTION_ADMIN_PORT=9444
+BASTION_ADMIN_HOST=127.0.0.1
 ```
 
-If you omit these, `start-relay.mjs` auto-generates credentials and prints them to stdout on startup.
+If you omit the credentials, `start-relay.mjs` launches into the first-run setup wizard on port 9444 — open the tunnel (below), visit `https://127.0.0.1:9444`, and the wizard walks you through creating the admin account with TOTP enrolment.
 
-### Systemd Service for the Admin UI
+### Systemd Service
 
-Create `/etc/systemd/system/bastion-admin-ui.service`:
-
-```ini
-[Unit]
-Description=Bastion Admin UI
-After=bastion-relay.service
-Wants=bastion-relay.service
-
-[Service]
-Type=simple
-User=bastion
-Group=bastion
-WorkingDirectory=/opt/bastion
-ExecStart=/usr/bin/node /opt/bastion/start-admin-ui.mjs
-Restart=on-failure
-RestartSec=5
-
-# Security hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadOnlyPaths=/opt/bastion
-PrivateTmp=true
-
-# IMPORTANT: Do NOT use MemoryDenyWriteExecute=true with Node.js.
-# Node's V8 JIT compiler requires W+X memory pages. This directive
-# kills the process immediately with no error message.
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now bastion-admin-ui
-```
+The admin UI has no systemd unit of its own. `bastion-relay.service` is the only unit involved — see Step 4 for the relay service file. Ensure the SPA has been built (previous subsection) before starting the relay.
 
 ### Remote Access via SSH Tunnel
 
-The admin UI proxies `/api/*` requests to the admin HTTPS server internally, so you only need one tunnel:
+The relay binds the admin listener to `127.0.0.1` only, so you always reach it via an SSH tunnel — one tunnel is enough:
 
 ```bash
-# From your workstation — one tunnel is enough
-ssh -L 9445:127.0.0.1:9445 bastion@10.0.30.10
+# From your workstation — single tunnel to 9444
+ssh -L 9444:127.0.0.1:9444 bastion@10.0.30.10
 
-# Then open http://localhost:9445
+# Then open https://127.0.0.1:9444
 ```
 
-The admin UI server (start-admin-ui.mjs) handles the self-signed certificate internally — the browser talks plain HTTP to the UI server, which proxies to HTTPS on the loopback.
+The admin listener uses HTTPS with the relay's TLS certificate. If you are using a self-signed cert, expect the browser warning and proceed — the tunnel plus localhost binding is the access control.
 
 ### Access Model
 
-- **GET endpoints are unauthenticated** — read-only monitoring works without credentials. The SSH tunnel is the access control.
-- **Mutations require admin credentials** — POST/PUT/DELETE (approve provider, revoke, set capabilities) require the username/password/TOTP configured above.
+- **All admin endpoints require a session JWT** — obtain one by authenticating at `/api/admin/login` (HS256, 30-minute expiry, lockout after 5 failed attempts / 15 min).
+- **Mutations require a valid session** — provider approval, revocation, capability updates, challenge-config changes, disclosure updates.
+- **Temporal guards apply** — safety settings and provider mutations are blocked during active Challenge Me More hours (Challenge 4 / 7-day cooldown on loosening).
 
-**Never expose the admin panel to a public interface.** The relay enforces this — attempting to bind to `0.0.0.0` logs a `SECURITY_VIOLATION` audit event and refuses to start.
+**Never expose the admin panel to a public interface.** The relay enforces this at two points: the constructor-time private-host guard (logs `security_violation` + throws) and a post-listen address re-verification (logs `security_violation` + shuts down). Attempting `BASTION_ADMIN_HOST=0.0.0.0` will refuse to start.
 
 ## Step 7: Monitoring and Maintenance
 
