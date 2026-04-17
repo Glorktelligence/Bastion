@@ -639,7 +639,7 @@ export class AdminServer {
     // against /api/admin/setup cannot reach the endpoint.
     if (cls === 'setup' && this.rateLimiter) {
       const ipKey = `ip:${req.socket.remoteAddress ?? 'unknown'}`;
-      const decision = this.rateLimiter.check(cls, ipKey);
+      const decision = this.rateLimiter.check(cls, ipKey, urlPath, method);
       if (!decision.allowed) {
         this.send429(res, decision.retryAfterSec);
         return;
@@ -661,7 +661,7 @@ export class AdminServer {
         // a fresh budget but a stolen token cannot refresh (TOTP-gated).
         if ((cls === 'read' || cls === 'write') && this.rateLimiter) {
           const jtiKey = `jti:${verified.jti}`;
-          const decision = this.rateLimiter.check(cls, jtiKey);
+          const decision = this.rateLimiter.check(cls, jtiKey, urlPath, method);
           if (!decision.allowed) {
             this.send429(res, decision.retryAfterSec);
             return;
@@ -691,7 +691,7 @@ export class AdminServer {
 
     if ((cls === 'read' || cls === 'write') && this.rateLimiter) {
       const basicKey = `basic:${authResult.username}`;
-      const decision = this.rateLimiter.check(cls, basicKey);
+      const decision = this.rateLimiter.check(cls, basicKey, urlPath, method);
       if (!decision.allowed) {
         this.send429(res, decision.retryAfterSec);
         return;

@@ -105,6 +105,9 @@ export const AUDIT_EVENT_TYPES = {
   GUARDIAN_CHECK: 'guardian_check',
   GUARDIAN_VIOLATION: 'guardian_violation',
   GUARDIAN_STATUS_QUERIED: 'guardian_status_queried',
+
+  // Generic limit breach (admin API rate limiter, bucket store overflow)
+  LIMIT_REACHED: 'limit_reached',
 } as const;
 
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[keyof typeof AUDIT_EVENT_TYPES];
@@ -317,6 +320,10 @@ export class AuditLogger {
     this.registerEventType(AUDIT_EVENT_TYPES.GUARDIAN_STATUS_QUERIED, {
       severity: 'info',
       description: 'Guardian status requested',
+    });
+    this.registerEventType(AUDIT_EVENT_TYPES.LIMIT_REACHED, {
+      severity: 'warning',
+      description: 'Request exceeded a configured limit',
     });
   }
 

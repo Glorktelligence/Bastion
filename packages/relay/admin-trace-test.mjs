@@ -2494,13 +2494,13 @@ async function run() {
     // Under-limit: first 120 reads from the same key pass
     let allowedCount = 0;
     for (let i = 0; i < 120; i++) {
-      const d = limiter.check('read', 'jti:abc');
+      const d = limiter.check('read', 'jti:abc', '/api/health', 'GET');
       if (d.allowed) allowedCount++;
     }
     check('120 reads allowed (at capacity)', allowedCount === 120);
 
     // 121st is denied, returns a positive retryAfterSec
-    const denied = limiter.check('read', 'jti:abc');
+    const denied = limiter.check('read', 'jti:abc', '/api/health', 'GET');
     check('121st read denied', !denied.allowed);
     check('denied request has positive retryAfterSec', denied.retryAfterSec >= 1);
     check('denied request has no overflow flag', denied.overflow === false);
@@ -2509,32 +2509,32 @@ async function run() {
     // after retryAfterSec+1s allowed again (with ample margin).
     const retryAfterSec = denied.retryAfterSec;
     fakeNow += (retryAfterSec - 1) * 1000;
-    const stillDenied = limiter.check('read', 'jti:abc');
+    const stillDenied = limiter.check('read', 'jti:abc', '/api/health', 'GET');
     check('still denied at retryAfterSec - 1', !stillDenied.allowed);
     fakeNow += 2000;
-    const nowAllowed = limiter.check('read', 'jti:abc');
+    const nowAllowed = limiter.check('read', 'jti:abc', '/api/health', 'GET');
     check('allowed once enough tokens have refilled', nowAllowed.allowed);
 
     // Buckets do not leak across classes
     limiter.reset();
-    for (let i = 0; i < 120; i++) limiter.check('read', 'jti:same-session');
-    const readDenied = limiter.check('read', 'jti:same-session');
-    const writeAllowed = limiter.check('write', 'jti:same-session');
+    for (let i = 0; i < 120; i++) limiter.check('read', 'jti:same-session', '/api/health', 'GET');
+    const readDenied = limiter.check('read', 'jti:same-session', '/api/health', 'GET');
+    const writeAllowed = limiter.check('write', 'jti:same-session', '/api/providers', 'POST');
     check('read bucket exhausted for same session', !readDenied.allowed);
     check('write bucket still has tokens for same session', writeAllowed.allowed);
 
     // Buckets do not leak across sessions
-    const otherSession = limiter.check('read', 'jti:other-session');
+    const otherSession = limiter.check('read', 'jti:other-session', '/api/health', 'GET');
     check("exhausting one session's bucket does not affect another", otherSession.allowed);
 
     // Setup class — lower capacity (10/min)
     limiter.reset();
     let setupAllowed = 0;
     for (let i = 0; i < 10; i++) {
-      if (limiter.check('setup', 'ip:127.0.0.1').allowed) setupAllowed++;
+      if (limiter.check('setup', 'ip:127.0.0.1', '/api/admin/setup', 'POST').allowed) setupAllowed++;
     }
     check('10 setup requests allowed', setupAllowed === 10);
-    const setupDenied = limiter.check('setup', 'ip:127.0.0.1');
+    const setupDenied = limiter.check('setup', 'ip:127.0.0.1', '/api/admin/setup', 'POST');
     check('11th setup request denied', !setupDenied.allowed);
     check('setup retryAfterSec is positive', setupDenied.retryAfterSec >= 1);
   }
@@ -2558,19 +2558,19 @@ async function run() {
       now: clock,
     });
 
-    limiter.check('read', 'jti:idle'); // allocates + debits one
+    limiter.check('read', 'jti:idle', '/api/health', 'GET'); // allocates + debits one
     check('bucket created on first check', limiter.bucketCount === 1);
     // Fast-forward 5 minutes — bucket refills fully during that interval,
     // so it should be evictable on next touch.
     fakeNow += 6 * 60 * 1000;
-    limiter.check('read', 'jti:other-idle'); // touches a DIFFERENT key
+    limiter.check('read', 'jti:other-idle', '/api/health', 'GET'); // touches a DIFFERENT key
     // Original bucket hasn't been touched — still present until its next check.
     check('untouched bucket remains until next check', limiter.bucketCount === 2);
 
     // When the original key is touched after being idle, the bucket is
     // evicted and recreated fresh — bucket count stays the same, but the
     // tokens are reset to capacity.
-    const touched = limiter.check('read', 'jti:idle');
+    const touched = limiter.check('read', 'jti:idle', '/api/health', 'GET');
     check('idle bucket re-touched returns allowed (fresh bucket)', touched.allowed);
 
     // Overflow: a limiter with maxBuckets=2 refuses a third bucket
@@ -2581,11 +2581,11 @@ async function run() {
       maxBuckets: 2,
       now: clock,
     });
-    const first = tiny.check('read', 'jti:A');
-    const second = tiny.check('read', 'jti:B');
+    const first = tiny.check('read', 'jti:A', '/api/health', 'GET');
+    const second = tiny.check('read', 'jti:B', '/api/health', 'GET');
     check('maxBuckets=2: first bucket allowed', first.allowed);
     check('maxBuckets=2: second bucket allowed', second.allowed);
-    const overflowed = tiny.check('read', 'jti:C');
+    const overflowed = tiny.check('read', 'jti:C', '/api/health', 'GET');
     check('maxBuckets=2: third bucket refused', !overflowed.allowed);
     check('overflow flag set on refusal', overflowed.overflow === true);
     check('overflow retryAfterSec is 60', overflowed.retryAfterSec === 60);
@@ -2693,6 +2693,169 @@ async function run() {
       }, null);
       check(`unlimited login hit #${i + 1} is not 429`, probe.status !== 429);
     }
+
+    await server.shutdown();
+    audit.close();
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: Rate limiter audit emission — debounced limit_reached events
+  // -------------------------------------------------------------------
+  console.log('--- Test: Admin rate limiter (audit emission) ---');
+  {
+    let fakeNow = 3_000_000;
+    const clock = () => fakeNow;
+
+    const audit = new AuditLogger({ store: { path: ':memory:' } });
+    const limiter = new AdminRateLimiter({
+      readPerMin: 5, // small capacity so we can exhaust fast
+      writePerMin: 3,
+      setupPerMin: 2,
+      maxBuckets: 2,
+      now: clock,
+      auditLogger: audit,
+    });
+
+    // Drain the budget for jti:audit-a
+    for (let i = 0; i < 5; i++) limiter.check('read', 'jti:audit-a', '/api/health', 'GET');
+
+    // Check no audit events fired while under budget
+    const preBreach = audit.query({ eventType: AUDIT_EVENT_TYPES.LIMIT_REACHED });
+    check('no limit_reached before breach', preBreach.length === 0);
+
+    // First denial — fires immediately with denialCount=1
+    limiter.check('read', 'jti:audit-a', '/api/health', 'GET');
+    const afterFirst = audit.query({ eventType: AUDIT_EVENT_TYPES.LIMIT_REACHED });
+    check('first denial emits one event', afterFirst.length === 1);
+    const firstEvent = afterFirst[0].detail;
+    check('event key matches', firstEvent.key === 'jti:audit-a');
+    check('event scope matches class', firstEvent.scope === 'read');
+    check('event path captured', firstEvent.path === '/api/health');
+    check('event method captured', firstEvent.method === 'GET');
+    check('event denialCount is 1', firstEvent.denialCount === 1);
+    check('event retryAfterSec present', typeof firstEvent.retryAfterSec === 'number' && firstEvent.retryAfterSec >= 1);
+
+    // Burn several more denials in the same minute — no new audit events.
+    // Each denial leaves tokens unchanged (denials do not debit), so the
+    // bucket stays exhausted and debouncer accumulates.
+    for (let i = 0; i < 9; i++) limiter.check('read', 'jti:audit-a', '/api/health', 'GET');
+    const afterBurst = audit.query({ eventType: AUDIT_EVENT_TYPES.LIMIT_REACHED });
+    check('no new events inside debounce window', afterBurst.length === 1);
+
+    // Advance past the debounce window. The bucket also refills during this
+    // jump (5/min refill × 61 s ≈ 5.08 tokens, capped at 5) — drain it again
+    // to force the bucket back to exhausted, then trigger the flush denial.
+    fakeNow += 61_000;
+    for (let i = 0; i < 5; i++) limiter.check('read', 'jti:audit-a', '/api/health', 'GET');
+    // 6th request is denied AND now - lastEmittedAt >= 60 s → flush with
+    // denialCount = pendingDenials (9) + 1 (this denial) = 10.
+    limiter.check('read', 'jti:audit-a', '/api/health', 'GET');
+    const afterFlush = audit.query({ eventType: AUDIT_EVENT_TYPES.LIMIT_REACHED });
+    check('flush emits one more event after debounce', afterFlush.length === 2);
+    const flushEvent = afterFlush[1].detail;
+    check(
+      'aggregated event denialCount captures all denials in window',
+      flushEvent.denialCount === 10,
+    );
+
+    // Buckets do not share debouncers — a different key denying in the
+    // same window fires its own immediate event.
+    limiter.check('read', 'jti:audit-b', '/api/health', 'GET'); // allocates → 1st request allowed
+    for (let i = 0; i < 4; i++) limiter.check('read', 'jti:audit-b', '/api/health', 'GET');
+    // jti:audit-b now exhausted (5 allowed, 0 tokens). Next is denied.
+    limiter.check('read', 'jti:audit-b', '/api/health', 'GET');
+    const afterOtherKey = audit.query({ eventType: AUDIT_EVENT_TYPES.LIMIT_REACHED });
+    check(
+      'second bucket denial fires its own immediate event',
+      afterOtherKey.length === 3,
+    );
+    const otherEvent = afterOtherKey[2].detail;
+    check('second bucket event key', otherEvent.key === 'jti:audit-b');
+    check('second bucket denialCount is 1', otherEvent.denialCount === 1);
+
+    // Store overflow — limiter has maxBuckets=2 and both are in use.
+    // Trying a third distinct key fires the bucket_store_overflow event.
+    const overflowed = limiter.check('read', 'jti:audit-c', '/api/health', 'GET');
+    check('overflow denial result', overflowed.overflow === true);
+    const afterOverflow = audit.query({ eventType: AUDIT_EVENT_TYPES.LIMIT_REACHED });
+    check('overflow emits new event', afterOverflow.length === 4);
+    const overflowEvent = afterOverflow[3].detail;
+    check('overflow event scope', overflowEvent.scope === 'bucket_store_overflow');
+    check('overflow event key is synthetic', overflowEvent.key === 'store');
+    check('overflow denialCount is 1', overflowEvent.denialCount === 1);
+
+    // Fire more overflow attempts — debounced, no new events
+    limiter.check('read', 'jti:audit-d', '/api/health', 'GET');
+    limiter.check('read', 'jti:audit-e', '/api/health', 'GET');
+    const afterMoreOverflow = audit.query({ eventType: AUDIT_EVENT_TYPES.LIMIT_REACHED });
+    check('overflow debouncer suppresses follow-up events', afterMoreOverflow.length === 4);
+
+    // Advance past debounce, trigger one more overflow → new event aggregating 2 pending + 1 current
+    fakeNow += 61_000;
+    limiter.check('read', 'jti:audit-f', '/api/health', 'GET');
+    const afterFinalOverflow = audit.query({ eventType: AUDIT_EVENT_TYPES.LIMIT_REACHED });
+    check('overflow flush emits new event', afterFinalOverflow.length === 5);
+    const finalOverflow = afterFinalOverflow[4].detail;
+    check(
+      'overflow aggregated denialCount is 3',
+      finalOverflow.denialCount === 3,
+    );
+
+    audit.close();
+  }
+  console.log();
+
+  // -------------------------------------------------------------------
+  // Test: Unknown paths do not produce limit_reached audit events
+  // -------------------------------------------------------------------
+  console.log('--- Test: Unknown paths do not trigger audit ---');
+  {
+    const { cert, key } = await generateSelfSigned();
+    const secret = AdminAuth.generateTotpSecret();
+    const passwordHash = AdminAuth.hashPassword('no-audit-123');
+
+    const auth = new AdminAuth({
+      accounts: [{ username: 'admin', passwordHash, totpSecret: secret, active: true }],
+    });
+    const registry = new ProviderRegistry();
+    const audit = new AuditLogger({ store: { path: ':memory:' } });
+    const routes = new AdminRoutes({ providerRegistry: registry, auditLogger: audit });
+    const limiter = new AdminRateLimiter({ auditLogger: audit });
+
+    const server = new AdminServer({
+      port: 0,
+      host: '127.0.0.1',
+      tls: { cert, key },
+      auth,
+      routes,
+      auditLogger: audit,
+      rateLimiter: limiter,
+    });
+    await server.start();
+    const port = server.boundPort;
+
+    const code = AdminAuth.generateTotpCode(secret);
+    const loginRes = await adminRequest(port, 'POST', '/api/admin/login', {
+      username: 'admin',
+      password: 'no-audit-123',
+      totpCode: code,
+    }, null);
+    const token = loginRes.body.token;
+
+    // Hit an unknown admin path repeatedly — route handler returns non-429;
+    // limiter must not record buckets or fire limit_reached.
+    for (let i = 0; i < 20; i++) {
+      const r = await adminRequest(port, 'DELETE', '/api/admin/arbitrary', null, null, {
+        Authorization: `Bearer ${token}`,
+      });
+      check(`unknown path hit #${i + 1} is NOT 429`, r.status !== 429);
+    }
+    const audits = audit.query({ eventType: AUDIT_EVENT_TYPES.LIMIT_REACHED });
+    check(
+      'limit_reached does not fire on unknown paths',
+      audits.length === 0,
+    );
 
     await server.shutdown();
     audit.close();

@@ -16,10 +16,14 @@
  *
  * Design: docs/design/admin-rate-limiting.md
  *
- * This module provides the mechanism only. Audit wiring (emitting
- * `limit_reached` events on denial) is added in the following commit so the
- * two concerns can be tested in isolation.
+ * Audit emission policy — first-denial-immediate + 60 s debounce per bucket.
+ * A sustained breach would otherwise flood the audit chain (a 120-req/min
+ * bucket pinned at 121 req/min fires ~60 denials/min); debouncing collapses
+ * that to one event/min with a `denialCount` aggregate.
  */
+
+import type { AuditLogger } from '../audit/audit-logger.js';
+import { AUDIT_EVENT_TYPES } from '../audit/audit-logger.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,6 +49,12 @@ export interface AdminRateLimiterConfig {
    * deterministic refill and eviction behaviour.
    */
   readonly now?: () => number;
+  /**
+   * Optional audit logger. When provided, denials emit `limit_reached`
+   * events (first denial per bucket immediate, subsequent denials debounced
+   * to at most one per 60 s per bucket, aggregated with `denialCount`).
+   */
+  readonly auditLogger?: AuditLogger;
 }
 
 /** Result of a {@link AdminRateLimiter.check} call. */
@@ -140,6 +150,16 @@ export function classifyAdminRequest(method: string, path: string): AdminRateLim
 interface Bucket {
   tokens: number;
   lastRefill: number;
+  /** ms timestamp of the most recent `limit_reached` event for this bucket, or null. */
+  lastEmittedAt: number | null;
+  /** Denials observed since the last emit that have NOT been flushed yet. */
+  pendingDenials: number;
+}
+
+/** Global synthetic bucket for `bucket_store_overflow` debouncing. */
+interface OverflowDebouncer {
+  lastEmittedAt: number | null;
+  pendingDenials: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -151,6 +171,7 @@ const DEFAULT_WRITE_PER_MIN = 20;
 const DEFAULT_SETUP_PER_MIN = 10;
 const DEFAULT_MAX_BUCKETS = 1000;
 const EVICTION_IDLE_MS = 300_000; // 5 min idle-at-full ⇒ evictable
+const AUDIT_DEBOUNCE_MS = 60_000; // 1 min between aggregated emits per bucket
 
 export class AdminRateLimiter {
   private readonly capacity: Record<AdminRateLimitClass, number>;
@@ -158,6 +179,8 @@ export class AdminRateLimiter {
   private readonly maxBuckets: number;
   private readonly nowFn: () => number;
   private readonly store: Map<string, Bucket>;
+  private readonly audit: AuditLogger | null;
+  private readonly overflowDebouncer: OverflowDebouncer;
 
   constructor(config: AdminRateLimiterConfig = {}) {
     const readPerMin = config.readPerMin ?? DEFAULT_READ_PER_MIN;
@@ -173,6 +196,8 @@ export class AdminRateLimiter {
     this.maxBuckets = config.maxBuckets ?? DEFAULT_MAX_BUCKETS;
     this.nowFn = config.now ?? Date.now;
     this.store = new Map();
+    this.audit = config.auditLogger ?? null;
+    this.overflowDebouncer = { lastEmittedAt: null, pendingDenials: 0 };
   }
 
   /**
@@ -188,10 +213,15 @@ export class AdminRateLimiter {
    * debit one token. Lazily creates buckets on first observation of a
    * `(class, key)` pair.
    *
-   * @param cls  Endpoint class produced by {@link classify}.
-   * @param key  Bucket key — `jti:…` for authed, `ip:…` for setup.
+   * When an audit logger is configured, denials emit `limit_reached` events
+   * per the debounce policy documented at the top of this file.
+   *
+   * @param cls     Endpoint class produced by {@link classify}.
+   * @param key     Bucket key — `jti:…` or `basic:…` for authed, `ip:…` for setup.
+   * @param path    Request path — included in the audit payload.
+   * @param method  HTTP method — included in the audit payload.
    */
-  check(cls: AdminRateLimitClass, key: string): AdminRateLimitDecision {
+  check(cls: AdminRateLimitClass, key: string, path: string, method: string): AdminRateLimitDecision {
     const now = this.nowFn();
     const storeKey = `${cls}:${key}`;
     const capacity = this.capacity[cls];
@@ -200,22 +230,23 @@ export class AdminRateLimiter {
     let bucket = this.store.get(storeKey);
     if (!bucket) {
       if (this.store.size >= this.maxBuckets) {
-        // Refuse creation — signal overflow without allocating. Callers may
-        // audit this as a distinct event in the audit commit.
+        // Refuse creation — signal overflow without allocating.
+        this.emitOverflowAudit(now, path, method);
         return { allowed: false, retryAfterSec: 60, overflow: true };
       }
-      bucket = { tokens: capacity, lastRefill: now };
+      bucket = { tokens: capacity, lastRefill: now, lastEmittedAt: null, pendingDenials: 0 };
       this.store.set(storeKey, bucket);
     } else {
       // Eviction window: the elapsed time since the last touch. If the bucket
       // was full and this interval exceeds EVICTION_IDLE_MS, the bucket was
       // essentially dormant — reclaim it and treat the current request as
       // bucket creation. This runs BEFORE the refill because refill updates
-      // `lastRefill` to `now`, erasing the idle signal.
+      // `lastRefill` to `now`, erasing the idle signal. Any pendingDenials
+      // are dropped — the storm is over, no final flush (see design doc).
       const idleMs = now - bucket.lastRefill;
       if (bucket.tokens >= capacity - 1e-9 && idleMs >= EVICTION_IDLE_MS) {
         this.store.delete(storeKey);
-        bucket = { tokens: capacity, lastRefill: now };
+        bucket = { tokens: capacity, lastRefill: now, lastEmittedAt: null, pendingDenials: 0 };
         this.store.set(storeKey, bucket);
       } else {
         // Continuous refill
@@ -233,7 +264,74 @@ export class AdminRateLimiter {
     // Denied — compute retry time to earn one full token.
     const deficit = 1 - bucket.tokens;
     const retryAfterSec = Math.max(1, Math.ceil(deficit / refillRate));
+    this.emitDenialAudit(bucket, now, cls, key, path, method, retryAfterSec);
     return { allowed: false, retryAfterSec, overflow: false };
+  }
+
+  // -------------------------------------------------------------------------
+  // Audit emission (debounced)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Emit (or defer) a `limit_reached` event for a bucket denial.
+   *
+   * Policy:
+   *  - If the bucket has never emitted or its last emit was >= 60 s ago,
+   *    flush now with denialCount = pendingDenials + 1 (the +1 is the
+   *    current denial itself).
+   *  - Otherwise accumulate onto pendingDenials and emit nothing.
+   */
+  private emitDenialAudit(
+    bucket: Bucket,
+    now: number,
+    cls: AdminRateLimitClass,
+    key: string,
+    path: string,
+    method: string,
+    retryAfterSec: number,
+  ): void {
+    if (!this.audit) return;
+    const shouldFlush = bucket.lastEmittedAt === null || now - bucket.lastEmittedAt >= AUDIT_DEBOUNCE_MS;
+    if (shouldFlush) {
+      const denialCount = bucket.pendingDenials + 1;
+      bucket.lastEmittedAt = now;
+      bucket.pendingDenials = 0;
+      this.audit.logEvent(AUDIT_EVENT_TYPES.LIMIT_REACHED, 'admin', {
+        key,
+        scope: cls,
+        path,
+        method,
+        denialCount,
+        retryAfterSec,
+      });
+    } else {
+      bucket.pendingDenials += 1;
+    }
+  }
+
+  /**
+   * Emit (or defer) a `limit_reached` event for store overflow. Uses a
+   * separate synthetic debouncer so rotating many distinct keys does not
+   * produce one audit event per rotation.
+   */
+  private emitOverflowAudit(now: number, path: string, method: string): void {
+    if (!this.audit) return;
+    const d = this.overflowDebouncer;
+    const shouldFlush = d.lastEmittedAt === null || now - d.lastEmittedAt >= AUDIT_DEBOUNCE_MS;
+    if (shouldFlush) {
+      const denialCount = d.pendingDenials + 1;
+      d.lastEmittedAt = now;
+      d.pendingDenials = 0;
+      this.audit.logEvent(AUDIT_EVENT_TYPES.LIMIT_REACHED, 'admin', {
+        key: 'store',
+        scope: 'bucket_store_overflow',
+        path,
+        method,
+        denialCount,
+      });
+    } else {
+      d.pendingDenials += 1;
+    }
   }
 
   // --- Test / debug surface ----------------------------------------------
