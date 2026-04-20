@@ -14,6 +14,8 @@
 
 Bastion is an open-source protocol and reference implementation for a communication channel between a human operator and an AI system running in an isolated virtual machine. It provides end-to-end encryption, a three-layer safety engine, auditable file transfers, and full transparency — designed for environments where trust must be earned, not assumed.
 
+> **A note on pace.** This is a solo-developer project maintained at a sustainable pace. Please don't take silence on issues or pull requests as dismissal — I'm working through them on my own schedule and will get to them. If you're planning to deploy Bastion in a production setting, please read [SECURITY.md](SECURITY.md) first.
+
 ---
 
 ## Live
