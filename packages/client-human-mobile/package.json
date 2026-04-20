@@ -1,6 +1,6 @@
 {
   "name": "@bastion/client-human-mobile",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "React Native mobile client for Project Bastion — human-side messaging, challenge review, and file transfers",
   "license": "Apache-2.0",
   "author": "Harry Smith <harry@glorktelligence.co.uk>",
@@ -13,7 +13,9 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",

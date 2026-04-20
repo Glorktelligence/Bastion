@@ -1,6 +1,6 @@
 {
   "name": "@bastion/protocol",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "Shared protocol definitions, message types, schemas, and constants for Project Bastion",
   "license": "Apache-2.0",
   "author": "Harry Smith <harry@glorktelligence.co.uk>",
@@ -13,7 +13,9 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf dist",

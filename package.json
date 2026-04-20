@@ -1,7 +1,7 @@
 {
   "name": "bastion",
   "private": true,
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "Human-AI Secure Messaging Protocol",
   "license": "Apache-2.0",
   "author": "Harry Smith <harry@glorktelligence.co.uk>",
@@ -24,7 +24,9 @@
     "version:sync": "node scripts/sync-version.mjs"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["@biomejs/biome"],
+    "onlyBuiltDependencies": [
+      "@biomejs/biome"
+    ],
     "overrides": {
       "picomatch": ">=4.0.4",
       "brace-expansion": ">=5.0.5",

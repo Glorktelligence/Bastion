@@ -1,6 +1,6 @@
 {
   "name": "@bastion/adapter-template",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "Reference template for building Bastion AI provider adapters",
   "license": "Apache-2.0",
   "author": "Harry Smith <harry@glorktelligence.co.uk>",
@@ -13,7 +13,9 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf dist",
