@@ -65,23 +65,9 @@ Before running anything live, confirm all tests pass:
 pnpm test
 ```
 
-This executes trace-test.mjs files in each package. You should see output like:
+This executes `trace-test.mjs` files across every package. The suite totals are reported in the runner output — check the final `Total: N tests — N passed, 0 failed` summary line.
 
-```
-@bastion/protocol: 190 checks passed
-@bastion/crypto: 134 checks passed
-@bastion/relay: 288 checks passed
-@bastion/relay (admin): 185 checks passed
-@bastion/client-ai: 239 checks passed
-@bastion/client-ai (files): 155 checks passed
-@bastion/client-human: 272 checks passed
-@bastion/client-human-mobile: 123 checks passed
-@bastion/relay-admin-ui: 192 checks passed
-Integration: 82 checks passed
-File Transfer Integration: 105 checks passed
-```
-
-All 4,453 tests should pass. (This count grows as new tests land — use the number from `pnpm test` output as the source of truth.)
+The count grows as new tests are added. Don't be alarmed if the number printed in `CHANGELOG.md` differs from your local run — check `git log` for the latest, and treat the number from your own `pnpm test` output as the source of truth.
 
 ## Step 1: Generate TLS Certificates
 
@@ -338,38 +324,14 @@ You have three options:
 
 ## Step 7: Explore the Admin Panel
 
-The relay includes a separate admin HTTPS server:
+The relay wires the admin server automatically — there is no separate process to start and no hand-rolled `passwordHash` to paste into your startup script. What you need to know for orientation:
 
-```javascript
-// In your start-relay.mjs, add:
-import { AdminServer, AdminAuth, AdminRoutes } from '@bastion/relay';
+- The admin server listens on **port 9444**, served by the relay itself. Binding is locked to `127.0.0.1`; a public bind is refused at startup with a `security_violation` audit event.
+- First-time setup uses a **setup wizard**. Launch the relay with no `BASTION_ADMIN_USERNAME` / `BASTION_ADMIN_PASSWORD` in the environment, open an SSH tunnel (`ssh -L 9444:127.0.0.1:9444 <host>`), visit `https://127.0.0.1:9444`, and the wizard walks you through creating the admin account.
+- The wizard requires a **username, a strong password, and TOTP enrolment** — there is no skip. The password is stored as a scrypt hash (`N=16384`); no plaintext is ever written to disk.
+- Once configured, log in at `/api/admin/login` to obtain a session JWT (HS256, 30-minute expiry, lockout after 5 failed attempts in 15 minutes). The SvelteKit SPA handles this for you in the browser.
 
-const adminAuth = new AdminAuth({
-  accounts: [{
-    username: 'admin',
-    // In production, use scrypt-hashed password. For dev:
-    passwordHash: 'dev-hash',
-    totpSecret: undefined,
-  }],
-});
-
-const adminRoutes = new AdminRoutes({
-  providerRegistry,
-  auditLogger,
-  adminAuth,
-});
-
-const adminServer = new AdminServer({
-  port: 9444,
-  host: '127.0.0.1', // localhost only — enforced
-  tls,
-  adminAuth,
-  adminRoutes,
-});
-
-await adminServer.start();
-console.log('Admin panel at https://localhost:9444');
-```
+For the canonical operator-facing setup — systemd wiring, SSH tunnel, TLS, rate-limit behaviour, temporal guards — see [`deployment.md` §6 Admin Dashboard](./deployment.md#step-6-admin-dashboard). This guide is an orientation, not the deployment manual.
 
 The admin panel provides:
 

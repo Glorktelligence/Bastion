@@ -588,6 +588,7 @@ The admin listener uses HTTPS with the relay's TLS certificate. If you are using
 - **All admin endpoints require a session JWT** — obtain one by authenticating at `/api/admin/login` (HS256, 30-minute expiry, lockout after 5 failed attempts / 15 min).
 - **Mutations require a valid session** — provider approval, revocation, capability updates, challenge-config changes, disclosure updates.
 - **Temporal guards apply** — safety settings and provider mutations are blocked during active Challenge Me More hours (Challenge 4 / 7-day cooldown on loosening).
+- **Rate limits apply per-session on all admin endpoints** (token-bucket: 120 read / 20 write / 10 setup requests per minute, `429` response with `Retry-After` header on denial). See [Admin Rate Limiting Design](../design/admin-rate-limiting.md) for the full per-endpoint table and tuning rationale.
 
 **Never expose the admin panel to a public interface.** The relay enforces this at two points: the constructor-time private-host guard (logs `security_violation` + throws) and a post-listen address re-verification (logs `security_violation` + shuts down). Attempting `BASTION_ADMIN_HOST=0.0.0.0` will refuse to start.
 
