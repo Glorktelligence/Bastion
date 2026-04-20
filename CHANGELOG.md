@@ -2,6 +2,48 @@
 
 All notable changes to Project Bastion are documented in this file.
 
+## [0.8.2] - 2026-04-17
+
+Maintenance release capturing the weekend crypto audit fixes, admin server hardening, and documentation sweep. No wire-protocol behaviour changes.
+
+### Added
+- Security headers across admin server responses (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Strict-Transport-Security: max-age=31536000`, `Referrer-Policy: no-referrer`, `X-Permitted-Cross-Domain-Policies: none`)
+- Split CSP — SvelteKit adapter-static meta-tag CSP with hash mode for the SPA, `default-src 'none'` for API JSON responses
+- Per-endpoint rate limiter on admin server — token bucket, read 120/min, write 20/min, setup 10/min, `429` response with `Retry-After` header
+- `limit_reached` audit event type with first-denial-immediate + 60-second debounce emission pattern to prevent audit chain flooding
+- `peek`/`commit` API on `SessionCipher` for advance-after-verify ratchet pattern (replaces single-step `nextReceiveKey` in decrypt paths)
+- `PLAINTEXT_TYPES` gate in `tryDecrypt` — type-aware classification prevents plaintext-by-design messages from triggering decrypt attempts
+- Fail-loud behaviour on decrypt failure — visible system message in conversation UI + `decrypt_failure` audit event (replaces silent fallthrough to routing-envelope-as-payload)
+- Stale cipher reset on `peer_status=active` and disconnected events, both sides — closes the page-reload race condition
+- Human client pre-cipher encrypted-message queue — defense-in-depth mirror of AI client's existing pattern
+- BastionGuardian formally recognised as the 7th Sole Authority in documentation (Phase 1 + 2 shipped earlier this month)
+
+### Changed
+- Admin architecture migrated to Option A: single-port 9444 serving both REST API and static SPA from `AdminServer`, replacing the separate admin-ui server on 9445 with proxy
+- `buildRelayEnvelope` in `packages/relay/src/quarantine/file-transfer-router.ts` now emits a plaintext `payload` field instead of the misnamed `encryptedPayload` (which was never actually encrypted, just base64-encoded)
+- Admin UI now served by the relay's admin server (no separate systemd unit)
+- Deployment model simplified to a single SSH tunnel (`ssh -L 9444:127.0.0.1:9444`)
+- README and CLAUDE.md updated to reflect seven Sole Authorities
+- Documentation counts corrected across README and CLAUDE.md (tests, message types, error codes, packages)
+
+### Removed
+- `start-admin-ui.mjs` (standalone admin UI server)
+- `deploy/systemd/bastion-admin-ui.service` and `packages/infrastructure/systemd/bastion-admin-ui.service` (both deprecated; one was broken targeting a nonexistent `build/index.js`)
+- `scripts/bastion-cli.sh` admin-ui systemd install block, enable, service template, doctor port-9445 check, and `SVC_ADMIN` variable cascade
+- `packages/infrastructure/docker/` directory entirely (admin-ui Dockerfile + docker-compose.yml) — Docker deployment path retired
+- `vite.config.ts` `/api` proxy block (production relevance only; dev workflow unaffected)
+
+### Fixed
+- MAC verification error cascade: a single failed decrypt no longer permanently desyncs the receive ratchet (peek/commit pattern)
+- Stale cipher race on page reload: AI's previous-session cipher no longer encrypts messages during new key exchange window
+- Silent message drops: decrypt failure now surfaces to UI with an actionable system message, `decrypt_failure` audit event recorded
+- Admin UI `/api/*` routing (unintended consequence of Option A migration, fixed in same session)
+
+### Security
+- Three critical + four high + seven medium crypto findings identified and remediated via readonly audit; full report at `docs/audits/e2e-crypto-audit-2026-04-17.md` and addendum
+- Admin server hardening per `docs/audits/admin-server-audit-2026-04-17.md`
+- Documentation audit corrected cloner-blocking URL drift and documented UDP 123 NTP gotcha per `docs/audits/docs-audit-2026-04-17.md`
+
 ## [0.8.1] - 2026-04-03
 
 ### Added
