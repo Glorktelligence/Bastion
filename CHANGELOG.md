@@ -1,5 +1,7 @@
 # Changelog
 
+Testing Note: Testing Monitoring of this Changelog (This notice will be removed in next commit) - ZERO code changes
+
 All notable changes to Project Bastion are documented in this file.
 
 ## [0.8.2] - 2026-04-17
@@ -7,6 +9,7 @@ All notable changes to Project Bastion are documented in this file.
 Maintenance release capturing the weekend crypto audit fixes, admin server hardening, and documentation sweep. No wire-protocol behaviour changes.
 
 ### Added
+
 - Security headers across admin server responses (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Strict-Transport-Security: max-age=31536000`, `Referrer-Policy: no-referrer`, `X-Permitted-Cross-Domain-Policies: none`)
 - Split CSP — SvelteKit adapter-static meta-tag CSP with hash mode for the SPA, `default-src 'none'` for API JSON responses
 - Per-endpoint rate limiter on admin server — token bucket, read 120/min, write 20/min, setup 10/min, `429` response with `Retry-After` header
@@ -19,6 +22,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 - BastionGuardian formally recognised as the 7th Sole Authority in documentation (Phase 1 + 2 shipped earlier this month)
 
 ### Changed
+
 - Admin architecture migrated to Option A: single-port 9444 serving both REST API and static SPA from `AdminServer`, replacing the separate admin-ui server on 9445 with proxy
 - `buildRelayEnvelope` in `packages/relay/src/quarantine/file-transfer-router.ts` now emits a plaintext `payload` field instead of the misnamed `encryptedPayload` (which was never actually encrypted, just base64-encoded)
 - Admin UI now served by the relay's admin server (no separate systemd unit)
@@ -27,6 +31,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 - Documentation counts corrected across README and CLAUDE.md (tests, message types, error codes, packages)
 
 ### Removed
+
 - `start-admin-ui.mjs` (standalone admin UI server)
 - `deploy/systemd/bastion-admin-ui.service` and `packages/infrastructure/systemd/bastion-admin-ui.service` (both deprecated; one was broken targeting a nonexistent `build/index.js`)
 - `scripts/bastion-cli.sh` admin-ui systemd install block, enable, service template, doctor port-9445 check, and `SVC_ADMIN` variable cascade
@@ -34,12 +39,14 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 - `vite.config.ts` `/api` proxy block (production relevance only; dev workflow unaffected)
 
 ### Fixed
+
 - MAC verification error cascade: a single failed decrypt no longer permanently desyncs the receive ratchet (peek/commit pattern)
 - Stale cipher race on page reload: AI's previous-session cipher no longer encrypts messages during new key exchange window
 - Silent message drops: decrypt failure now surfaces to UI with an actionable system message, `decrypt_failure` audit event recorded
 - Admin UI `/api/*` routing (unintended consequence of Option A migration, fixed in same session)
 
 ### Security
+
 - Three critical + four high + seven medium crypto findings identified and remediated via readonly audit; full report at `docs/audits/e2e-crypto-audit-2026-04-17.md` and addendum
 - Admin server hardening per `docs/audits/admin-server-audit-2026-04-17.md`
 - Documentation audit corrected cloner-blocking URL drift and documented UDP 123 NTP gotcha per `docs/audits/docs-audit-2026-04-17.md`
@@ -47,6 +54,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 ## [0.8.1] - 2026-04-03
 
 ### Added
+
 - GDPR Article 17 — Right to Erasure (soft delete with 30-day window, hard delete, cancel)
 - AI Native Toolbox: ai_challenge (AI-issued challenges during challenge hours)
 - AI Native Toolbox: ai_memory_proposal (AI proposes memories for user approval)
@@ -64,6 +72,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 - Sender type restrictions for 28 previously unprotected message types
 
 ### Changed
+
 - Admin UI switched from adapter-static to adapter-node (produces Node.js server)
 - Single bastion user architecture across all VMs (no more bastion-ai, bastion-updater)
 - CLI migration tool handles mount points (fstab remount for separate data disks)
@@ -74,6 +83,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 - TLS reject-unauthorized default changed to secure (strict TLS by default)
 
 ### Fixed
+
 - Desktop client sent wrong message type names (task_submission->task, challenge_response->confirmation)
 - auditLogger undefined in erasure handlers (removed — relay audit chain is single source of truth)
 - DataEraser temporal dead zone (moved after UsageTracker initialisation)
@@ -82,6 +92,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 - Admin UI HOST binding: 0.0.0.0 hardcoded to 127.0.0.1 (now configurable with private-address validation)
 
 ### Removed
+
 - Self-update agent system (packages/update-agent — 2,545 lines)
 - UpdateOrchestrator from relay (657 lines) + admin UI update page/store
 - 10 dead self-update protocol message types
@@ -91,6 +102,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 ## [0.8.0] - 2026-04-02
 
 ### Added
+
 - **UsageTracker** — SQLite-persisted API token usage tracking (`usage-tracker.ts`). Records every Anthropic API call: adapter ID, role, purpose, conversation, input/output tokens, and computed cost. Provides summaries by time period, adapter, purpose, conversation, and daily breakdowns.
 - **usage_status protocol message** (AI → Human) — comprehensive usage report with today/month summaries, per-adapter breakdown, and budget status. Sent on authentication and debounced (max 30s) after every API call.
 - **Usage tab** in Settings — token tracking dashboard showing today/month call counts, token totals, cost, budget bar (percentage used), per-adapter breakdown, and budget configuration display.
@@ -99,6 +111,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 - usageStatus store in session.ts with usage_status message handler
 
 ### Changed
+
 - Protocol version: 0.8.0 (91 message types, was 90)
 - Test count: 3,032 (was 3,030)
 - Settings page restructured from long scroll into tabbed interface
@@ -106,6 +119,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 ## [0.7.3] - 2026-04-02
 
 ### Added
+
 - **GDPR Article 20 Data Portability** — full export/import system for user data
   - `DataExporter` class: builds .bdp (Bastion Data Package) ZIP archives containing conversations, memories, project files, skills, config, audit metadata, and integrity checksum
   - `ImportAdapter` interface with pluggable adapter system; ships with `BastionImportAdapter`
@@ -121,6 +135,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
   - 80 new tests: ZIP structure verification, manifest checksum, tampered file rejection, conversation append, memory deduplication, project file conflicts, content scanning on import, selective import, protocol schema validation
 
 ### Changed
+
 - Protocol version: 0.7.3 (90 message types, was 84)
 - Test count: 3,030 (was 2,944)
 - Added archiver (^7.0.1) and adm-zip (^0.5.17) to @bastion/client-ai dependencies
@@ -128,6 +143,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 ## [0.7.2] - 2026-04-02
 
 ### Added
+
 - **Task UI rework** — InputBar task mode gains description/notes textarea, inline help text explaining safety pipeline, "Submitting..." → green "Submitted" button flash
 - **TaskTracker** — filter bar (All/Active/Completed/Denied), sort toggle (Newest/Oldest), expandable task cards with full detail view (parameters, constraints, timeline), "Clear completed" button
 - **Safety evaluation display** — challenged/denied tasks show Layer 2 factor breakdown: factor name, triggered status, weight, detail, risk score bar with threshold indicator, suggested alternatives
@@ -141,6 +157,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 - Challenge/denial handlers in session.ts now pass full factor data, risk scores, and detail fields
 
 ### Changed
+
 - Protocol version: 0.7.2
 - Test count: 2,944 (was 2,896)
 - InputBar TaskFields type now includes `description` field
@@ -149,12 +166,14 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 ## [0.7.1] - 2026-04-01
 
 ### Changed
+
 - Documentation refresh — README updated to reflect v0.7.1 features (84 message types, 2,945+ tests, Skills System, adapter hints, Soul Document)
 - CHANGELOG entries added for v0.6.0, v0.7.0, v0.7.1
 - JSDoc added to adapter-registry.ts (getCheapestByRole, getMostCapableByRole, resolveHint) and agent.ts (handleUpdateCheck)
 - SECURITY-AUDIT.md updated with 3 new findings from v0.6.0 session
 
 ### Fixed
+
 - Self-update agent: `handleUpdateCheck()` git commands now use `sudo -u buildUser` (was running without sudo, failing silently due to `2>/dev/null`)
 - Admin UI update page: added phase progress indicator, version check result caching, update history panel
 - `getUpdateStatus()` now includes `checkResult` from last version check
@@ -162,6 +181,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 ## [0.7.0] - 2026-04-01
 
 ### Added
+
 - **Layer 5: Skills System** — contextual knowledge loading with trigger matching
   - SkillStore class: manifest loading, word/regex triggers, mode scoping, content scanning, lock-after-startup
   - ConversationManager.getSystemPrompt() accepts optional currentMessage for trigger matching
@@ -171,12 +191,14 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
   - 30 new tests for skills system
 
 ### Changed
+
 - Protocol version: 84 message types (was 81)
 - Version bump to 0.7.0
 
 ## [0.6.0] - 2026-04-01
 
 ### Added
+
 - AI Disclosure config persistence — `PUT /api/disclosure` writes to `/var/lib/bastion/disclosure-config.json`. Precedence: file > env vars > defaults. Survives self-update (outside git repo).
 - Challenge Me More temporal injection — `ConversationManager.getSystemPrompt()` injects temporal context block showing current challenge status. Claude knows when challenge hours are active.
 - Self-update agent `update_check` handler — agent runs git fetch + log, responds with `update_available` or `up_to_date`. Relay routes `up_to_date` to admin status.
@@ -193,11 +215,13 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 - 15 new adapter hint tests.
 
 ### Fixed
+
 - Audit trail UI `{@const}` placement for Svelte 5 compliance (fixed in prior session, verified).
 
 ## [0.5.9] - 2026-03-31
 
 ### Added
+
 - Three Bastion Official Anthropic Adapters:
   - **Sonnet** — default, conversation, task (claude-sonnet-4, $3/$15 per MTok)
   - **Haiku** — compaction, game (claude-haiku-4.5, $0.80/$4 per MTok, 4x cheaper)
@@ -206,6 +230,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 - Provider registration now advertises all three adapters to the relay
 
 ### Changed
+
 - Replaced old single adapter + optional compaction adapter with three dedicated adapters
 - Adapter registry routes operations to the correct model by role (conversation→Sonnet, compaction→Haiku, research→Opus)
 - All adapters share `ANTHROPIC_API_KEY` — deployers only need one API key
@@ -213,6 +238,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 ## [0.5.8] - 2026-03-31
 
 ### Added
+
 - Soul Document v1.0 — Bastion's constitution in three layers
   - Layer 0: Immutable Core (identity, environment, five boundaries)
   - Layer 1: Values & Principles (honesty, harmlessness, helpfulness, transparency, user sovereignty, hierarchy respect, user vulnerability awareness)
@@ -220,49 +246,59 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 - `ConversationManager.getCoreContext()` — returns Layer 0 only for compaction/minimal context
 
 ### Changed
+
 - System prompt upgraded from basic role context to full three-layer soul document (~2,100 tokens)
 - Compaction uses Layer 0 only (minimal context for summarisation, saves ~1,700 tokens)
 
 ## [0.5.7] - 2026-03-31
 
 ### Fixed
+
 - Human client + admin UI: `@bastion/protocol` imports pulled in `node:crypto` via `hash.ts`, breaking Vite browser builds. Replaced with build-time `__BASTION_VERSION__` via Vite `define` (reads VERSION file at build time). Safety floor values reverted to local constants with protocol source comments.
 
 ### Changed
+
 - Both SvelteKit apps (client-human, relay-admin-ui) now inject version at build time via `vite.config.ts` `define: { __BASTION_VERSION__ }` — no runtime Node.js dependency
 
 ## [0.5.6] - 2026-03-31
 
 ### Fixed
+
 - **CRITICAL**: Updater routing used single variable — only one agent received commands. Replaced `updaterConnectionId` with `updaterClients` Map tracking all connected updaters by agentId. `onUpdateMessage` now targets specific component or broadcasts to all. Key exchange forwarded to all updaters. Disconnect properly removes from Map.
 
 ### Security
+
 - Update commands now correctly route to per-component agents (relay build → relay agent, AI build → AI agent)
 - Key exchange forwarded to ALL updater clients, not just the last one connected
 
 ## [0.5.5] - 2026-03-31
 
 ### Fixed
+
 - Security audit L-1: `shouldAutoApprove` now checks `dangerous` flag — dangerous tools never auto-approve
 - Security audit I-2: Admin UI imports safety floors from `@bastion/protocol` (no more hardcoded literals)
 - Cross-package: `CHALLENGE_THRESHOLD` (0.6) and `DENIAL_THRESHOLD` (0.9) added to protocol `SAFETY_FLOORS`
 - Human client `SAFETY_FLOOR_VALUES` now references protocol constants instead of local literals
 
 ### Added
+
 - Human client sidebar footer showing "Bastion v{version}" (visual proof of self-update)
 - First version with all security audit findings resolved (except I-1 mobile — deferred)
 
 ### Security
+
 - SECURITY-AUDIT.md: 4 CRITICAL, 1 HIGH, 7 MEDIUM, 2 LOW — all resolved
 - Only remaining item: I-1 (mobile safety floor infrastructure) deferred to mobile modernisation roadmap
 
 ## [0.5.4] - 2026-03-31
 
 ### Fixed
+
 - Admin UI: duplicate agent names on /update page — component and agentId were both set to identity.id, now component is derived (e.g. "updater-relay" → "relay")
 - Admin UI: added keyed `{#each}` for agent list to prevent rendering artifacts
 
 ### Security
+
 - Update message routing isolation: `update_*` types added to `SENDER_TYPE_RESTRICTIONS` as updater-only — AI and human clients cannot send update messages
 - Generic fallthrough routing guards: `update_*` prefix blocked from peer routing; updater clients blocked from non-update message routing
 - First version deployed via the self-update system
@@ -270,6 +306,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 ## [0.5.3] - 2026-03-31
 
 ### Fixed
+
 - Key exchange routing deadlock when updater client connected (C-4)
 - Self-update: version display hardcoded in admin UI (now reads from relay VERSION file)
 - Self-update: `update_reconnected` sent before `process.exit` (now uses restart-pending flag file)
@@ -282,11 +319,13 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 - Setup script now idempotent (safe to rerun for manual updates)
 
 ### Changed
+
 - Version management centralised to VERSION file + `pnpm run version:sync`
 
 ## [0.5.2] - 2026-03-31
 
 ### Security (Audit Fixes — see SECURITY-AUDIT.md)
+
 - **CRITICAL**: Fixed base64 encoding mismatch between human client (`btoa()` standard) and AI client (`sodium.from_base64()` URL-safe) — AI client now uses `sodium.base64_variants.ORIGINAL` for both encode and decode
 - **CRITICAL**: Fixed key exchange race condition — encrypted messages are now queued until E2E cipher is established, then drained in order
 - **CRITICAL**: MaliClaw Clause wired into `session_init` handler — all connections now checked BEFORE JWT issuance, not just library code
@@ -300,6 +339,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 - Settings store initialization now clamps all values to safety floors
 
 ### Fixed (Self-Update System — end-to-end audit)
+
 - **CRITICAL**: Key exchange routing deadlock — human's key_exchange was sent to updater instead of AI when updater was connected (exclusive if/else)
 - Admin UI hardcoded version to `0.5.0` — now reads `currentVersion` from relay's `GET /api/update/status` endpoint
 - Admin UI showed no changelog or available version after check — now displays version and commit list
@@ -311,6 +351,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 - GET requests to admin API had no auth headers — all requests now include auth credentials
 
 ### Added
+
 - `MIN_COOLDOWN_DAYS` and `HIGH_RISK_HOURS_MIN_WINDOW` constants in `SAFETY_FLOORS`
 - `SENDER_TYPE_RESTRICTIONS` directional message enforcement in relay
 - `pendingChallenges` server-side wait timer tracking
@@ -321,6 +362,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 ## [0.5.1] - 2026-03-30
 
 ### Fixed
+
 - E2E decryption: streaming chunks (`conversation_stream`) were sent in plaintext via `client.send()` instead of `sendSecure()`, desynchronising the KDF ratchet chain and breaking all subsequent encrypted messages
 - Conversation switching: message display was bound to the flat `messages` store instead of the conversations store's `activeMessages` — switching conversations now shows the correct messages
 - Systemd service: removed `ProtectSystem=strict` which requires all paths to exist — the AI VM uses `/opt/bastion-ai` not `/opt/bastion`
@@ -335,11 +377,13 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 - PLAINTEXT_TYPES: synced human client to include file_manifest, file_offer, file_request, file_data (matches AI client)
 
 ### Changed
+
 - First version deployed via the self-update system
 
 ## [0.5.0] - 2026-03-30
 
 ### Protocol
+
 - 81 message types across 15 categories (was 23 at v0.1.0)
 - 48 error codes across 8 categories
 - Update agent client type (`updater`) + 10 update message types
@@ -354,6 +398,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 - Project context sync (7 message types)
 
 ### Security
+
 - E2E encryption with KDF ratchet (X25519 key exchange + XSalsa20-Poly1305)
 - Interoperable implementations: tweetnacl (browser) + libsodium (Node.js)
 - Five immutable safety boundaries (MaliClaw Clause, safety floors, Budget Guard, Challenge Me More, Dangerous Tool Blindness)
@@ -364,6 +409,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 - Admin panel locked to 127.0.0.1 with client cert + TOTP authentication
 
 ### Features
+
 - Multi-conversation persistence with SQLite storage + hash-chain integrity
 - Conversation compaction (summarise older messages to save tokens)
 - Multi-adapter routing (Sonnet/Haiku/Opus model selection per conversation type)
@@ -379,6 +425,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 - Connection quality indicators
 
 ### Infrastructure
+
 - 10 packages in TypeScript monorepo (PNPM workspaces)
 - 2,880 tests across 14 test files (node:test, trace-test.mjs pattern)
 - Unified test runner with auto-discovery (`run-all-tests.mjs`)
@@ -390,6 +437,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 - Biome linting with import sorting and formatting
 
 ### Client Applications
+
 - Desktop client (Tauri + SvelteKit): connection, messaging, challenges, tasks, settings, audit log, file transfer
 - Mobile client (React Native): messaging, challenges, file transfers
 - AI client (headless Node.js): safety engine, provider adapter, budget guard, file handling
@@ -398,6 +446,7 @@ Maintenance release capturing the weekend crypto audit fixes, admin server harde
 ## [0.1.0] - 2026-03-08
 
 ### Initial Release
+
 - Core protocol: 23 message types, 43 error codes
 - E2E encryption: X25519 + XSalsa20-Poly1305 with KDF ratchet
 - Relay server with WebSocket routing, JWT authentication, audit logging
